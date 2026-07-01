@@ -1,7 +1,8 @@
 import express from 'express';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { extractVideoId, fetchTranscript } from './transcript.js';
+import { extractVideoId, fetchTranscript, getVideoTitle } from './transcript.js';
+import { listEntries, getEntry, saveEntry, deleteEntry } from './store.js';
 import { generateDigest } from './digest.js';
 import { getTodayUsage } from './usage.js';
 
@@ -26,7 +27,8 @@ app.post('/api/transcript', async (req, res) => {
 
   try {
     const segments = await fetchTranscript(videoId);
-    return res.json({ videoId, segments });
+    const title = await getVideoTitle(videoId);
+    return res.json({ videoId, url: req.body.url, title, segments });
   } catch (err) {
     return res.status(404).json({
       error:
@@ -61,6 +63,49 @@ app.get('/api/usage', async (req, res) => {
     return res.json(usage);
   } catch (err) {
     return res.json({ available: false, error: String(err) });
+  }
+});
+
+// --- Library / saved routes ---
+
+app.get('/api/saved', async (_req, res) => {
+  try {
+    res.json(await listEntries());
+  } catch (err) {
+    res.status(500).json({ error: 'Storage error.', detail: err.message });
+  }
+});
+
+app.get('/api/saved/:videoId', async (req, res) => {
+  try {
+    const e = await getEntry(req.params.videoId);
+    if (!e) return res.status(404).json({ error: 'Not found.' });
+    res.json(e);
+  } catch (err) {
+    res.status(500).json({ error: 'Storage error.', detail: err.message });
+  }
+});
+
+app.post('/api/saved', async (req, res) => {
+  try {
+    const { url, videoId, title, segments, digest } = req.body;
+    if (!videoId || !Array.isArray(segments) || segments.length === 0) {
+      return res.status(400).json({ error: 'videoId and segments are required.' });
+    }
+    const meta = await saveEntry({ url, videoId, title, segments, digest });
+    res.json(meta);
+  } catch (err) {
+    res.status(500).json({ error: 'Storage error.', detail: err.message });
+  }
+});
+
+app.delete('/api/saved/:videoId', async (req, res) => {
+  try {
+    const ok = await deleteEntry(req.params.videoId);
+    if (!ok) return res.status(404).json({ error: 'Not found.' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Storage error.', detail: err.message });
   }
 });
 

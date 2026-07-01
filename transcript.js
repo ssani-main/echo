@@ -145,6 +145,31 @@ async function fetchViaYtDlp(videoId) {
 }
 
 /**
+ * Look up the title of a YouTube video via the oEmbed API (no API key required).
+ * Returns the title string, or null on any error (never throws).
+ */
+export async function getVideoTitle(videoId) {
+  const oEmbedUrl =
+    `https://www.youtube.com/oembed?url=${encodeURIComponent(
+      'https://www.youtube.com/watch?v=' + videoId
+    )}&format=json`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const response = await fetch(oEmbedUrl, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.title || null;
+  } catch {
+    clearTimeout(timer);
+    return null;
+  }
+}
+
+/**
  * Fetch the transcript for a YouTube video ID.
  * Tries the npm package first; falls back to yt-dlp if that fails.
  * Throws a descriptive Error if both methods fail.

@@ -17,3 +17,6 @@ Thumbs.db
 # Scratch
 scratchpad/
 tmp/
+
+# Personal library (saved transcripts)
+data/

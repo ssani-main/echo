@@ -141,6 +141,60 @@
       font-size: 0.7rem;
     }
 
+    /* Now-reading strip */
+    .now-reading {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      padding: 0.55rem 0.8rem;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .now-reading-label {
+      font-family: var(--font-sans);
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .now-reading-title {
+      font-family: var(--font-serif);
+      font-size: 0.95rem;
+      font-weight: 500;
+      color: var(--ink);
+      line-height: 1.35;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .now-reading-url {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--muted);
+      text-decoration: none;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+    }
+
+    .now-reading-url:hover {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+
+    .now-reading-url:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+      border-radius: 2px;
+    }
+
     /* ==============================================
        5. COMMAND BAR
     =============================================== */
@@ -371,6 +425,37 @@
     }
 
     #digestBtn:disabled {
+      color: var(--muted);
+      border-color: var(--rule);
+      opacity: 0.6;
+      cursor: default;
+    }
+
+    /* --- Save button (same outline style as digestBtn) --- */
+    #saveBtn {
+      padding: 0.375rem 1rem;
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--accent);
+      background: transparent;
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      outline: none;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    #saveBtn:hover:not(:disabled) {
+      background: var(--accent-soft);
+    }
+
+    #saveBtn:focus-visible {
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    #saveBtn:disabled {
       color: var(--muted);
       border-color: var(--rule);
       opacity: 0.6;
@@ -671,7 +756,145 @@
     }
 
     /* ==============================================
-       13. RESPONSIVE
+       13. SAVED PANE
+    =============================================== */
+    .saved-empty-state {
+      font-family: var(--font-serif);
+      font-size: 1rem;
+      font-style: italic;
+      color: var(--muted);
+      padding: 2rem 0;
+    }
+
+    .saved-card {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      padding: 0.9rem 1.1rem;
+      margin-bottom: 0.55rem;
+      cursor: pointer;
+      outline: none;
+      transition: border-color 0.12s, box-shadow 0.12s;
+    }
+
+    .saved-card:hover {
+      border-color: var(--accent);
+    }
+
+    .saved-card:focus-visible {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .saved-card-main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .saved-card-title {
+      font-family: var(--font-serif);
+      font-size: 0.975rem;
+      font-weight: 500;
+      color: var(--ink);
+      line-height: 1.35;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .saved-card-url {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--muted);
+      text-decoration: none;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+    }
+
+    .saved-card-url:hover {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+
+    .saved-card-url:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+      border-radius: 2px;
+      color: var(--accent);
+    }
+
+    .saved-card-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+      margin-top: 0.25rem;
+    }
+
+    .saved-meta-item {
+      font-family: var(--font-sans);
+      font-size: 0.7rem;
+      color: var(--muted);
+      letter-spacing: 0.01em;
+    }
+
+    .saved-meta-sep {
+      font-size: 0.7rem;
+      color: var(--rule);
+      line-height: 1;
+    }
+
+    .saved-badge {
+      font-family: var(--font-sans);
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent);
+      background: var(--accent-soft);
+      border-radius: 4px;
+      padding: 0.1rem 0.4rem;
+    }
+
+    .saved-delete-btn {
+      flex-shrink: 0;
+      align-self: center;
+      padding: 0.25rem 0.6rem;
+      font-family: var(--font-sans);
+      font-size: 0.72rem;
+      font-weight: 500;
+      color: var(--muted);
+      background: transparent;
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      cursor: pointer;
+      outline: none;
+      white-space: nowrap;
+      transition: color 0.12s, border-color 0.12s, background 0.12s;
+    }
+
+    .saved-delete-btn:hover {
+      color: var(--warn);
+      border-color: var(--warn);
+      background: #fef2f2;
+    }
+
+    .saved-delete-btn:focus-visible {
+      color: var(--warn);
+      border-color: var(--warn);
+      box-shadow: 0 0 0 3px rgba(180, 35, 42, 0.12);
+    }
+
+    /* ==============================================
+       14. RESPONSIVE
     =============================================== */
     @media (max-width: 520px) {
       body {
@@ -700,6 +923,23 @@
       .ts-text {
         padding-left: 0.6rem;
       }
+
+      .saved-card {
+        padding: 0.75rem 0.85rem;
+        flex-wrap: wrap;
+      }
+
+      .saved-delete-btn {
+        margin-top: 0.25rem;
+      }
+    }
+
+    /* Very narrow screens: tighten tab padding */
+    @media (max-width: 360px) {
+      .tab-btn {
+        padding: 0.375rem 0.6rem;
+        font-size: 0.72rem;
+      }
     }
   </style>
 </head>
@@ -717,6 +957,14 @@
         <span class="wordmark-text">Transcript</span>
       </div>
       <p class="site-tagline">Paste a YouTube link. Read what was <em>actually</em> said.</p>
+
+      <!-- NOW READING strip — hidden until a video is loaded -->
+      <div id="nowReading" class="now-reading" hidden>
+        <span class="now-reading-label">Now reading</span>
+        <span id="nowReadingTitle" class="now-reading-title"></span>
+        <a id="nowReadingUrl" class="now-reading-url" target="_blank" rel="noopener noreferrer"></a>
+      </div>
+
       <div
         id="usageChip"
         class="usage-chip"
@@ -739,7 +987,7 @@
     <!-- STATUS LINE -->
     <div id="status"></div>
 
-    <!-- TAB BAR -->
+    <!-- TAB BAR (3 tabs) -->
     <div class="tab-bar" role="tablist" aria-label="Content sections">
       <button
         class="tab-btn"
@@ -757,6 +1005,14 @@
         aria-controls="paneDigest"
         tabindex="-1"
       >Digest <span id="digestDot" class="digest-dot" style="display:none" aria-hidden="true"></span></button>
+      <button
+        class="tab-btn"
+        id="tabSaved"
+        role="tab"
+        aria-selected="false"
+        aria-controls="paneSaved"
+        tabindex="-1"
+      >Saved</button>
     </div>
 
     <!-- TRANSCRIPT PANE -->
@@ -774,6 +1030,7 @@
           </label>
         </div>
         <button id="digestBtn" disabled>AI digest</button>
+        <button id="saveBtn" disabled>&#9733; Save</button>
       </div>
 
       <!-- TRANSCRIPT OUTPUT -->
@@ -790,6 +1047,11 @@
       <div id="usageStats" class="usage-stats"></div>
     </div>
 
+    <!-- SAVED PANE -->
+    <div id="paneSaved" role="tabpanel" aria-labelledby="tabSaved" hidden>
+      <div id="savedOutput"></div>
+    </div>
+
   </div><!-- /.container -->
 
   <script>
@@ -800,6 +1062,8 @@
     let sessionCostUsd = 0;
     let sessionTokens  = 0;
     let indicatorTimer = null;
+    let currentMeta    = null;  // { videoId, url, title }
+    let currentDigest  = null;  // string | null
 
     /* ==============================================
        ELEMENT REFS
@@ -810,48 +1074,59 @@
     const outputEl        = document.getElementById('output');
     const radios          = document.querySelectorAll('input[name="viewMode"]');
     const digestBtn       = document.getElementById('digestBtn');
+    const saveBtn         = document.getElementById('saveBtn');
     const digestStatus    = document.getElementById('digestStatus');
     const digestOutput    = document.getElementById('digestOutput');
     const topIndicator    = document.getElementById('topIndicator');
     const paneTranscript  = document.getElementById('paneTranscript');
     const paneDigest      = document.getElementById('paneDigest');
+    const paneSaved       = document.getElementById('paneSaved');
     const tabTranscript   = document.getElementById('tabTranscript');
     const tabDigest       = document.getElementById('tabDigest');
+    const tabSaved        = document.getElementById('tabSaved');
     const digestDot       = document.getElementById('digestDot');
     const digestEmptySt   = document.getElementById('digestEmptyState');
     const usageStatsEl    = document.getElementById('usageStats');
     const usageChipEl     = document.getElementById('usageChip');
+    const savedOutput     = document.getElementById('savedOutput');
+    const nowReadingEl    = document.getElementById('nowReading');
+    const nowReadingTitle = document.getElementById('nowReadingTitle');
+    const nowReadingUrl   = document.getElementById('nowReadingUrl');
 
     /* ==============================================
        TAB SWITCHING
     =============================================== */
     function switchTab(name) {
-      const toTranscript = name === 'transcript';
+      const names   = ['transcript', 'digest', 'saved'];
+      const tabEls  = [tabTranscript, tabDigest, tabSaved];
+      const paneEls = [paneTranscript, paneDigest, paneSaved];
 
-      tabTranscript.setAttribute('aria-selected', toTranscript ? 'true' : 'false');
-      tabTranscript.tabIndex = toTranscript ? 0 : -1;
+      names.forEach((n, i) => {
+        const active = n === name;
+        tabEls[i].setAttribute('aria-selected', active ? 'true' : 'false');
+        tabEls[i].tabIndex = active ? 0 : -1;
+        paneEls[i].hidden  = !active;
+      });
 
-      tabDigest.setAttribute('aria-selected', toTranscript ? 'false' : 'true');
-      tabDigest.tabIndex = toTranscript ? -1 : 0;
-
-      paneTranscript.hidden = !toTranscript;
-      paneDigest.hidden     = toTranscript;
+      if (name === 'saved') loadSaved();
     }
 
     tabTranscript.addEventListener('click', () => switchTab('transcript'));
     tabDigest.addEventListener('click',     () => switchTab('digest'));
+    tabSaved.addEventListener('click',      () => switchTab('saved'));
 
-    // Arrow-key roving focus within the tab bar
-    const tabBtns = [tabTranscript, tabDigest];
+    // Arrow-key roving focus within the tab bar (3 tabs)
+    const tabBtns  = [tabTranscript, tabDigest, tabSaved];
+    const tabNames = ['transcript', 'digest', 'saved'];
     tabBtns.forEach((btn, i) => {
       btn.addEventListener('keydown', e => {
         let next = null;
-        if (e.key === 'ArrowRight') next = tabBtns[(i + 1) % tabBtns.length];
-        if (e.key === 'ArrowLeft')  next = tabBtns[(i - 1 + tabBtns.length) % tabBtns.length];
-        if (next) {
+        if (e.key === 'ArrowRight') next = (i + 1) % tabBtns.length;
+        if (e.key === 'ArrowLeft')  next = (i - 1 + tabBtns.length) % tabBtns.length;
+        if (next !== null) {
           e.preventDefault();
-          next.focus();
-          switchTab(next === tabTranscript ? 'transcript' : 'digest');
+          tabBtns[next].focus();
+          switchTab(tabNames[next]);
         }
       });
     });
@@ -1092,6 +1367,15 @@
         .replace(/>/g, '&gt;');
     }
 
+    // For use in HTML attribute values (double-quoted)
+    function escapeAttr(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
     function renderSegments(segments) {
       if (!segments || segments.length === 0) {
         outputEl.textContent = '(No transcript segments returned.)';
@@ -1116,6 +1400,20 @@
     }
 
     /* ==============================================
+       NOW READING STRIP
+    =============================================== */
+    function updateNowReading() {
+      if (!currentMeta) {
+        nowReadingEl.hidden = true;
+        return;
+      }
+      nowReadingTitle.textContent = currentMeta.title || currentMeta.videoId;
+      nowReadingUrl.textContent   = currentMeta.url;
+      nowReadingUrl.href          = currentMeta.url;
+      nowReadingEl.hidden         = false;
+    }
+
+    /* ==============================================
        FETCH TRANSCRIPT
     =============================================== */
     async function fetchTranscript() {
@@ -1125,8 +1423,14 @@
       fetchBtn.disabled = true;
       outputEl.classList.remove('visible');
 
+      // Reset meta state on new fetch
+      currentMeta   = null;
+      currentDigest = null;
+      updateNowReading();
+
       // Reset digest area completely on a new fetch
       digestBtn.disabled = true;
+      saveBtn.disabled   = true;
       digestOutput.classList.remove('visible');
       digestOutput.innerHTML    = '';
       digestStatus.textContent  = '';
@@ -1156,10 +1460,15 @@
           return;
         }
 
-        lastSegments = data.segments;
+        lastSegments  = data.segments;
+        currentMeta   = { videoId: data.videoId, url: data.url, title: data.title };
+        currentDigest = null;
+        updateNowReading();
+
         setStatus(`Loaded ${data.segments.length} segments for video ${data.videoId}.`);
         renderSegments(lastSegments);
         digestBtn.disabled = false;
+        saveBtn.disabled   = false;
       } catch (err) {
         setStatus('Network error: ' + err.message, true);
         lastSegments = null;
@@ -1319,6 +1628,9 @@
           renderMarkdown(data.digest);
         digestOutput.classList.add('visible');
 
+        // Capture digest text so Save can include it
+        currentDigest = data.digest;
+
         // Show ready dot on tab, update status, set indicator
         digestDot.style.display = '';
         setDigestStatus('Digest ready.', false);
@@ -1345,9 +1657,221 @@
     });
 
     /* ==============================================
+       SAVE BUTTON HANDLER
+    =============================================== */
+    saveBtn.addEventListener('click', async () => {
+      if (!currentMeta || !lastSegments) return;
+
+      const origLabel    = saveBtn.textContent;
+      saveBtn.disabled   = true;
+
+      try {
+        const res = await fetch('/api/saved', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            url:      currentMeta.url,
+            videoId:  currentMeta.videoId,
+            title:    currentMeta.title,
+            segments: lastSegments,
+            digest:   currentDigest,
+          }),
+        });
+
+        if (!res.ok) {
+          await res.json().catch(() => null);
+          saveBtn.textContent = 'Error — try again';
+          setTimeout(() => { saveBtn.textContent = origLabel; saveBtn.disabled = false; }, 2500);
+          return;
+        }
+
+        saveBtn.textContent = 'Saved ✓';
+        setTimeout(() => { saveBtn.textContent = origLabel; saveBtn.disabled = false; }, 2000);
+        loadSaved(); // keep the Saved list fresh in the background
+      } catch (err) {
+        saveBtn.textContent = 'Network error';
+        setTimeout(() => { saveBtn.textContent = origLabel; saveBtn.disabled = false; }, 2500);
+      }
+    });
+
+    /* ==============================================
+       SAVED LIBRARY — LOAD & RENDER
+    =============================================== */
+    async function loadSaved() {
+      try {
+        const res = await fetch('/api/saved');
+        if (!res.ok) {
+          savedOutput.innerHTML =
+            '<p class="saved-empty-state">Could not load saved videos.</p>';
+          return;
+        }
+        const data = await res.json();
+        renderSavedList(data);
+      } catch (_) {
+        savedOutput.innerHTML =
+          '<p class="saved-empty-state">Network error — could not load saved videos.</p>';
+      }
+    }
+
+    function renderSavedList(entries) {
+      if (!Array.isArray(entries) || entries.length === 0) {
+        savedOutput.innerHTML =
+          '<p class="saved-empty-state">Nothing saved yet — load a video and hit ★ Save.</p>';
+        return;
+      }
+
+      savedOutput.innerHTML = entries.map(entry => {
+        const title   = entry.title || entry.videoId;
+        const d       = new Date(entry.savedAt);
+        const dateStr = isNaN(d.getTime())
+          ? ''
+          : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) +
+            ' · ' +
+            d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+
+        const badge = entry.hasDigest
+          ? '<span class="saved-badge">Digest</span>'
+          : '';
+        const segs  = entry.segmentCount != null
+          ? `<span class="saved-meta-item">${entry.segmentCount} lines</span>`
+          : '';
+        const sep   = (dateStr && (segs || entry.hasDigest))
+          ? '<span class="saved-meta-sep" aria-hidden="true">·</span>'
+          : '';
+
+        return `<div class="saved-card"
+                     data-videoid="${escapeAttr(entry.videoId)}"
+                     tabindex="0"
+                     role="button"
+                     aria-label="Open ${escapeAttr(title)}">
+          <div class="saved-card-main">
+            <div class="saved-card-title">${escapeHtml(title)}</div>
+            <a class="saved-card-url"
+               href="${escapeAttr(entry.url)}"
+               target="_blank"
+               rel="noopener noreferrer">${escapeHtml(entry.url)}</a>
+            <div class="saved-card-meta">
+              ${dateStr ? `<span class="saved-meta-item">${escapeHtml(dateStr)}</span>` : ''}
+              ${sep}${segs}${badge}
+            </div>
+          </div>
+          <button class="saved-delete-btn"
+                  data-videoid="${escapeAttr(entry.videoId)}"
+                  aria-label="Delete ${escapeAttr(title)}">✕ Delete</button>
+        </div>`;
+      }).join('');
+
+      // Wire up card clicks — open in app unless user clicked the URL link or delete btn
+      savedOutput.querySelectorAll('.saved-card').forEach(card => {
+        card.addEventListener('click', e => {
+          if (e.target.closest('.saved-delete-btn')) return;
+          if (e.target.closest('.saved-card-url'))   return; // let real anchor navigate
+          openSavedEntry(card.dataset.videoid);
+        });
+        card.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openSavedEntry(card.dataset.videoid);
+          }
+        });
+      });
+
+      // Wire up delete buttons
+      savedOutput.querySelectorAll('.saved-delete-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          deleteSavedEntry(btn.dataset.videoid);
+        });
+      });
+    }
+
+    /* ==============================================
+       SAVED LIBRARY — OPEN ENTRY
+    =============================================== */
+    async function openSavedEntry(videoId) {
+      try {
+        const res = await fetch(`/api/saved/${encodeURIComponent(videoId)}`);
+        if (res.status === 404) {
+          alert('This saved entry was not found. It may have been deleted.');
+          loadSaved();
+          return;
+        }
+        if (!res.ok) {
+          alert('Failed to open saved video. Please try again.');
+          return;
+        }
+        const entry = await res.json();
+
+        // Restore shared state
+        lastSegments  = entry.segments;
+        currentMeta   = { videoId: entry.videoId, url: entry.url, title: entry.title };
+        currentDigest = entry.digest || null;
+
+        // Sync UI — command bar and now-reading strip
+        urlInput.value = entry.url;
+        updateNowReading();
+
+        // Full digest-pane reset
+        digestOutput.classList.remove('visible');
+        digestOutput.innerHTML   = '';
+        digestStatus.textContent = '';
+        digestStatus.className   = '';
+        digestEmptySt.classList.remove('is-hidden');
+        usageStatsEl.classList.remove('visible');
+        usageStatsEl.innerHTML   = '';
+        digestDot.style.display  = 'none';
+        setTopIndicator('idle');
+
+        // Restore digest content if it was saved
+        if (entry.digest) {
+          digestOutput.innerHTML =
+            '<div class="digest-eyebrow">AI Digest</div>' +
+            renderMarkdown(entry.digest);
+          digestOutput.classList.add('visible');
+          digestEmptySt.classList.add('is-hidden');
+          digestDot.style.display = '';
+          setDigestStatus('Digest ready.', false);
+        }
+
+        // Render transcript and enable action buttons
+        renderSegments(lastSegments);
+        digestBtn.disabled = false;
+        saveBtn.disabled   = false;
+
+        setStatus(`Loaded ${entry.segments.length} segments for video ${entry.videoId}.`);
+
+        // Land on Transcript tab
+        switchTab('transcript');
+
+      } catch (err) {
+        alert('Network error: ' + err.message);
+      }
+    }
+
+    /* ==============================================
+       SAVED LIBRARY — DELETE ENTRY
+    =============================================== */
+    async function deleteSavedEntry(videoId) {
+      if (!confirm('Delete this saved video? This cannot be undone.')) return;
+      try {
+        const res = await fetch(`/api/saved/${encodeURIComponent(videoId)}`, {
+          method: 'DELETE',
+        });
+        if (!res.ok) {
+          alert('Failed to delete. Please try again.');
+          return;
+        }
+        loadSaved();
+      } catch (err) {
+        alert('Network error: ' + err.message);
+      }
+    }
+
+    /* ==============================================
        INITIALISE
     =============================================== */
     loadUsageChip();
+    loadSaved();
   </script>
 </body>
 </html>
