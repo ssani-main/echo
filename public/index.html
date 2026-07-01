@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YouTube Transcript</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Newsreader:ital,wght@0,400;0,500;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ==============================================
+       1. DESIGN TOKENS
+    =============================================== */
+    :root {
+      --paper:        #FBFAF7;
+      --surface:      #FFFFFF;
+      --ink:          #16181D;
+      --muted:        #6C7178;
+      --rule:         #E7E4DD;
+      --accent:       #0B6B4F;
+      --accent-dark:  #095C43;
+      --accent-soft:  #E6F0EB;
+
+      --font-sans:  'Space Grotesk', system-ui, sans-serif;
+      --font-serif: 'Newsreader', Georgia, serif;
+      --font-mono:  'JetBrains Mono', 'Courier New', monospace;
+
+      --radius:   8px;
+      --col-max:  760px;
+    }
+
+    /* ==============================================
+       2. BASE RESET & BODY
+    =============================================== */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      background: var(--paper);
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--paper);
+      color: var(--ink);
+      min-height: 100vh;
+      padding: 2.75rem 1.5rem 5rem;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ==============================================
+       3. LAYOUT COLUMN
+    =============================================== */
+    .container {
+      max-width: var(--col-max);
+      margin: 0 auto;
+    }
+
+    /* ==============================================
+       4. HEADER / HERO
+    =============================================== */
+    .site-header {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      margin-bottom: 2.25rem;
+    }
+
+    .wordmark {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+    }
+
+    .wordmark-text {
+      font-family: var(--font-sans);
+      font-weight: 700;
+      font-size: 0.75rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--ink);
+    }
+
+    /* Record dot */
+    .record-dot {
+      width: 8px;
+      height: 8px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse-dot 1.6s ease-in-out infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.35; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .record-dot {
+        animation: none;
+        opacity: 1;
+      }
+    }
+
+    .site-tagline {
+      font-family: var(--font-serif);
+      font-size: 1.05rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .site-tagline em {
+      font-style: italic;
+    }
+
+    /* ==============================================
+       5. COMMAND BAR
+    =============================================== */
+    .command-bar {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    #urlInput {
+      flex: 1;
+      min-width: 0;
+      padding: 0.65rem 0.9rem;
+      font-family: var(--font-mono);
+      font-size: 0.875rem;
+      font-weight: 400;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    #urlInput::placeholder {
+      color: var(--muted);
+      opacity: 1;
+    }
+
+    #urlInput:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    #fetchBtn {
+      padding: 0.65rem 1.4rem;
+      font-family: var(--font-sans);
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: #fff;
+      background: var(--accent);
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      white-space: nowrap;
+      outline: none;
+      transition: background 0.15s;
+    }
+
+    #fetchBtn:hover:not(:disabled) {
+      background: var(--accent-dark);
+    }
+
+    #fetchBtn:focus-visible {
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    #fetchBtn:active:not(:disabled) {
+      background: var(--accent-dark);
+      filter: brightness(0.92);
+    }
+
+    #fetchBtn:disabled {
+      background: var(--muted);
+      opacity: 0.6;
+      cursor: default;
+    }
+
+    /* ==============================================
+       6. STATUS LINE
+    =============================================== */
+    #status {
+      min-height: 1.4em;
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      color: #b91c1c;
+      margin-bottom: 1rem;
+      letter-spacing: 0.01em;
+    }
+
+    #status.info {
+      color: var(--muted);
+    }
+
+    /* ==============================================
+       7. CONTROLS ROW
+    =============================================== */
+    .controls-row {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+
+    /* --- Segmented view toggle --- */
+    .view-toggle {
+      display: inline-flex;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .view-toggle label {
+      position: relative;
+      display: flex;
+      align-items: center;
+      padding: 0.375rem 0.9rem;
+      font-family: var(--font-sans);
+      font-size: 0.775rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.12s, color 0.12s;
+    }
+
+    .view-toggle label:not(:last-child) {
+      border-right: 1px solid var(--rule);
+    }
+
+    /* Hide actual radio circles */
+    .view-toggle input[type="radio"] {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+      pointer-events: none;
+    }
+
+    /* Active segment — :has() for modern browsers */
+    .view-toggle label:has(input:checked) {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    /* Active segment — JS-added class for full browser coverage */
+    .view-toggle label.is-active {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    /* Keyboard focus ring on the label when radio is focused */
+    .view-toggle label:focus-within {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+
+    /* --- AI Digest button --- */
+    #digestBtn {
+      padding: 0.375rem 1rem;
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--accent);
+      background: transparent;
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      outline: none;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    #digestBtn:hover:not(:disabled) {
+      background: var(--accent-soft);
+    }
+
+    #digestBtn:focus-visible {
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    #digestBtn:disabled {
+      color: var(--muted);
+      border-color: var(--rule);
+      opacity: 0.6;
+      cursor: default;
+    }
+
+    /* ==============================================
+       8. TRANSCRIPT OUTPUT
+    =============================================== */
+    #output {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      padding: 1.5rem 1.75rem;
+      word-break: break-word;
+      min-height: 6rem;
+      display: none;
+      margin-bottom: 1.5rem;
+    }
+
+    #output.visible {
+      display: block;
+      animation: fade-slide-in 0.25s ease;
+    }
+
+    @keyframes fade-slide-in {
+      from { opacity: 0; transform: translateY(5px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #output.visible,
+      #digestOutput.visible {
+        animation: none;
+      }
+    }
+
+    /* Empty state */
+    #output .empty-state {
+      font-family: var(--font-serif);
+      font-size: 1rem;
+      font-style: italic;
+      color: var(--muted);
+    }
+
+    /* Readable / plain mode: flowing paragraphs in serif */
+    #output p {
+      font-family: var(--font-serif);
+      font-size: 1.075rem;
+      line-height: 1.72;
+      color: var(--ink);
+      margin-bottom: 1.1em;
+    }
+
+    #output p:last-child {
+      margin-bottom: 0;
+    }
+
+    /* ==============================================
+       9. TIMECODED MODE — GUTTER LAYOUT
+    =============================================== */
+    .ts-line {
+      display: flex;
+      align-items: baseline;
+      line-height: 1.65;
+      padding: 0.12rem 0;
+      border-bottom: 1px solid transparent; /* keeps rhythm even without visible border */
+    }
+
+    .ts-badge {
+      flex-shrink: 0;
+      width: 68px;
+      font-family: var(--font-mono);
+      font-size: 0.73rem;
+      font-weight: 500;
+      color: var(--accent);
+      text-align: right;
+      padding-right: 0.9rem;
+      border-right: 1px solid var(--rule);
+      letter-spacing: 0.01em;
+      /* override any lingering inline-block display */
+      display: inline-block;
+    }
+
+    .ts-text {
+      flex: 1;
+      font-family: var(--font-serif);
+      font-size: 0.975rem;
+      color: var(--ink);
+      padding-left: 0.9rem;
+      line-height: 1.65;
+    }
+
+    /* ==============================================
+       10. DIGEST STATUS LINE
+    =============================================== */
+    #digestStatus {
+      min-height: 1.4em;
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      color: #b91c1c;
+      margin-bottom: 0.75rem;
+      letter-spacing: 0.01em;
+    }
+
+    #digestStatus.info {
+      color: var(--muted);
+    }
+
+    /* ==============================================
+       11. DIGEST OUTPUT PANEL
+    =============================================== */
+    #digestOutput {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      padding: 1.5rem 1.75rem;
+      word-break: break-word;
+    }
+
+    #digestOutput.visible {
+      display: block;
+      animation: fade-slide-in 0.25s ease;
+    }
+
+    /* Eyebrow label — injected before markdown content */
+    .digest-eyebrow {
+      font-family: var(--font-sans);
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 1.1rem;
+    }
+
+    /* Markdown output elements inside digest panel */
+    #digestOutput h2 {
+      font-family: var(--font-sans);
+      font-size: 0.975rem;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -0.01em;
+      margin-top: 1.5rem;
+      margin-bottom: 0.45rem;
+      padding-bottom: 0.3rem;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    #digestOutput h2:first-of-type {
+      margin-top: 0;
+    }
+
+    #digestOutput h3 {
+      font-family: var(--font-sans);
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--ink);
+      margin-top: 1rem;
+      margin-bottom: 0.35rem;
+    }
+
+    #digestOutput p {
+      font-family: var(--font-serif);
+      font-size: 1rem;
+      line-height: 1.72;
+      color: var(--ink);
+      margin-bottom: 0.8rem;
+    }
+
+    #digestOutput p:last-child {
+      margin-bottom: 0;
+    }
+
+    #digestOutput ul {
+      padding-left: 1.5rem;
+      margin-bottom: 0.85rem;
+    }
+
+    #digestOutput li {
+      font-family: var(--font-serif);
+      font-size: 1rem;
+      line-height: 1.7;
+      color: var(--ink);
+      margin-bottom: 0.3rem;
+    }
+
+    #digestOutput strong {
+      font-weight: 600;
+    }
+
+    /* ==============================================
+       12. RESPONSIVE
+    =============================================== */
+    @media (max-width: 520px) {
+      body {
+        padding: 1.75rem 1rem 3.5rem;
+      }
+
+      .command-bar {
+        flex-direction: column;
+      }
+
+      #fetchBtn {
+        width: 100%;
+        text-align: center;
+      }
+
+      #output,
+      #digestOutput {
+        padding: 1.1rem 1.1rem;
+      }
+
+      .ts-badge {
+        width: 52px;
+        padding-right: 0.6rem;
+      }
+
+      .ts-text {
+        padding-left: 0.6rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <!-- HEADER / HERO -->
+    <header class="site-header">
+      <div class="wordmark">
+        <span class="record-dot" aria-hidden="true"></span>
+        <span class="wordmark-text">Transcript</span>
+      </div>
+      <p class="site-tagline">Paste a YouTube link. Read what was <em>actually</em> said.</p>
+    </header>
+
+    <!-- COMMAND BAR -->
+    <div class="command-bar">
+      <input
+        id="urlInput"
+        type="text"
+        placeholder="youtube.com/watch?v=…"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button id="fetchBtn">Get transcript</button>
+    </div>
+
+    <!-- STATUS LINE -->
+    <div id="status"></div>
+
+    <!-- CONTROLS ROW -->
+    <div class="controls-row">
+      <div class="view-toggle" role="group" aria-label="View mode">
+        <label>
+          <input type="radio" name="viewMode" value="plain" checked />
+          Readable
+        </label>
+        <label>
+          <input type="radio" name="viewMode" value="timestamps" />
+          Timecoded
+        </label>
+      </div>
+      <button id="digestBtn" disabled>AI digest</button>
+    </div>
+
+    <!-- TRANSCRIPT OUTPUT -->
+    <div id="output" class="visible">
+      <p class="empty-state">Nothing loaded yet — drop a link above to pull the transcript.</p>
+    </div>
+
+    <!-- DIGEST AREA -->
+    <div id="digestStatus"></div>
+    <div id="digestOutput"></div>
+
+  </div><!-- /.container -->
+
+  <script>
+    let lastSegments = null;
+
+    const urlInput  = document.getElementById('urlInput');
+    const fetchBtn  = document.getElementById('fetchBtn');
+    const statusEl  = document.getElementById('status');
+    const outputEl  = document.getElementById('output');
+    const radios    = document.querySelectorAll('input[name="viewMode"]');
+
+    // ---- Segmented toggle active-class (cross-browser :has fallback) ----
+    function syncToggleActive() {
+      document.querySelectorAll('.view-toggle label').forEach(lbl => {
+        lbl.classList.toggle('is-active', lbl.querySelector('input[type="radio"]').checked);
+      });
+    }
+    syncToggleActive();
+
+    function setStatus(msg, isError = false) {
+      statusEl.textContent = msg;
+      statusEl.className   = isError ? '' : 'info';
+    }
+
+    function formatTime(seconds) {
+      const s  = Math.floor(seconds);
+      const m  = Math.floor(s / 60);
+      const ss = String(s % 60).padStart(2, '0');
+      return `${m}:${ss}`;
+    }
+
+    function getMode() {
+      return [...radios].find(r => r.checked)?.value ?? 'plain';
+    }
+
+    /**
+     * Reflows an array of { text, offset } segments into an array of paragraph strings.
+     *
+     * Paragraph breaks happen at sentence boundaries (., ?, ! optionally followed by
+     * a closing quote/paren) using two signals:
+     *   A) Accumulated buffer >= 350 chars AND segment ends at a sentence terminator.
+     *   B) Pause to the next segment >= 3 s AND buffer ends at a sentence terminator
+     *      AND buffer is already non-trivial (>= 80 chars).
+     *
+     * Fallback: if there is only one giant paragraph with no sentence punctuation at all
+     * (e.g. auto-captions without punctuation), hard-wrap every ~500 chars at a space.
+     */
+    function reflowToParagraphs(segments) {
+      if (!segments || segments.length === 0) return [];
+
+      // Matches a sentence-terminating end: . ? ! optionally followed by closing quote/paren
+      const sentenceEnd = /[.?!]["')]*\s*$/;
+
+      const paragraphs = [];
+      let buffer = '';
+
+      for (let i = 0; i < segments.length; i++) {
+        // Clean segment text: collapse internal newlines and runs of whitespace
+        const cleaned = segments[i].text
+          .replace(/[\r\n]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (!cleaned) continue;
+
+        // Append to buffer with a single joining space
+        buffer = buffer ? buffer + ' ' + cleaned : cleaned;
+
+        const isLast = i === segments.length - 1;
+
+        // Signal A: length threshold reached at a sentence boundary
+        if (buffer.length >= 350 && sentenceEnd.test(buffer)) {
+          paragraphs.push(buffer.trim());
+          buffer = '';
+          continue;
+        }
+
+        // Signal B: notable timing pause before the next segment at a sentence boundary
+        if (!isLast) {
+          const gap = segments[i + 1].offset - segments[i].offset;
+          if (gap >= 3 && buffer.length >= 80 && sentenceEnd.test(buffer)) {
+            paragraphs.push(buffer.trim());
+            buffer = '';
+            continue;
+          }
+        }
+      }
+
+      // Push any remaining text as the final paragraph
+      if (buffer.trim()) {
+        paragraphs.push(buffer.trim());
+      }
+
+      // Fallback: single paragraph with no sentence punctuation — hard-wrap at ~500 chars
+      if (paragraphs.length === 1 && !/[.?!]/.test(paragraphs[0])) {
+        const raw = paragraphs[0];
+        const chunks = [];
+        let pos = 0;
+        while (pos < raw.length) {
+          if (pos + 500 >= raw.length) {
+            chunks.push(raw.slice(pos).trim());
+            break;
+          }
+          // Walk back from pos+500 to find the nearest space to break on
+          let cut = pos + 500;
+          while (cut > pos && raw[cut] !== ' ') cut--;
+          if (cut === pos) cut = pos + 500; // no space found — hard cut
+          chunks.push(raw.slice(pos, cut).trim());
+          pos = cut + 1;
+        }
+        return chunks.filter(Boolean);
+      }
+
+      return paragraphs;
+    }
+
+    function escapeHtml(str) {
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    function renderSegments(segments) {
+      if (!segments || segments.length === 0) {
+        outputEl.textContent = '(No transcript segments returned.)';
+        outputEl.classList.add('visible');
+        return;
+      }
+
+      if (getMode() === 'plain') {
+        // Reflow fragments into readable paragraphs; each becomes a <p> element
+        const paras = reflowToParagraphs(segments);
+        outputEl.innerHTML = paras
+          .map(p => `<p>${escapeHtml(p)}</p>`)
+          .join('');
+      } else {
+        // Timecoded mode: gutter layout — timecode left, caption text right
+        outputEl.innerHTML = segments.map(s =>
+          `<div class="ts-line"><span class="ts-badge">${formatTime(s.offset)}</span><span class="ts-text">${escapeHtml(s.text)}</span></div>`
+        ).join('');
+      }
+
+      outputEl.classList.add('visible');
+    }
+
+    async function fetchTranscript() {
+      const url = urlInput.value.trim();
+      if (!url) { setStatus('Please enter a YouTube URL or video ID.', true); return; }
+
+      fetchBtn.disabled = true;
+      outputEl.classList.remove('visible');
+      // Reset digest state on every new fetch
+      digestBtn.disabled = true;
+      digestOutput.classList.remove('visible');
+      digestOutput.innerHTML = '';
+      digestStatus.textContent = '';
+      setStatus('Fetching transcript…');
+
+      try {
+        const res  = await fetch('/api/transcript', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ url }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          const msg = data.error || 'Unknown error.';
+          const detail = data.detail ? `\n\nDetail: ${data.detail}` : '';
+          setStatus(msg + detail, true);
+          lastSegments = null;
+          return;
+        }
+
+        lastSegments = data.segments;
+        setStatus(`Loaded ${data.segments.length} segments for video ${data.videoId}.`);
+        renderSegments(lastSegments);
+        digestBtn.disabled = false;
+      } catch (err) {
+        setStatus('Network error: ' + err.message, true);
+        lastSegments = null;
+      } finally {
+        fetchBtn.disabled = false;
+      }
+    }
+
+    fetchBtn.addEventListener('click', fetchTranscript);
+    urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') fetchTranscript(); });
+    radios.forEach(r => r.addEventListener('change', () => {
+      syncToggleActive();
+      if (lastSegments) renderSegments(lastSegments);
+    }));
+
+    // ---- AI Digest ----
+
+    const digestBtn    = document.getElementById('digestBtn');
+    const digestStatus = document.getElementById('digestStatus');
+    const digestOutput = document.getElementById('digestOutput');
+
+    function setDigestStatus(msg, isError = false) {
+      digestStatus.textContent = msg;
+      digestStatus.className   = isError ? '' : 'info';
+    }
+
+    /**
+     * Minimal inline Markdown renderer.
+     * Supports: ## h2, ### h3, - / * bullet lists, **bold**, paragraphs.
+     * HTML is escaped before Markdown transforms to prevent injection.
+     */
+    function renderMarkdown(md) {
+      // 1. Escape HTML in the raw source first.
+      function esc(s) {
+        return s
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      // 2. Apply inline transforms (bold) to an already-escaped string.
+      function inlineMarkdown(s) {
+        // **bold** or __bold__
+        return s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/__(.+?)__/g, '<strong>$1</strong>');
+      }
+
+      // 3. Split into lines, process block-level elements.
+      const lines = esc(md).split('\n');
+      const html  = [];
+      let listOpen   = false;
+      let paraBuffer = [];
+
+      function flushPara() {
+        if (paraBuffer.length === 0) return;
+        const content = paraBuffer.join(' ').trim();
+        if (content) html.push(`<p>${inlineMarkdown(content)}</p>`);
+        paraBuffer = [];
+      }
+
+      function closeList() {
+        if (listOpen) { html.push('</ul>'); listOpen = false; }
+      }
+
+      for (const rawLine of lines) {
+        const line = rawLine.trimEnd();
+
+        // Blank line — flush paragraph / close list
+        if (!line.trim()) {
+          flushPara();
+          closeList();
+          continue;
+        }
+
+        // ### heading (must check before ##)
+        if (line.startsWith('### ')) {
+          flushPara(); closeList();
+          html.push(`<h3>${inlineMarkdown(line.slice(4).trim())}</h3>`);
+          continue;
+        }
+
+        // ## heading
+        if (line.startsWith('## ')) {
+          flushPara(); closeList();
+          html.push(`<h2>${inlineMarkdown(line.slice(3).trim())}</h2>`);
+          continue;
+        }
+
+        // # heading (h1 — render as h2 for safety)
+        if (line.startsWith('# ')) {
+          flushPara(); closeList();
+          html.push(`<h2>${inlineMarkdown(line.slice(2).trim())}</h2>`);
+          continue;
+        }
+
+        // Bullet list item: "- " or "* " at the start (possibly indented)
+        const bulletMatch = line.match(/^(\s*[-*])\s+(.+)$/);
+        if (bulletMatch) {
+          flushPara();
+          if (!listOpen) { html.push('<ul>'); listOpen = true; }
+          html.push(`<li>${inlineMarkdown(bulletMatch[2])}</li>`);
+          continue;
+        }
+
+        // Regular text line — accumulate into paragraph buffer
+        // (close any open list first since a non-bullet line ends the list)
+        closeList();
+        paraBuffer.push(line.trim());
+      }
+
+      // Flush anything remaining
+      flushPara();
+      closeList();
+
+      return html.join('\n');
+    }
+
+    function buildPlainTranscript(segments) {
+      return segments
+        .map(s => s.text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim())
+        .filter(Boolean)
+        .join(' ');
+    }
+
+    digestBtn.addEventListener('click', async () => {
+      if (!lastSegments || lastSegments.length === 0) return;
+
+      digestBtn.disabled = true;
+      digestOutput.classList.remove('visible');
+      digestOutput.innerHTML = '';
+      setDigestStatus('Reading the video and writing your digest — this takes 10–30s.', false);
+
+      const plainText = buildPlainTranscript(lastSegments);
+
+      try {
+        const res  = await fetch('/api/digest', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ text: plainText }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          const detail = data.detail ? ` — ${data.detail}` : '';
+          setDigestStatus((data.error || 'Unknown error.') + detail, true);
+          return;
+        }
+
+        digestOutput.innerHTML =
+          '<div class="digest-eyebrow">AI Digest</div>' +
+          renderMarkdown(data.digest);
+        digestOutput.classList.add('visible');
+        setDigestStatus('Digest ready.', false);
+      } catch (err) {
+        setDigestStatus('Network error: ' + err.message, true);
+      } finally {
+        digestBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
