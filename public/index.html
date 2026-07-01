@@ -43,6 +43,8 @@
       --warn-soft:        #fef2f2;
       --warn-ring:        rgba(180, 35, 42, 0.12);
       --shadow-indicator: rgba(0, 0, 0, 0.10);
+      --warn-amber:       #B45309;
+      --warn-amber-soft:  #FFFBEB;
 
       --font-sans:  'Space Grotesk', system-ui, sans-serif;
       --font-serif: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -74,6 +76,8 @@
       --warn-soft:         #2A1517;
       --warn-ring:         rgba(240, 101, 107, 0.20);
       --shadow-indicator:  rgba(0, 0, 0, 0.35);
+      --warn-amber:        #F59E0B;
+      --warn-amber-soft:   #1C1500;
 
       /* Find-in-transcript highlight tokens */
       --find-hit:        #292108;
@@ -2042,6 +2046,38 @@
     }
 
     /* ==============================================
+       28b. SEARCH SNIPPET + SEMANTIC MODE TAG
+    =============================================== */
+
+    /* Short excerpt shown under a search-result card title */
+    .saved-snippet {
+      font-size: 0.77rem;
+      color: var(--muted);
+      line-height: 1.45;
+      margin: 0.22rem 0 0;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    /* Inline pill shown in the result-count row when mode === "hybrid" */
+    .search-mode-tag {
+      display: inline-block;
+      font-family: var(--font-sans);
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent);
+      background: var(--accent-soft);
+      border-radius: 4px;
+      padding: 0.08rem 0.38rem;
+      vertical-align: middle;
+      margin-left: 0.35rem;
+    }
+
+    /* ==============================================
        29. STAR / FAVORITE BUTTON
     =============================================== */
     .saved-star-btn {
@@ -2946,12 +2982,266 @@
       box-shadow: 0 1px 0 var(--rule);
       margin: 0 0.1rem;
     }
+
+    /* ==============================================
+       40. TOAST / BANNER SYSTEM
+    =============================================== */
+    #toastContainer {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.25rem;
+      z-index: 20000;   /* above shortcuts overlay (19000) */
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      max-width: min(380px, calc(100vw - 2.5rem));
+      pointer-events: none;    /* pass clicks through to page */
+    }
+
+    @media (max-width: 520px) {
+      #toastContainer {
+        left: 1rem;
+        right: 1rem;
+        bottom: 5rem;   /* clear the mobile topIndicator which sits at 1.25rem */
+        max-width: none;
+      }
+    }
+
+    .toast {
+      pointer-events: auto;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.65rem;
+      padding: 0.65rem 0.75rem 0.65rem 0.85rem;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      box-shadow: 0 4px 20px var(--shadow-indicator);
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      line-height: 1.5;
+      color: var(--ink);
+      animation: toast-in 0.2s ease;
+    }
+
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .toast { animation: none; }
+    }
+
+    .toast.error   { border-left: 3px solid var(--warn); }
+    .toast.warning { border-left: 3px solid var(--warn-amber); }
+    .toast.success { border-left: 3px solid var(--accent); }
+    .toast.info    { border-left: 3px solid var(--muted); }
+
+    .toast-body { flex: 1; min-width: 0; }
+
+    .toast-message {
+      font-weight: 500;
+      word-break: break-word;
+    }
+
+    .toast.error   .toast-message { color: var(--warn); }
+    .toast.warning .toast-message { color: var(--warn-amber); }
+    .toast.success .toast-message { color: var(--accent); }
+    .toast.info    .toast-message { color: var(--muted); }
+
+    .toast-hint {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-top: 0.2rem;
+      word-break: break-word;
+    }
+
+    .toast-dismiss {
+      flex-shrink: 0;
+      align-self: flex-start;
+      margin-top: -0.05rem;
+      padding: 0.1rem 0.3rem;
+      font-size: 0.8rem;
+      line-height: 1;
+      color: var(--muted);
+      background: transparent;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      outline: none;
+      transition: color 0.1s;
+    }
+
+    .toast-dismiss:hover { color: var(--ink); }
+
+    .toast-dismiss:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    /* ==============================================
+       41. COMPARE MODE (cross-video digest)
+    =============================================== */
+    /* Checkbox — rendered on every card, hidden unless compare mode is active */
+    .saved-compare-check {
+      display: none;
+      flex-shrink: 0;
+      align-self: flex-start;
+      margin-top: 0.22rem;
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    #savedOutput.compare-mode .saved-compare-check {
+      display: inline-block;
+    }
+
+    /* Checked-card highlight in compare mode */
+    #savedOutput.compare-mode .saved-card.compare-selected {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-soft);
+    }
+
+    /* Compare action bar — appears when 2+ cards are selected */
+    #compareBar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.45rem 0.75rem;
+      margin-bottom: 0.55rem;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent);
+      border-radius: var(--radius);
+      flex-wrap: wrap;
+    }
+
+    #compareBar[hidden] { display: none; }
+
+    #compareCountLabel {
+      font-family: var(--font-sans);
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: var(--accent);
+      flex: 1;
+    }
+
+    /* Cross-digest result modal — same positioning pattern as shortcuts overlay */
+    #crossDigestOverlay {
+      position: fixed;
+      inset: 0;
+      z-index: 19000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #crossDigestOverlay[hidden] { display: none; }
+
+    .cross-digest-backdrop {
+      position: absolute;
+      inset: 0;
+      background: var(--overlay-backdrop);
+    }
+
+    .cross-digest-modal {
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      box-shadow: 0 8px 40px var(--shadow-indicator);
+      padding: 1.5rem 1.75rem;
+      max-width: 720px;
+      width: calc(100% - 2rem);
+      z-index: 1;
+      max-height: calc(100vh - 4rem);
+      overflow-y: auto;
+    }
+
+    .cross-digest-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 1.1rem;
+      flex-wrap: wrap;
+    }
+
+    .cross-digest-title {
+      font-family: var(--font-sans);
+      font-size: 0.9rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      color: var(--ink);
+    }
+
+    .cross-digest-btn-row {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    /* Markdown content — reuses digestOutput typography exactly */
+    #crossDigestContent { word-break: break-word; }
+
+    #crossDigestContent h2 {
+      font-family: var(--font-sans);
+      font-size: 0.975rem;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -0.01em;
+      margin-top: 1.5rem;
+      margin-bottom: 0.45rem;
+      padding-bottom: 0.3rem;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    #crossDigestContent h2:first-of-type { margin-top: 0; }
+
+    #crossDigestContent h3 {
+      font-family: var(--font-sans);
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--ink);
+      margin-top: 1rem;
+      margin-bottom: 0.35rem;
+    }
+
+    #crossDigestContent p {
+      font-family: var(--font-serif);
+      font-size: 1rem;
+      line-height: 1.72;
+      color: var(--ink);
+      margin-bottom: 0.8rem;
+    }
+
+    #crossDigestContent p:last-child { margin-bottom: 0; }
+
+    #crossDigestContent ul {
+      padding-left: 1.5rem;
+      margin-bottom: 0.85rem;
+    }
+
+    #crossDigestContent li {
+      font-family: var(--font-serif);
+      font-size: 1rem;
+      line-height: 1.7;
+      color: var(--ink);
+      margin-bottom: 0.3rem;
+    }
+
+    #crossDigestContent strong { font-weight: 600; }
   </style>
 </head>
 <body>
 
   <!-- TOP STATUS INDICATOR (fixed, outside container) -->
   <div id="topIndicator" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- TOAST / BANNER CONTAINER (fixed, bottom-right) -->
+  <div id="toastContainer" aria-live="assertive" aria-atomic="false" aria-label="Notifications"></div>
 
   <div class="container">
 
@@ -3316,6 +3606,25 @@
           class="mini-btn"
           aria-label="Export saved library as a ZIP of Markdown files"
         >Export library</button>
+        <button
+          id="savedCompareBtn"
+          class="mini-btn"
+          aria-label="Toggle compare mode to select videos for cross-digest"
+          aria-pressed="false"
+        >Compare</button>
+        <button
+          id="savedReindexBtn"
+          class="mini-btn"
+          hidden
+          aria-label="Build semantic search index for the library"
+          title="Compute local embeddings so searches can use semantic similarity"
+        >Semantic index</button>
+      </div>
+      <!-- Compare action bar — visible when 2+ cards are selected in compare mode -->
+      <div id="compareBar" hidden role="status" aria-live="polite">
+        <span id="compareCountLabel">0 selected</span>
+        <button id="crossDigestRunBtn" class="mini-btn" disabled>Cross-digest (0)</button>
+        <button id="compareClearBtn" class="mini-btn">Clear</button>
       </div>
       <div id="savedResultCount" class="saved-result-count" aria-live="polite" aria-atomic="true"></div>
       <div id="savedStatusMsg" class="saved-status-msg" aria-live="polite" aria-atomic="true"></div>
@@ -3323,6 +3632,22 @@
     </div>
 
   </div><!-- /.container -->
+
+  <!-- CROSS-DIGEST OVERLAY (result modal for cross-video synthesis) -->
+  <div id="crossDigestOverlay" role="dialog" aria-modal="true" aria-label="Cross-video digest" hidden>
+    <div class="cross-digest-backdrop" id="crossDigestBackdrop"></div>
+    <div class="cross-digest-modal">
+      <div class="cross-digest-header">
+        <span class="cross-digest-title">Cross-video synthesis</span>
+        <div class="cross-digest-btn-row">
+          <button class="mini-btn" id="crossDigestCopyBtn" aria-label="Copy digest to clipboard">Copy</button>
+          <button class="mini-btn" id="crossDigestDownloadBtn" aria-label="Download digest as Markdown file">Download .md</button>
+          <button class="mini-btn" id="crossDigestCloseBtn" aria-label="Close cross-digest panel">✕</button>
+        </div>
+      </div>
+      <div id="crossDigestContent"></div>
+    </div>
+  </div>
 
   <!-- KEYBOARD SHORTCUTS OVERLAY -->
   <div id="shortcutsOverlay" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" hidden>
@@ -3410,11 +3735,19 @@
     let lastQuotes     = null;  // cached quotes array from last /api/quotes call
 
     // Saved library state
-    let savedList        = [];     // full fetched list from /api/saved
-    let savedSearchQuery = '';     // current search filter string
-    let savedSortMode    = 'recent'; // 'recent' | 'title' | 'favorites'
+    let savedList           = [];     // full fetched list from /api/saved
+    let savedSearchQuery    = '';     // current search filter string (client-side)
+    let savedSortMode       = 'recent'; // 'recent' | 'title' | 'favorites'
+    let savedApiResults     = null;   // { results, mode } from /api/search, or null = use local filter
+    let savedSearchDebTimer = null;   // debounce timer handle
+    let embeddingsChecked   = false;  // whether we've already fetched /api/search/status
     // Per-videoId notes cache: Map<videoId, Note[]>  — loaded lazily when notes panel opens
     const savedNotesCache = new Map();
+
+    // Compare / cross-digest state
+    let compareMode          = false;           // whether compare checkboxes are visible
+    const selectedVideoIds   = new Set();       // videoIds checked in compare mode
+    let crossDigestMarkdown  = '';              // most recently received cross-digest markdown
 
     // Find-in-transcript state
     let findQuery         = '';
@@ -3458,7 +3791,17 @@
     const digestEmptySt   = document.getElementById('digestEmptyState');
     const usageStatsEl    = document.getElementById('usageStats');
     const usageChipEl     = document.getElementById('usageChip');
-    const savedOutput     = document.getElementById('savedOutput');
+    const savedOutput        = document.getElementById('savedOutput');
+    const savedCompareBtn    = document.getElementById('savedCompareBtn');
+    const compareBar         = document.getElementById('compareBar');
+    const compareCountLabel  = document.getElementById('compareCountLabel');
+    const crossDigestRunBtn  = document.getElementById('crossDigestRunBtn');
+    const compareClearBtn    = document.getElementById('compareClearBtn');
+    const crossDigestOverlay = document.getElementById('crossDigestOverlay');
+    const crossDigestContent = document.getElementById('crossDigestContent');
+    const crossDigestCopyBtn    = document.getElementById('crossDigestCopyBtn');
+    const crossDigestDownloadBtn = document.getElementById('crossDigestDownloadBtn');
+    const crossDigestCloseBtn   = document.getElementById('crossDigestCloseBtn');
     const nowReadingEl          = document.getElementById('nowReading');
     const nowReadingTitle       = document.getElementById('nowReadingTitle');
     const nowReadingUrl         = document.getElementById('nowReadingUrl');
@@ -3528,7 +3871,7 @@
         paneEls[i].hidden  = !active;
       });
 
-      if (name === 'saved') loadSaved();
+      if (name === 'saved') { loadSaved(); checkEmbeddingsStatus(); }
     }
 
     tabTranscript.addEventListener('click', () => switchTab('transcript'));
@@ -3572,6 +3915,94 @@
     function setDigestStatus(msg, isError = false) {
       digestStatus.textContent = msg;
       digestStatus.className   = isError ? '' : 'info';
+    }
+
+    /* ==============================================
+       TOAST / BANNER SYSTEM
+    =============================================== */
+    const toastContainerEl = document.getElementById('toastContainer');
+
+    /**
+     * Show a toast notification.
+     *
+     * @param {'error'|'warning'|'success'|'info'} level
+     * @param {string} message  - primary text shown to the user
+     * @param {string} [hint]   - optional secondary hint line
+     */
+    function showToast(level, message, hint) {
+      if (!toastContainerEl) return;
+
+      const toast     = document.createElement('div');
+      toast.className = `toast ${level}`;
+
+      // Errors use role="alert" (assertive); others use role="status" (polite)
+      toast.setAttribute('role', level === 'error' ? 'alert' : 'status');
+
+      let html = '<div class="toast-body">';
+      html    += `<div class="toast-message">${escapeHtml(message)}</div>`;
+      if (hint) html += `<div class="toast-hint">${escapeHtml(hint)}</div>`;
+      html    += '</div>';
+
+      // Errors are persistent (manual dismiss); others auto-dismiss
+      if (level === 'error') {
+        html += '<button class="toast-dismiss" aria-label="Dismiss notification">×</button>';
+      }
+
+      toast.innerHTML = html;
+      toastContainerEl.appendChild(toast);
+
+      if (level === 'error') {
+        toast.querySelector('.toast-dismiss')?.addEventListener('click', () => {
+          toast.remove();
+        });
+      } else {
+        const delay = (level === 'success' || level === 'info') ? 3500 : 5500;
+        setTimeout(() => toast.remove(), delay);
+      }
+    }
+
+    /**
+     * Extract a plain string message from the API error envelope.
+     * Handles both the new { error: { code, message, hint } } shape and the
+     * legacy flat { error: "string" } shape.
+     *
+     * @param {object} data - parsed response JSON
+     * @param {string} [fallback]
+     * @returns {string}
+     */
+    function apiErrorMessage(data, fallback) {
+      const env = data?.error;
+      if (env && typeof env === 'object') return env.message || fallback || 'An error occurred.';
+      if (env && typeof env === 'string') return env;
+      return fallback || 'An error occurred.';
+    }
+
+    /**
+     * Parse a structured API error envelope and show an error toast.
+     * Also logs to console for debugging.
+     *
+     * @param {object} data - parsed response JSON
+     * @param {string} [fallback] - fallback message if envelope is missing
+     */
+    function handleApiError(data, fallback) {
+      console.error('[echo] API error:', data);
+
+      const env = data?.error;
+      let message, hint;
+
+      if (env && typeof env === 'object') {
+        message = env.message || fallback || 'An error occurred.';
+        hint    = env.hint    || '';
+      } else if (env && typeof env === 'string') {
+        // Legacy flat shape (transitional)
+        message = env;
+        hint    = data.detail || '';
+      } else {
+        message = fallback || 'An unexpected error occurred.';
+        hint    = '';
+      }
+
+      showToast('error', message, hint);
     }
 
     /* ==============================================
@@ -4470,7 +4901,11 @@
             digest:   currentDigest,
           }),
         });
-        if (!res.ok) return false;
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          console.error('[echo] ensureSaved failed:', errData);
+          return false;
+        }
 
         // Subtly notify user
         const prev = statusEl.textContent;
@@ -4480,7 +4915,8 @@
         // Refresh saved list so savedList is up-to-date
         await loadSaved();
         return true;
-      } catch (_) {
+      } catch (err) {
+        console.error('[echo] ensureSaved network error:', err);
         return false;
       }
     }
@@ -4508,15 +4944,22 @@
 
         if (res.status === 404) {
           setStatus('Highlight failed — video not in library.', true);
+          showToast('warning', 'Highlight failed — video not in library.');
           return;
         }
-        if (!res.ok) return;
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          handleApiError(errData, 'Could not save highlight.');
+          return;
+        }
 
         const hl = await res.json();
         currentHighlights.push(hl);
         reApplyOverlays();
       } catch (err) {
+        console.error('[echo] saveHighlight network error:', err);
         setStatus('Network error saving highlight: ' + err.message, true);
+        showToast('error', 'Network error saving highlight: ' + err.message);
       }
     }
 
@@ -4530,12 +4973,18 @@
           `/api/saved/${encodeURIComponent(videoId)}/highlights/${encodeURIComponent(hlId)}`,
           { method: 'DELETE' }
         );
-        if (!res.ok) return;
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          handleApiError(errData, 'Could not remove highlight.');
+          return;
+        }
 
         currentHighlights = currentHighlights.filter(h => String(h.id) !== String(hlId));
         reApplyOverlays();
       } catch (err) {
+        console.error('[echo] removeHighlight network error:', err);
         setStatus('Network error removing highlight: ' + err.message, true);
+        showToast('error', 'Network error removing highlight: ' + err.message);
       }
     }
 
@@ -4633,9 +5082,9 @@
         const data = await res.json();
 
         if (!res.ok) {
-          const msg    = data.error || 'Unknown error.';
-          const detail = data.detail ? `\n\nDetail: ${data.detail}` : '';
-          setStatus(msg + detail, true);
+          const msg = apiErrorMessage(data, 'Could not fetch transcript.');
+          setStatus(msg, true);
+          handleApiError(data, 'Could not fetch transcript.');
           outputEl.classList.remove('visible');
           outputEl.innerHTML = '';
           lastSegments = null;
@@ -4679,7 +5128,9 @@
           loadPlaylist(url);
         }
       } catch (err) {
-        setStatus('Network error: ' + err.message, true);
+        console.error('[echo] fetchTranscript network error:', err);
+        setStatus('Network error — could not reach the server.', true);
+        showToast('error', 'Network error: ' + err.message);
         outputEl.classList.remove('visible');
         outputEl.innerHTML = '';
         lastSegments = null;
@@ -4877,10 +5328,11 @@
         const data = await res.json();
 
         if (!res.ok) {
-          const detail = data.detail ? ` — ${data.detail}` : '';
-          setDigestStatus((data.error || 'Unknown error.') + detail, true);
+          const msg = apiErrorMessage(data, 'Failed to generate digest.');
+          setDigestStatus(msg, true);
           setTopIndicator('error');
           digestEmptySt.classList.remove('is-hidden');
+          handleApiError(data, 'Failed to generate digest.');
           return;
         }
 
@@ -4912,9 +5364,11 @@
         switchTab('digest');
 
       } catch (err) {
-        setDigestStatus('Network error: ' + err.message, true);
+        console.error('[echo] runDigest network error:', err);
+        setDigestStatus('Network error — could not reach the server.', true);
         setTopIndicator('error');
         digestEmptySt.classList.remove('is-hidden');
+        showToast('error', 'Network error: ' + err.message);
       } finally {
         digestBtn.disabled      = false;
         digestRegenBtn.disabled = false;
@@ -4958,8 +5412,9 @@
         const elapsed = Date.now() - t0;
 
         if (!res.ok) {
-          askInlineStatus.textContent = data.error || 'Unknown error.';
+          askInlineStatus.textContent = apiErrorMessage(data, 'Failed to answer question.');
           askInlineStatus.className   = 'ai-inline-status error';
+          handleApiError(data, 'Failed to answer question.');
           return;
         }
 
@@ -4994,8 +5449,10 @@
         setTimeout(loadUsageChip, 2000);
 
       } catch (err) {
-        askInlineStatus.textContent = 'Network error: ' + err.message;
+        console.error('[echo] submitAsk network error:', err);
+        askInlineStatus.textContent = 'Network error — could not reach the server.';
         askInlineStatus.className   = 'ai-inline-status error';
+        showToast('error', 'Network error: ' + err.message);
       } finally {
         askBtn.disabled = false;
         askInputEl.focus();
@@ -5045,8 +5502,9 @@
         const data = await res.json();
 
         if (!res.ok) {
-          fcInlineStatus.textContent = data.error || 'Unknown error.';
+          fcInlineStatus.textContent = apiErrorMessage(data, 'Failed to fact-check.');
           fcInlineStatus.className   = 'ai-inline-status error';
+          handleApiError(data, 'Failed to fact-check.');
           return;
         }
 
@@ -5098,8 +5556,10 @@
         setTimeout(loadUsageChip, 2000);
 
       } catch (err) {
-        fcInlineStatus.textContent = 'Network error: ' + err.message;
+        console.error('[echo] submitFactCheck network error:', err);
+        fcInlineStatus.textContent = 'Network error — could not reach the server.';
         fcInlineStatus.className   = 'ai-inline-status error';
+        showToast('error', 'Network error: ' + err.message);
       } finally {
         factCheckBtn.disabled = false;
       }
@@ -5176,8 +5636,9 @@
         const data = await res.json();
 
         if (!res.ok) {
-          chInlineStatus.textContent = data.error || 'Unknown error.';
+          chInlineStatus.textContent = apiErrorMessage(data, 'Failed to extract chapters.');
           chInlineStatus.className   = 'ai-inline-status error';
+          handleApiError(data, 'Failed to extract chapters.');
           return;
         }
 
@@ -5237,8 +5698,10 @@
         setTimeout(loadUsageChip, 2000);
 
       } catch (err) {
-        chInlineStatus.textContent = 'Network error: ' + err.message;
+        console.error('[echo] submitChapters network error:', err);
+        chInlineStatus.textContent = 'Network error — could not reach the server.';
         chInlineStatus.className   = 'ai-inline-status error';
+        showToast('error', 'Network error: ' + err.message);
       } finally {
         chaptersBtn.disabled = false;
       }
@@ -5270,8 +5733,9 @@
         const data = await res.json();
 
         if (!res.ok) {
-          qtInlineStatus.textContent = data.error || 'Unknown error.';
+          qtInlineStatus.textContent = apiErrorMessage(data, 'Failed to extract quotes.');
           qtInlineStatus.className   = 'ai-inline-status error';
+          handleApiError(data, 'Failed to extract quotes.');
           return;
         }
 
@@ -5329,8 +5793,10 @@
         setTimeout(loadUsageChip, 2000);
 
       } catch (err) {
-        qtInlineStatus.textContent = 'Network error: ' + err.message;
+        console.error('[echo] submitQuotes network error:', err);
+        qtInlineStatus.textContent = 'Network error — could not reach the server.';
         qtInlineStatus.className   = 'ai-inline-status error';
+        showToast('error', 'Network error: ' + err.message);
       } finally {
         quotesBtn.disabled = false;
       }
@@ -5361,9 +5827,10 @@
         });
 
         if (!res.ok) {
-          await res.json().catch(() => null);
+          const errData = await res.json().catch(() => ({}));
           saveBtn.textContent = 'Error — try again';
           setTimeout(() => { saveBtn.textContent = origLabel; saveBtn.disabled = false; }, 2500);
+          handleApiError(errData, 'Could not save to library.');
           return;
         }
 
@@ -5371,8 +5838,10 @@
         setTimeout(() => { saveBtn.textContent = origLabel; saveBtn.disabled = false; }, 2000);
         loadSaved(); // keep the Saved list fresh in the background
       } catch (err) {
+        console.error('[echo] saveBtn network error:', err);
         saveBtn.textContent = 'Network error';
         setTimeout(() => { saveBtn.textContent = origLabel; saveBtn.disabled = false; }, 2500);
+        showToast('error', 'Network error: ' + err.message);
       }
     });
 
@@ -5383,21 +5852,43 @@
       try {
         const res = await fetch('/api/saved');
         if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
           savedOutput.innerHTML =
             '<p class="saved-empty-state">Could not load saved videos.</p>';
+          handleApiError(errData, 'Could not load saved library.');
           return;
         }
         const data = await res.json();
         savedList = Array.isArray(data) ? data : [];
         renderSavedFiltered();
-      } catch (_) {
+      } catch (err) {
+        console.error('[echo] loadSaved network error:', err);
         savedOutput.innerHTML =
           '<p class="saved-empty-state">Network error — could not load saved videos.</p>';
+        showToast('error', 'Network error loading library: ' + err.message);
       }
     }
 
     /** Apply current search filter + sort, then call renderSavedList with the view. */
     function renderSavedFiltered() {
+      const countEl = document.getElementById('savedResultCount');
+
+      // --- API search mode: results already ranked by the server ---
+      if (savedApiResults !== null) {
+        const { results, mode } = savedApiResults;
+        if (countEl) {
+          const modeTag = mode === 'hybrid'
+            ? '<span class="search-mode-tag" aria-label="Semantic search active">semantic</span>'
+            : '';
+          countEl.innerHTML = results.length === 0
+            ? 'No results.'
+            : `${results.length} result${results.length === 1 ? '' : 's'}${modeTag}`;
+        }
+        renderSavedList(results);
+        return;
+      }
+
+      // --- Local filter + sort mode ---
       let items = savedList.slice();
 
       // Filter
@@ -5425,7 +5916,6 @@
       }
 
       // Update result-count line
-      const countEl = document.getElementById('savedResultCount');
       if (countEl) {
         if (savedSearchQuery) {
           countEl.textContent = items.length === 0
@@ -5517,12 +6007,21 @@
                    aria-label="Toggle notes for ${escapeAttr(title)}"
                    aria-expanded="false">${escapeHtml(notesLabel)}</button>`;
 
-        return `<div class="saved-card"
+        // Compare-mode checkbox — hidden via CSS until compareMode is active
+        const compareCheck =
+          `<input type="checkbox"
+                  class="saved-compare-check"
+                  data-videoid="${escapeAttr(entry.videoId)}"
+                  aria-label="Select ${escapeAttr(title)} for comparison"
+                  ${selectedVideoIds.has(entry.videoId) ? 'checked' : ''}>`;
+
+        return `<div class="saved-card${selectedVideoIds.has(entry.videoId) ? ' compare-selected' : ''}"
                      data-videoid="${escapeAttr(entry.videoId)}"
                      tabindex="0"
                      role="button"
                      aria-label="Open ${escapeAttr(title)}">
           <div class="saved-card-body">
+            ${compareCheck}
             ${starBtn}
             <div class="saved-card-main">
               <div class="saved-card-title">${escapeHtml(title)}</div>
@@ -5534,6 +6033,7 @@
                 ${dateStr ? `<span class="saved-meta-item">${escapeHtml(dateStr)}</span>` : ''}
                 ${sep}${badge}
               </div>
+              ${entry.snippet ? `<p class="saved-snippet">${escapeHtml(entry.snippet)}</p>` : ''}
               ${tagsRow}
               <div class="saved-card-actions">${notesBtn}</div>
             </div>
@@ -5548,14 +6048,15 @@
       // Wire up card-level click (open entry) — stopPropagation handled per inner control
       savedOutput.querySelectorAll('.saved-card').forEach(card => {
         card.addEventListener('click', e => {
-          if (e.target.closest('.saved-delete-btn'))  return;
-          if (e.target.closest('.saved-card-url'))    return;
-          if (e.target.closest('.saved-star-btn'))    return;
-          if (e.target.closest('.saved-tag-chip'))    return;
-          if (e.target.closest('.saved-tag-add-btn')) return;
-          if (e.target.closest('.saved-tag-input'))   return;
-          if (e.target.closest('.saved-notes-btn'))   return;
-          if (e.target.closest('.saved-notes-panel')) return;
+          if (e.target.closest('.saved-delete-btn'))    return;
+          if (e.target.closest('.saved-card-url'))      return;
+          if (e.target.closest('.saved-star-btn'))      return;
+          if (e.target.closest('.saved-tag-chip'))      return;
+          if (e.target.closest('.saved-tag-add-btn'))   return;
+          if (e.target.closest('.saved-tag-input'))     return;
+          if (e.target.closest('.saved-notes-btn'))     return;
+          if (e.target.closest('.saved-notes-panel'))   return;
+          if (e.target.closest('.saved-compare-check')) return;
           openSavedEntry(card.dataset.videoid);
         });
         card.addEventListener('keydown', e => {
@@ -5621,7 +6122,124 @@
           toggleSavedNotesPanel(btn.dataset.videoid, btn);
         });
       });
+
+      // Compare-mode checkboxes — track selection and refresh compare bar
+      savedOutput.querySelectorAll('.saved-compare-check').forEach(cb => {
+        cb.addEventListener('change', e => {
+          e.stopPropagation();
+          const vid = cb.dataset.videoid;
+          const card = cb.closest('.saved-card');
+          if (cb.checked) {
+            selectedVideoIds.add(vid);
+            card?.classList.add('compare-selected');
+          } else {
+            selectedVideoIds.delete(vid);
+            card?.classList.remove('compare-selected');
+          }
+          updateCompareBar();
+        });
+      });
     }
+
+    /* ==============================================
+       SAVED LIBRARY — COMPARE MODE
+    =============================================== */
+    /** Update the compare action bar label and button state. */
+    function updateCompareBar() {
+      const n = selectedVideoIds.size;
+      if (compareCountLabel) compareCountLabel.textContent = `${n} selected`;
+      if (crossDigestRunBtn) {
+        crossDigestRunBtn.textContent = `Cross-digest (${n})`;
+        crossDigestRunBtn.disabled    = n < 2;
+      }
+      if (compareBar) compareBar.hidden = n === 0;
+    }
+
+    /** Toggle compare mode on/off. Clears selection when disabling. */
+    function setCompareMode(active) {
+      compareMode = active;
+      if (!active) {
+        selectedVideoIds.clear();
+        updateCompareBar();
+      }
+      savedOutput.classList.toggle('compare-mode', compareMode);
+      if (savedCompareBtn) {
+        savedCompareBtn.setAttribute('aria-pressed', compareMode ? 'true' : 'false');
+        savedCompareBtn.textContent = compareMode ? 'Exit compare' : 'Compare';
+      }
+      // Re-render to sync checkbox checked state after clearing selection
+      if (!active) renderSavedFiltered();
+    }
+
+    savedCompareBtn?.addEventListener('click', () => setCompareMode(!compareMode));
+
+    compareClearBtn?.addEventListener('click', () => {
+      selectedVideoIds.clear();
+      updateCompareBar();
+      renderSavedFiltered(); // re-render to uncheck all checkboxes
+    });
+
+    /** Call POST /api/cross-digest with the selected videoIds and show the result. */
+    async function runCrossDigest() {
+      const ids = [...selectedVideoIds];
+      if (ids.length < 2) return;
+
+      setTopIndicator('digesting');
+      if (crossDigestRunBtn) crossDigestRunBtn.disabled = true;
+
+      try {
+        const res = await fetch('/api/cross-digest', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ videoIds: ids }),
+        });
+
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          setTopIndicator('error');
+          handleApiError(data, 'Cross-digest failed.');
+          return;
+        }
+
+        crossDigestMarkdown = data.digest || '';
+        setTopIndicator('idle');
+        openCrossDigestModal(crossDigestMarkdown);
+      } catch (err) {
+        console.error('[echo] runCrossDigest network error:', err);
+        setTopIndicator('error');
+        showToast('error', 'Network error during cross-digest: ' + err.message);
+      } finally {
+        updateCompareBar(); // re-enables button when selection is still ≥ 2
+      }
+    }
+
+    crossDigestRunBtn?.addEventListener('click', runCrossDigest);
+
+    /** Open the cross-digest overlay and render the markdown. */
+    function openCrossDigestModal(markdown) {
+      if (!crossDigestOverlay || !crossDigestContent) return;
+      crossDigestContent.innerHTML = renderMarkdown(markdown);
+      crossDigestOverlay.hidden    = false;
+      crossDigestCloseBtn?.focus();
+    }
+
+    function closeCrossDigestModal() {
+      if (crossDigestOverlay) crossDigestOverlay.hidden = true;
+    }
+
+    crossDigestCloseBtn?.addEventListener('click', closeCrossDigestModal);
+    document.getElementById('crossDigestBackdrop')?.addEventListener('click', closeCrossDigestModal);
+
+    crossDigestCopyBtn?.addEventListener('click', () => {
+      if (!crossDigestMarkdown) return;
+      copyToClipboard(crossDigestCopyBtn, crossDigestMarkdown, 'Copy');
+    });
+
+    crossDigestDownloadBtn?.addEventListener('click', () => {
+      if (!crossDigestMarkdown) return;
+      downloadMd('echo-cross-digest', crossDigestMarkdown);
+    });
 
     /* ==============================================
        SAVED LIBRARY — FAVORITES
@@ -5636,10 +6254,17 @@
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({ favorite: newFav }),
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          handleApiError(errData, 'Could not update favorite.');
+          return;
+        }
         entry.favorite = newFav;
         renderSavedFiltered();
-      } catch (_) { /* ignore — best-effort */ }
+      } catch (err) {
+        console.error('[echo] toggleSavedFavorite network error:', err);
+        showToast('warning', 'Could not update favorite — network error.');
+      }
     }
 
     /* ==============================================
@@ -5654,10 +6279,17 @@
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({ tags: newTags }),
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          handleApiError(errData, 'Could not save tags.');
+          return;
+        }
         entry.tags = newTags;
         renderSavedFiltered();
-      } catch (_) { /* ignore */ }
+      } catch (err) {
+        console.error('[echo] patchSavedTags network error:', err);
+        showToast('warning', 'Could not save tags — network error.');
+      }
     }
 
     function showSavedTagInput(videoId, addBtn) {
@@ -5729,13 +6361,17 @@
         try {
           const res = await fetch(`/api/saved/${encodeURIComponent(videoId)}`);
           if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
             panel.innerHTML = '<div class="saved-notes-loading">Could not load notes.</div>';
+            handleApiError(errData, 'Could not load notes.');
             return;
           }
           const data = await res.json();
           savedNotesCache.set(videoId, Array.isArray(data.notes) ? data.notes : []);
-        } catch (_) {
+        } catch (err) {
+          console.error('[echo] toggleSavedNotesPanel network error:', err);
           panel.innerHTML = '<div class="saved-notes-loading">Network error — could not load notes.</div>';
+          showToast('warning', 'Network error loading notes: ' + err.message);
           return;
         }
       }
@@ -5817,7 +6453,11 @@
           headers: { 'Content-Type': 'application/json' },
           body:    JSON.stringify({ text }),
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          handleApiError(errData, 'Could not save note.');
+          return;
+        }
         const note = await res.json();
 
         // Update cache
@@ -5835,7 +6475,10 @@
 
         textarea.value     = '';
         renderSavedNotesPanel(videoId, panel, notesBtn);
-      } catch (_) { /* ignore */ } finally {
+      } catch (err) {
+        console.error('[echo] addSavedNote network error:', err);
+        showToast('warning', 'Could not save note — network error.');
+      } finally {
         submitBtn.disabled = false;
       }
     }
@@ -5846,7 +6489,11 @@
           `/api/saved/${encodeURIComponent(videoId)}/notes/${encodeURIComponent(noteId)}`,
           { method: 'DELETE' }
         );
-        if (!res.ok) return;
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          handleApiError(errData, 'Could not delete note.');
+          return;
+        }
 
         // Update cache
         const notes = (savedNotesCache.get(videoId) || []).filter(n => String(n.id) !== noteId);
@@ -5860,7 +6507,10 @@
         }
 
         renderSavedNotesPanel(videoId, panel, notesBtn);
-      } catch (_) { /* ignore */ }
+      } catch (err) {
+        console.error('[echo] deleteSavedNote network error:', err);
+        showToast('warning', 'Could not delete note — network error.');
+      }
     }
 
     /* ==============================================
@@ -5936,8 +6586,10 @@
         }
 
       } catch (err) {
+        console.error('[echo] exportSavedLibrary error:', err);
         statusMsg.className   = 'saved-status-msg error';
         statusMsg.textContent = 'Export failed: ' + err.message;
+        showToast('error', 'Export failed: ' + err.message);
       } finally {
         exportBtn.disabled  = false;
         exportBtn.textContent = 'Export library';
@@ -5951,12 +6603,13 @@
       try {
         const res = await fetch(`/api/saved/${encodeURIComponent(videoId)}`);
         if (res.status === 404) {
-          alert('This saved entry was not found. It may have been deleted.');
+          showToast('warning', 'This saved entry was not found — it may have been deleted.');
           loadSaved();
           return;
         }
         if (!res.ok) {
-          alert('Failed to open saved video. Please try again.');
+          const errData = await res.json().catch(() => ({}));
+          handleApiError(errData, 'Failed to open saved video.');
           return;
         }
         const entry = await res.json();
@@ -6032,7 +6685,8 @@
         switchTab('transcript');
 
       } catch (err) {
-        alert('Network error: ' + err.message);
+        console.error('[echo] openSavedEntry network error:', err);
+        showToast('error', 'Network error opening saved video: ' + err.message);
       }
     }
 
@@ -6046,13 +6700,15 @@
           method: 'DELETE',
         });
         if (!res.ok) {
-          alert('Failed to delete. Please try again.');
+          const errData = await res.json().catch(() => ({}));
+          handleApiError(errData, 'Failed to delete saved video.');
           return;
         }
         savedNotesCache.delete(videoId);
         loadSaved();
       } catch (err) {
-        alert('Network error: ' + err.message);
+        console.error('[echo] deleteSavedEntry network error:', err);
+        showToast('error', 'Network error: ' + err.message);
       }
     }
 
@@ -6096,25 +6752,66 @@
        SAVED TOOLBAR — EVENT LISTENERS
     =============================================== */
     (function wireSavedToolbar() {
-      const searchInp  = document.getElementById('savedSearchInput');
-      const sortSel    = document.getElementById('savedSortSelect');
-      const exportBtn  = document.getElementById('savedExportBtn');
+      const searchInp   = document.getElementById('savedSearchInput');
+      const sortSel     = document.getElementById('savedSortSelect');
+      const exportBtn   = document.getElementById('savedExportBtn');
+      const reindexBtn  = document.getElementById('savedReindexBtn');
+
+      /**
+       * Perform a debounced API search.
+       * When q is empty, clears savedApiResults and falls back to local filter.
+       */
+      function triggerSearch(q) {
+        if (!q) {
+          savedApiResults  = null;
+          savedSearchQuery = '';
+          renderSavedFiltered();
+          return;
+        }
+        // Use API for all non-empty queries
+        fetch(`/api/search?q=${encodeURIComponent(q)}&limit=50`)
+          .then(r => r.json())
+          .then(data => {
+            if (data.error) {
+              // Server error — fall back to client-side filter silently
+              savedApiResults  = null;
+              savedSearchQuery = q;
+            } else {
+              savedApiResults  = data; // { results, mode }
+              savedSearchQuery = '';   // API handles filtering
+            }
+            renderSavedFiltered();
+          })
+          .catch(() => {
+            // Network failure — fall back to client-side filter
+            savedApiResults  = null;
+            savedSearchQuery = q;
+            renderSavedFiltered();
+          });
+      }
 
       if (searchInp) {
         searchInp.addEventListener('input', () => {
-          savedSearchQuery = searchInp.value.trim();
-          renderSavedFiltered();
+          const q = searchInp.value.trim();
+          clearTimeout(savedSearchDebTimer);
+          savedSearchDebTimer = setTimeout(() => triggerSearch(q), 300);
         });
-        // Allow clearing via the native ×
+        // Native × button fires 'search' with empty value
         searchInp.addEventListener('search', () => {
-          savedSearchQuery = searchInp.value.trim();
-          renderSavedFiltered();
+          clearTimeout(savedSearchDebTimer);
+          triggerSearch(searchInp.value.trim());
         });
       }
 
       if (sortSel) {
         sortSel.addEventListener('change', () => {
           savedSortMode = sortSel.value;
+          // Sort only applies in local-filter mode; clear API results so sort takes effect
+          if (savedApiResults !== null) {
+            savedApiResults = null;
+            if (searchInp) searchInp.value = '';
+            savedSearchQuery = '';
+          }
           renderSavedFiltered();
         });
       }
@@ -6122,7 +6819,45 @@
       if (exportBtn) {
         exportBtn.addEventListener('click', exportSavedLibrary);
       }
+
+      if (reindexBtn) {
+        reindexBtn.addEventListener('click', async () => {
+          reindexBtn.disabled = true;
+          reindexBtn.textContent = 'Indexing…';
+          try {
+            const r = await fetch('/api/search/reindex', { method: 'POST' });
+            const d = await r.json();
+            if (d.ok) {
+              showToast('info', `Semantic index built: ${d.indexed} new, ${d.skipped} already indexed.`);
+            } else {
+              showToast('warning', 'Semantic index unavailable.', d.reason || '');
+            }
+          } catch (err) {
+            showToast('error', 'Reindex failed: ' + err.message);
+          } finally {
+            reindexBtn.disabled = false;
+            reindexBtn.textContent = 'Semantic index';
+          }
+        });
+      }
     })();
+
+    /**
+     * Check /api/search/status once per session and show the reindex button
+     * if embeddings are available on this server.
+     */
+    async function checkEmbeddingsStatus() {
+      if (embeddingsChecked) return;
+      embeddingsChecked = true;
+      try {
+        const r = await fetch('/api/search/status');
+        const d = await r.json();
+        const btn = document.getElementById('savedReindexBtn');
+        if (btn && d.embeddingsAvailable) btn.hidden = false;
+      } catch {
+        // Status check is best-effort — ignore failures silently
+      }
+    }
 
     /* ==============================================
        LOADING SKELETON
@@ -6222,9 +6957,10 @@
           currentLangCode = prevCode;
           if (langSelect && prevCode) langSelect.value = prevCode;
           if (langPickerStatus) {
-            langPickerStatus.textContent = data.error || 'Failed to load this language.';
+            langPickerStatus.textContent = apiErrorMessage(data, 'Failed to load this language.');
             langPickerStatus.className   = 'lang-picker-status error';
           }
+          handleApiError(data, 'Failed to load transcript in this language.');
           // Restore previous transcript display
           if (lastSegments) { renderSegments(lastSegments); reApplyOverlays(); }
           else { outputEl.classList.remove('visible'); outputEl.innerHTML = ''; }
@@ -6243,12 +6979,14 @@
         setStatus(`Loaded ${data.segments.length} segments (${code}).`);
 
       } catch (err) {
+        console.error('[echo] langSelect network error:', err);
         currentLangCode = prevCode;
         if (langSelect && prevCode) langSelect.value = prevCode;
         if (langPickerStatus) {
-          langPickerStatus.textContent = 'Network error: ' + err.message;
+          langPickerStatus.textContent = 'Network error — could not load this language.';
           langPickerStatus.className   = 'lang-picker-status error';
         }
+        showToast('error', 'Network error loading language: ' + err.message);
         if (lastSegments) { renderSegments(lastSegments); reApplyOverlays(); }
         else { outputEl.classList.remove('visible'); outputEl.innerHTML = ''; }
       } finally {
@@ -6368,12 +7106,19 @@
           body:    JSON.stringify({ url }),
         });
         const data = await res.json();
-        if (!res.ok || !Array.isArray(data.videos) || data.videos.length === 0) return;
+        if (!res.ok) {
+          // Playlist is non-critical — warn but don't block the user
+          console.warn('[echo] loadPlaylist failed:', data);
+          showToast('warning', 'Could not load playlist — ' + apiErrorMessage(data, 'unknown error.'));
+          return;
+        }
+        if (!Array.isArray(data.videos) || data.videos.length === 0) return;
         playlistVideos    = data.videos;
         activePlaylistIdx = -1;
         renderPlaylist(data.playlistTitle || 'Playlist', data.videos);
-      } catch (_) {
-        /* Silently ignore — playlist is non-critical */
+      } catch (err) {
+        /* Silently ignore network errors for playlist (non-critical) */
+        console.warn('[echo] loadPlaylist network error:', err);
       }
     }
 

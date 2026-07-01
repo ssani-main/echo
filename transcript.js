@@ -265,19 +265,25 @@ export async function fetchTranscript(videoId, opts = {}) {
     if (segments.length > 0) return segments;
     throw new Error('yt-dlp returned no segments');
   } catch (ytDlpErr) {
-    // If yt-dlp is simply not installed, surface a clear message
+    // yt-dlp is not installed at all
     if (ytDlpErr.code === 'ENOENT') {
-      throw new Error(
+      const e = new Error(
         `Primary transcript fetch failed (${primaryError.message}). ` +
-        'yt-dlp fallback is not available — install it with ' +
-        '`pip install yt-dlp` or `winget install yt-dlp`.'
+        'yt-dlp fallback is not available.'
       );
+      e.echoCode = 'YTDLP_MISSING';
+      e.hint = 'Install yt-dlp: `pip install yt-dlp` or `winget install yt-dlp`.';
+      throw e;
     }
-    throw new Error(
-      `Both transcript methods failed. ` +
+    // Both methods failed — video likely has no captions or is inaccessible
+    const e = new Error(
+      `Could not fetch transcript. ` +
       `Primary: ${primaryError.message}. ` +
       `Fallback (yt-dlp): ${ytDlpErr.message}`
     );
+    e.echoCode = 'TRANSCRIPT_UNAVAILABLE';
+    e.hint = 'The video may have captions disabled, be private, age-restricted, or unavailable in your region.';
+    throw e;
   }
 }
 

@@ -21,13 +21,29 @@ import {
   setHighlights,
   addHighlight,
   deleteHighlight,
+  searchLibrary,
+  getEmbedding,
+  setEmbedding,
+  allEmbeddings,
 } from './store.js';
+import {
+  initEmbeddings,
+  isAvailable,
+  getFailureReason,
+  embedText,
+  cosineSimilarity,
+} from './embeddings.js';
+
+// Start loading embedding model in background — safe to ignore the promise;
+// isAvailable() will stay false until (and unless) the load succeeds.
+initEmbeddings().catch(() => {});
 import {
   generateDigest,
   askVideoQuestion,
   extractChapters,
   extractQuotes,
   factCheck,
+  generateCrossDigest,
 } from './digest.js';
 import { getTodayUsage } from './usage.js';
 
@@ -40,16 +56,69 @@ const PORT = 8000;
 app.use(express.json({ limit: '5mb' }));
 app.use(express.static(join(__dirname, 'public')));
 
-// --- Transcript ---
+// ---------------------------------------------------------------------------
+// Structured error helpers
+// ---------------------------------------------------------------------------
+
+// HTTP status codes to use for each error code
+const ECHO_ERROR_STATUS = {
+  INVALID_URL:            400,
+  TRANSCRIPT_UNAVAILABLE: 422,
+  CLAUDE_NOT_INSTALLED:   503,
+  CLAUDE_NOT_AUTHED:      503,
+  CLAUDE_FAILED:          502,
+  YTDLP_MISSING:          503,
+  INTERNAL:               500,
+};
+
+/**
+ * Send a structured JSON error envelope: { error: { code, message, hint } }
+ * Logs the raw message server-side.
+ *
+ * @param {import('express').Response} res
+ * @param {string} code     - one of the ECHO_ERROR codes or any uppercase string
+ * @param {string} message  - human-readable short description
+ * @param {string} [hint]   - optional remediation hint shown to the user
+ * @param {number} [status] - override HTTP status (defaults via ECHO_ERROR_STATUS)
+ */
+function sendError(res, code, message, hint = '', status = null) {
+  console.error(`[echo] ${code}: ${message}`);
+  const httpStatus = status ?? ECHO_ERROR_STATUS[code] ?? 500;
+  return res.status(httpStatus).json({ error: { code, message, hint } });
+}
+
+/**
+ * Convert a caught Error (potentially tagged with echoCode / hint) into
+ * a structured API response. Falls back to INTERNAL if no echoCode is set.
+ *
+ * @param {import('express').Response} res
+ * @param {Error} err
+ */
+function sendCaughtError(res, err) {
+  console.error('[echo] caught error:', err);
+  const code = err.echoCode;
+  if (code && Object.prototype.hasOwnProperty.call(ECHO_ERROR_STATUS, code)) {
+    return sendError(res, code, err.message, err.hint || '');
+  }
+  // Unexpected error — log detail, send generic message to client
+  return sendError(res, 'INTERNAL', 'An unexpected server error occurred.', '');
+}
+
+// ---------------------------------------------------------------------------
+// Transcript
+// ---------------------------------------------------------------------------
 
 app.post('/api/transcript', async (req, res) => {
   const { url, lang } = req.body;
 
   const videoId = extractVideoId(url);
   if (!videoId) {
-    return res.status(400).json({
-      error: 'Could not find a valid YouTube video ID in that URL.',
-    });
+    return sendError(
+      res,
+      'INVALID_URL',
+      'Could not find a valid YouTube video ID in that URL.',
+      'Paste a full YouTube URL (e.g. youtube.com/watch?v=…) or an 11-character video ID.'
+    );
   }
 
   try {
@@ -57,129 +126,143 @@ app.post('/api/transcript', async (req, res) => {
     const title = await getVideoTitle(videoId);
     return res.json({ videoId, url: req.body.url, title, segments });
   } catch (err) {
-    return res.status(404).json({
-      error:
-        'Could not fetch transcript. The video may have captions disabled, ' +
-        'be private, age-restricted, or the URL may be invalid.',
-      detail: err.message,
-    });
+    return sendCaughtError(res, err);
   }
 });
 
-// --- Languages ---
+// ---------------------------------------------------------------------------
+// Languages
+// ---------------------------------------------------------------------------
 
 app.get('/api/languages', async (req, res) => {
   const { videoId } = req.query;
   if (!videoId) {
-    return res.status(400).json({ error: 'videoId query parameter is required.' });
+    return sendError(res, 'INTERNAL', 'videoId query parameter is required.', '', 400);
   }
   try {
     const tracks = await listCaptionTracks(videoId);
     return res.json({ tracks });
   } catch (err) {
-    return res.status(500).json({ error: 'Failed to list caption tracks.', detail: err.message });
+    return sendCaughtError(res, err);
   }
 });
 
-// --- Playlist ---
+// ---------------------------------------------------------------------------
+// Playlist
+// ---------------------------------------------------------------------------
 
 app.post('/api/playlist', async (req, res) => {
   const { url } = req.body;
   if (!url) {
-    return res.status(400).json({ error: 'url is required.' });
+    return sendError(res, 'INTERNAL', 'url is required.', '', 400);
   }
   try {
     const result = await extractPlaylist(url);
     return res.json(result);
   } catch (err) {
-    return res.status(500).json({ error: 'Failed to extract playlist.', detail: err.message });
+    return sendCaughtError(res, err);
   }
 });
 
-// --- Digest ---
+// ---------------------------------------------------------------------------
+// Digest
+// ---------------------------------------------------------------------------
 
 app.post('/api/digest', async (req, res) => {
   const { text, length, format, language } = req.body;
 
   if (!text || !text.trim()) {
-    return res.status(400).json({ error: 'No transcript text provided.' });
+    return sendError(
+      res,
+      'INTERNAL',
+      'No transcript text provided.',
+      'Load a transcript before generating a digest.',
+      400
+    );
   }
 
   try {
     const result = await generateDigest(text, { length, format, language });
     return res.json(result);
   } catch (err) {
-    return res.status(500).json({
-      error: 'Failed to generate digest.',
-      detail: err.message,
-    });
+    return sendCaughtError(res, err);
   }
 });
 
-// --- Chat ---
+// ---------------------------------------------------------------------------
+// Chat / Ask
+// ---------------------------------------------------------------------------
 
 app.post('/api/chat', async (req, res) => {
   const { text, question } = req.body;
   if (!text || !text.trim()) {
-    return res.status(400).json({ error: 'text is required.' });
+    return sendError(res, 'INTERNAL', 'text is required.', '', 400);
   }
   if (!question || !question.trim()) {
-    return res.status(400).json({ error: 'question is required.' });
+    return sendError(res, 'INTERNAL', 'question is required.', '', 400);
   }
   try {
     const result = await askVideoQuestion(text, question);
     return res.json(result);
   } catch (err) {
-    return res.status(500).json({ error: 'Failed to answer question.', detail: err.message });
+    return sendCaughtError(res, err);
   }
 });
 
-// --- Chapters ---
+// ---------------------------------------------------------------------------
+// Chapters
+// ---------------------------------------------------------------------------
 
 app.post('/api/chapters', async (req, res) => {
   const { segments } = req.body;
   if (!Array.isArray(segments) || segments.length === 0) {
-    return res.status(400).json({ error: 'segments must be a non-empty array.' });
+    return sendError(res, 'INTERNAL', 'segments must be a non-empty array.', '', 400);
   }
   try {
     const result = await extractChapters(segments);
     return res.json(result);
   } catch (err) {
-    return res.status(500).json({ error: 'Failed to extract chapters.', detail: err.message });
+    return sendCaughtError(res, err);
   }
 });
 
-// --- Quotes ---
+// ---------------------------------------------------------------------------
+// Quotes
+// ---------------------------------------------------------------------------
 
 app.post('/api/quotes', async (req, res) => {
   const { segments } = req.body;
   if (!Array.isArray(segments) || segments.length === 0) {
-    return res.status(400).json({ error: 'segments must be a non-empty array.' });
+    return sendError(res, 'INTERNAL', 'segments must be a non-empty array.', '', 400);
   }
   try {
     const result = await extractQuotes(segments);
     return res.json(result);
   } catch (err) {
-    return res.status(500).json({ error: 'Failed to extract quotes.', detail: err.message });
+    return sendCaughtError(res, err);
   }
 });
 
-// --- Fact-check ---
+// ---------------------------------------------------------------------------
+// Fact-check
+// ---------------------------------------------------------------------------
 
 app.post('/api/factcheck', async (req, res) => {
   const { text } = req.body;
   if (!text || !text.trim()) {
-    return res.status(400).json({ error: 'text is required.' });
+    return sendError(res, 'INTERNAL', 'text is required.', '', 400);
   }
   try {
     const result = await factCheck(text);
     return res.json(result);
   } catch (err) {
-    return res.status(500).json({ error: 'Failed to fact-check.', detail: err.message });
+    return sendCaughtError(res, err);
   }
 });
 
-// --- Usage ---
+// ---------------------------------------------------------------------------
+// Usage
+// ---------------------------------------------------------------------------
 
 app.get('/api/usage', async (req, res) => {
   try {
@@ -190,7 +273,9 @@ app.get('/api/usage', async (req, res) => {
   }
 });
 
-// --- Library / saved routes ---
+// ---------------------------------------------------------------------------
+// Library / saved routes
+// ---------------------------------------------------------------------------
 
 // IMPORTANT: /api/saved/export must be defined BEFORE /api/saved/:videoId
 // so Express does not capture "export" as a videoId parameter.
@@ -199,7 +284,7 @@ app.get('/api/saved', async (_req, res) => {
   try {
     res.json(await listEntries());
   } catch (err) {
-    res.status(500).json({ error: 'Storage error.', detail: err.message });
+    sendCaughtError(res, err);
   }
 });
 
@@ -209,7 +294,7 @@ app.get('/api/saved/export', async (_req, res) => {
     const entries = await Promise.all(meta.map((m) => getEntry(m.videoId)));
     res.json({ entries: entries.filter(Boolean) });
   } catch (err) {
-    res.status(500).json({ error: 'Storage error.', detail: err.message });
+    sendCaughtError(res, err);
   }
 });
 
@@ -219,13 +304,13 @@ app.patch('/api/saved/:videoId/tags', async (req, res) => {
   try {
     const { tags } = req.body;
     if (!Array.isArray(tags)) {
-      return res.status(400).json({ error: 'tags must be an array.' });
+      return sendError(res, 'INTERNAL', 'tags must be an array.', '', 400);
     }
     const entry = await setTags(req.params.videoId, tags);
-    if (!entry) return res.status(404).json({ error: 'Not found.' });
+    if (!entry) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
     res.json(entry);
   } catch (err) {
-    res.status(500).json({ error: 'Storage error.', detail: err.message });
+    sendCaughtError(res, err);
   }
 });
 
@@ -233,13 +318,13 @@ app.patch('/api/saved/:videoId/favorite', async (req, res) => {
   try {
     const { favorite } = req.body;
     if (favorite === undefined || favorite === null) {
-      return res.status(400).json({ error: 'favorite is required.' });
+      return sendError(res, 'INTERNAL', 'favorite is required.', '', 400);
     }
     const entry = await setFavorite(req.params.videoId, Boolean(favorite));
-    if (!entry) return res.status(404).json({ error: 'Not found.' });
+    if (!entry) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
     res.json(entry);
   } catch (err) {
-    res.status(500).json({ error: 'Storage error.', detail: err.message });
+    sendCaughtError(res, err);
   }
 });
 
@@ -247,24 +332,24 @@ app.post('/api/saved/:videoId/notes', async (req, res) => {
   try {
     const { text } = req.body;
     if (!text || !text.trim()) {
-      return res.status(400).json({ error: 'text is required.' });
+      return sendError(res, 'INTERNAL', 'text is required.', '', 400);
     }
     const note = await addNote(req.params.videoId, text);
-    if (note === null) return res.status(404).json({ error: 'Not found.' });
+    if (note === null) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
     res.status(201).json(note);
   } catch (err) {
-    res.status(500).json({ error: 'Storage error.', detail: err.message });
+    sendCaughtError(res, err);
   }
 });
 
 app.delete('/api/saved/:videoId/notes/:noteId', async (req, res) => {
   try {
     const result = await deleteNote(req.params.videoId, req.params.noteId);
-    if (result === null) return res.status(404).json({ error: 'Entry not found.' });
-    if (result === false) return res.status(404).json({ error: 'Note not found.' });
+    if (result === null) return sendError(res, 'INTERNAL', 'Entry not found.', '', 404);
+    if (result === false) return sendError(res, 'INTERNAL', 'Note not found.', '', 404);
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: 'Storage error.', detail: err.message });
+    sendCaughtError(res, err);
   }
 });
 
@@ -272,13 +357,13 @@ app.put('/api/saved/:videoId/highlights', async (req, res) => {
   try {
     const { highlights } = req.body;
     if (!Array.isArray(highlights)) {
-      return res.status(400).json({ error: 'highlights must be an array.' });
+      return sendError(res, 'INTERNAL', 'highlights must be an array.', '', 400);
     }
     const entry = await setHighlights(req.params.videoId, highlights);
-    if (!entry) return res.status(404).json({ error: 'Not found.' });
+    if (!entry) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
     res.json(entry);
   } catch (err) {
-    res.status(500).json({ error: 'Storage error.', detail: err.message });
+    sendCaughtError(res, err);
   }
 });
 
@@ -290,12 +375,12 @@ app.post('/api/saved/:videoId/highlights', async (req, res) => {
       highlight = await addHighlight(req.params.videoId, { text, note, color });
     } catch (innerErr) {
       // addHighlight throws on empty text
-      return res.status(400).json({ error: innerErr.message });
+      return sendError(res, 'INTERNAL', innerErr.message, '', 400);
     }
-    if (highlight === null) return res.status(404).json({ error: 'Not found.' });
+    if (highlight === null) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
     res.status(201).json(highlight);
   } catch (err) {
-    res.status(500).json({ error: 'Storage error.', detail: err.message });
+    sendCaughtError(res, err);
   }
 });
 
@@ -303,21 +388,21 @@ app.delete('/api/saved/:videoId/highlights/:highlightId', async (req, res) => {
   try {
     const result = await deleteHighlight(req.params.videoId, req.params.highlightId);
     if (result === null || result === false) {
-      return res.status(404).json({ error: 'Not found.' });
+      return sendError(res, 'INTERNAL', 'Not found.', '', 404);
     }
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: 'Storage error.', detail: err.message });
+    sendCaughtError(res, err);
   }
 });
 
 app.get('/api/saved/:videoId', async (req, res) => {
   try {
     const e = await getEntry(req.params.videoId);
-    if (!e) return res.status(404).json({ error: 'Not found.' });
+    if (!e) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
     res.json(e);
   } catch (err) {
-    res.status(500).json({ error: 'Storage error.', detail: err.message });
+    sendCaughtError(res, err);
   }
 });
 
@@ -325,22 +410,254 @@ app.post('/api/saved', async (req, res) => {
   try {
     const { url, videoId, title, segments, digest } = req.body;
     if (!videoId || !Array.isArray(segments) || segments.length === 0) {
-      return res.status(400).json({ error: 'videoId and segments are required.' });
+      return sendError(res, 'INTERNAL', 'videoId and segments are required.', '', 400);
     }
     const meta = await saveEntry({ url, videoId, title, segments, digest });
     res.json(meta);
   } catch (err) {
-    res.status(500).json({ error: 'Storage error.', detail: err.message });
+    sendCaughtError(res, err);
   }
 });
 
 app.delete('/api/saved/:videoId', async (req, res) => {
   try {
     const ok = await deleteEntry(req.params.videoId);
-    if (!ok) return res.status(404).json({ error: 'Not found.' });
+    if (!ok) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: 'Storage error.', detail: err.message });
+    sendCaughtError(res, err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Cross-digest
+// ---------------------------------------------------------------------------
+
+app.post('/api/cross-digest', async (req, res) => {
+  const { videoIds, options } = req.body;
+
+  if (!Array.isArray(videoIds) || videoIds.length < 2) {
+    return sendError(
+      res,
+      'INTERNAL',
+      'At least 2 video IDs are required for a cross-digest.',
+      'Select 2 or more saved videos to compare.',
+      400
+    );
+  }
+
+  // Resolve all entries up front — fail fast if any ID is missing from the library.
+  const entries = [];
+  for (const videoId of videoIds) {
+    const entry = await getEntry(String(videoId));
+    if (!entry) {
+      return sendError(
+        res,
+        'INTERNAL',
+        `Video "${videoId}" was not found in your library.`,
+        'All selected videos must be saved in your library before running a cross-digest.',
+        400
+      );
+    }
+    entries.push(entry);
+  }
+
+  try {
+    const { digest, usage } = await generateCrossDigest(entries, options || {});
+    return res.json({ digest, stats: usage });
+  } catch (err) {
+    return sendCaughtError(res, err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Search helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a ~200-char snippet from an entry that contains one of the query words.
+ * Falls back to the beginning of the transcript or digest if no direct match is found.
+ * @param {{ segments?: Array<{text:string}>, digest?: string }} entry
+ * @param {string} query
+ * @returns {string}
+ */
+function buildSnippet(entry, query) {
+  const words  = String(query).toLowerCase().split(/\s+/).filter(Boolean);
+  const segTxt = Array.isArray(entry.segments)
+    ? entry.segments.map((s) => String(s.text || '')).join(' ')
+    : '';
+  const text   = segTxt || entry.digest || '';
+  if (!text) return '';
+
+  const ltext = text.toLowerCase();
+  for (const word of words) {
+    const idx = ltext.indexOf(word);
+    if (idx !== -1) {
+      const start = Math.max(0, idx - 80);
+      const end   = Math.min(text.length, idx + word.length + 160);
+      const pre   = start > 0 ? '…' : '';
+      const post  = end < text.length ? '…' : '';
+      return pre + text.slice(start, end).replace(/\s+/g, ' ').trim() + post;
+    }
+  }
+  // No direct word hit — return lead of text
+  return text.slice(0, 240).replace(/\s+/g, ' ').trim() + (text.length > 240 ? '…' : '');
+}
+
+/**
+ * Build the text that represents an entry for embedding purposes:
+ * title + first 1000 chars of transcript + first 400 chars of digest.
+ * @param {{ title?: string, segments?: Array<{text:string}>, digest?: string }} entry
+ * @returns {string}
+ */
+function buildEmbedText(entry) {
+  const title  = entry.title || '';
+  const segTxt = Array.isArray(entry.segments)
+    ? entry.segments.map((s) => String(s.text || '')).join(' ').slice(0, 1000)
+    : '';
+  const digest = entry.digest ? entry.digest.slice(0, 400) : '';
+  return [title, segTxt, digest].filter(Boolean).join('. ');
+}
+
+// ---------------------------------------------------------------------------
+// Hybrid / semantic search routes
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/search/status
+ * Reports whether the semantic embedding layer is available.
+ */
+app.get('/api/search/status', (_req, res) => {
+  res.json({
+    embeddingsAvailable: isAvailable(),
+    failureReason:       getFailureReason() ?? null,
+    mode:                isAvailable() ? 'hybrid' : 'keyword',
+  });
+});
+
+/**
+ * POST /api/search/reindex
+ * Computes and stores embeddings for all library entries that don't have one yet.
+ * Returns { ok, indexed, skipped, total } or a note if embeddings are disabled.
+ */
+app.post('/api/search/reindex', async (_req, res) => {
+  // Ensure model init has run (idempotent and fast if already done)
+  await initEmbeddings();
+
+  if (!isAvailable()) {
+    return res.json({
+      ok:      false,
+      note:    'Semantic search is disabled on this server.',
+      reason:  getFailureReason() ?? 'Model failed to load.',
+      indexed: 0,
+      skipped: 0,
+      total:   0,
+    });
+  }
+
+  try {
+    const metas      = await listEntries();
+    const existing   = new Set(allEmbeddings().map((e) => e.videoId));
+    let indexed = 0;
+    let skipped = 0;
+
+    for (const meta of metas) {
+      if (existing.has(meta.videoId)) { skipped++; continue; }
+
+      const full = await getEntry(meta.videoId);
+      if (!full) { skipped++; continue; }
+
+      const text = buildEmbedText(full);
+      if (!text.trim()) { skipped++; continue; }
+
+      const vector = await embedText(text);
+      if (!vector)  { skipped++; continue; }
+
+      setEmbedding(meta.videoId, vector, vector.length);
+      indexed++;
+    }
+
+    return res.json({ ok: true, indexed, skipped, total: metas.length });
+  } catch (err) {
+    return sendCaughtError(res, err);
+  }
+});
+
+/**
+ * GET /api/search?q=...&limit=...
+ * FTS5 keyword search, upgraded to hybrid when embeddings are available.
+ * Response shape is always { results: [...], mode: 'keyword'|'hybrid' }.
+ * Each result: { videoId, title, url, snippet, tags, favorite }.
+ */
+app.get('/api/search', async (req, res) => {
+  const q     = String(req.query.q || '').trim();
+  const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
+
+  if (!q) return res.json({ results: [], mode: 'keyword' });
+
+  try {
+    // FTS5 — always available; fetch more rows than needed for hybrid blending
+    const ftsEntries = await searchLibrary(q, limit * 2);
+
+    /** Map a full entry to the slim search-result shape */
+    const toResult = (entry) => ({
+      videoId:  entry.videoId,
+      title:    entry.title,
+      url:      entry.url,
+      snippet:  buildSnippet(entry, q),
+      tags:     Array.isArray(entry.tags) ? entry.tags : [],
+      favorite: Boolean(entry.favorite),
+    });
+
+    // ---- Keyword-only path (no embeddings) ----
+    if (!isAvailable()) {
+      return res.json({ results: ftsEntries.slice(0, limit).map(toResult), mode: 'keyword' });
+    }
+
+    // ---- Hybrid path ----
+    const queryVec = await embedText(q);
+    if (!queryVec) {
+      // embedText failed silently — degrade gracefully to keyword
+      return res.json({ results: ftsEntries.slice(0, limit).map(toResult), mode: 'keyword' });
+    }
+
+    const storedEmbs   = allEmbeddings();
+    const semScoreMap  = new Map(
+      storedEmbs.map(({ videoId, vector }) => [videoId, cosineSimilarity(queryVec, vector)])
+    );
+
+    // Build merged candidate set starting from FTS results
+    const byId = new Map();
+    ftsEntries.forEach((entry, i) => {
+      const ftsScore = ftsEntries.length > 1 ? 1 - i / (ftsEntries.length - 1) : 1;
+      byId.set(entry.videoId, {
+        entry,
+        ftsScore,
+        semScore: semScoreMap.get(entry.videoId) ?? 0,
+      });
+    });
+
+    // Pull in semantic-only hits above threshold (catches synonym / paraphrase matches)
+    const SEM_THRESHOLD = 0.35;
+    for (const [videoId, semScore] of semScoreMap.entries()) {
+      if (!byId.has(videoId) && semScore >= SEM_THRESHOLD) {
+        const full = await getEntry(videoId);
+        if (full) byId.set(videoId, { entry: full, ftsScore: 0, semScore });
+      }
+    }
+
+    // Blend: 60 % FTS relevance + 40 % cosine similarity
+    const ranked = [...byId.values()]
+      .map(({ entry, ftsScore, semScore }) => ({
+        entry,
+        score: 0.6 * ftsScore + 0.4 * semScore,
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+
+    return res.json({ results: ranked.map(({ entry }) => toResult(entry)), mode: 'hybrid' });
+  } catch (err) {
+    return sendCaughtError(res, err);
   }
 });
 
