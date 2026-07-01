@@ -3,6 +3,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { extractVideoId, fetchTranscript } from './transcript.js';
 import { generateDigest } from './digest.js';
+import { getTodayUsage } from './usage.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -44,13 +45,22 @@ app.post('/api/digest', async (req, res) => {
   }
 
   try {
-    const digest = await generateDigest(text);
-    return res.json({ digest });
+    const result = await generateDigest(text);
+    return res.json(result);
   } catch (err) {
     return res.status(500).json({
       error: 'Failed to generate digest.',
       detail: err.message,
     });
+  }
+});
+
+app.get('/api/usage', async (req, res) => {
+  try {
+    const usage = await getTodayUsage();
+    return res.json(usage);
+  } catch (err) {
+    return res.json({ available: false, error: String(err) });
   }
 });
 

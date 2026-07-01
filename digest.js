@@ -18,10 +18,10 @@ const PROMPT_PREFIX =
   'Here is the transcript:\n\n';
 
 /**
- * Sends transcriptText to the claude CLI and resolves with a Markdown digest string.
+ * Sends transcriptText to the claude CLI and resolves with { digest, usage }.
  *
  * @param {string} transcriptText - Raw joined transcript text.
- * @returns {Promise<string>} Markdown digest.
+ * @returns {Promise<{ digest: string, usage: object }>}
  */
 export async function generateDigest(transcriptText) {
   if (!transcriptText || !transcriptText.trim()) {
@@ -33,7 +33,7 @@ export async function generateDigest(transcriptText) {
   return new Promise((resolve, reject) => {
     let settled = false;
 
-    const child = spawn('claude', ['-p', '--model', 'sonnet'], {
+    const child = spawn('claude', ['-p', '--model', 'sonnet', '--output-format', 'json'], {
       shell: true,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -79,10 +79,42 @@ export async function generateDigest(transcriptText) {
       const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
 
       if (code === 0) {
-        resolve(stdout);
+        let parsed;
+        try {
+          parsed = JSON.parse(stdout);
+        } catch (_) {
+          return reject(
+            new Error(
+              `claude CLI returned non-JSON output. Snippet: ${stdout.slice(0, 300)}`
+            )
+          );
+        }
+
+        if (parsed.is_error === true || parsed.subtype !== 'success') {
+          return reject(
+            new Error(parsed.result || parsed.subtype || 'Digest failed')
+          );
+        }
+
+        const u = parsed.usage || {};
+        const inputTokens = u.input_tokens || 0;
+        const outputTokens = u.output_tokens || 0;
+        const cacheReadTokens = u.cache_read_input_tokens || 0;
+        const cacheCreationTokens = u.cache_creation_input_tokens || 0;
+        const usage = {
+          costUsd: (typeof parsed.total_cost_usd === 'number') ? parsed.total_cost_usd : null,
+          inputTokens,
+          outputTokens,
+          cacheReadTokens,
+          cacheCreationTokens,
+          totalTokens: inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens,
+          durationMs: (typeof parsed.duration_ms === 'number') ? parsed.duration_ms : null,
+        };
+
+        return resolve({ digest: String(parsed.result || '').trim(), usage });
       } else {
         const detail = stderr.slice(0, 500) || '(no stderr output)';
-        reject(
+        return reject(
           new Error(
             `claude CLI exited with code ${code}. Stderr: ${detail}`
           )

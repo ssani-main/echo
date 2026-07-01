@@ -23,6 +23,7 @@
       --accent:       #0B6B4F;
       --accent-dark:  #095C43;
       --accent-soft:  #E6F0EB;
+      --warn:         #B4232A;
 
       --font-sans:  'Space Grotesk', system-ui, sans-serif;
       --font-serif: 'Newsreader', Georgia, serif;
@@ -121,6 +122,25 @@
       font-style: italic;
     }
 
+    /* Usage chip in header */
+    .usage-chip {
+      display: none;
+      font-family: var(--font-sans);
+      font-size: 0.72rem;
+      color: var(--muted);
+      letter-spacing: 0.01em;
+      line-height: 1.5;
+    }
+
+    .usage-chip.visible {
+      display: block;
+    }
+
+    .usage-chip .mono {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+    }
+
     /* ==============================================
        5. COMMAND BAR
     =============================================== */
@@ -206,7 +226,62 @@
     }
 
     /* ==============================================
-       7. CONTROLS ROW
+       7. TAB BAR
+    =============================================== */
+    .tab-bar {
+      display: inline-flex;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      overflow: hidden;
+      margin-bottom: 1.25rem;
+    }
+
+    .tab-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.375rem 0.9rem;
+      font-family: var(--font-sans);
+      font-size: 0.775rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      background: transparent;
+      border: none;
+      border-right: 1px solid var(--rule);
+      cursor: pointer;
+      outline: none;
+      transition: background 0.12s, color 0.12s;
+      /* Prevent button from shrinking text */
+      white-space: nowrap;
+    }
+
+    .tab-btn:last-child {
+      border-right: none;
+    }
+
+    .tab-btn[aria-selected="true"] {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .tab-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+
+    /* Ready dot on Digest tab */
+    .digest-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+    }
+
+    /* ==============================================
+       8. CONTROLS ROW
     =============================================== */
     .controls-row {
       display: flex;
@@ -303,7 +378,7 @@
     }
 
     /* ==============================================
-       8. TRANSCRIPT OUTPUT
+       9. TRANSCRIPT OUTPUT
     =============================================== */
     #output {
       background: var(--surface);
@@ -355,7 +430,7 @@
     }
 
     /* ==============================================
-       9. TIMECODED MODE — GUTTER LAYOUT
+       10. TIMECODED MODE — GUTTER LAYOUT
     =============================================== */
     .ts-line {
       display: flex;
@@ -390,8 +465,24 @@
     }
 
     /* ==============================================
-       10. DIGEST STATUS LINE
+       11. DIGEST PANE
     =============================================== */
+
+    /* Empty state shown before any digest */
+    .digest-empty-state {
+      font-family: var(--font-serif);
+      font-style: italic;
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1.65;
+      padding: 2rem 0;
+    }
+
+    .digest-empty-state.is-hidden {
+      display: none;
+    }
+
+    /* Digest status line */
     #digestStatus {
       min-height: 1.4em;
       font-family: var(--font-sans);
@@ -405,9 +496,7 @@
       color: var(--muted);
     }
 
-    /* ==============================================
-       11. DIGEST OUTPUT PANEL
-    =============================================== */
+    /* Digest output panel */
     #digestOutput {
       display: none;
       background: var(--surface);
@@ -488,8 +577,101 @@
       font-weight: 600;
     }
 
+    /* Per-digest + session usage stats */
+    .usage-stats {
+      display: none;
+      margin-top: 0.9rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--rule);
+    }
+
+    .usage-stats.visible {
+      display: block;
+    }
+
+    .usage-line {
+      font-family: var(--font-sans);
+      font-size: 0.72rem;
+      color: var(--muted);
+      line-height: 1.7;
+      letter-spacing: 0.01em;
+    }
+
+    .usage-line .mono {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+    }
+
     /* ==============================================
-       12. RESPONSIVE
+       12. TOP FIXED INDICATOR
+    =============================================== */
+    #topIndicator {
+      position: fixed;
+      top: 1rem;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 9999;
+      display: none;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.45rem 1.1rem;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 999px;
+      box-shadow: 0 2px 16px rgba(0, 0, 0, 0.1);
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--ink);
+      white-space: nowrap;
+      /* Smooth appear/disappear */
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+
+    #topIndicator.visible {
+      display: flex;
+      opacity: 1;
+    }
+
+    #topIndicator.done {
+      color: var(--accent);
+      cursor: pointer;
+    }
+
+    #topIndicator.error {
+      color: var(--warn);
+    }
+
+    /* Pulsing dot inside the indicator (digesting state) */
+    .indicator-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+      animation: pulse-dot 1.6s ease-in-out infinite;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .indicator-dot {
+        animation: none;
+        opacity: 1;
+      }
+    }
+
+    /* On small screens push indicator to bottom so it doesn't block the URL bar */
+    @media (max-width: 520px) {
+      #topIndicator {
+        top: auto;
+        bottom: 1.25rem;
+        font-size: 0.75rem;
+        padding: 0.4rem 0.9rem;
+      }
+    }
+
+    /* ==============================================
+       13. RESPONSIVE
     =============================================== */
     @media (max-width: 520px) {
       body {
@@ -522,6 +704,10 @@
   </style>
 </head>
 <body>
+
+  <!-- TOP STATUS INDICATOR (fixed, outside container) -->
+  <div id="topIndicator" aria-live="polite" aria-atomic="true"></div>
+
   <div class="container">
 
     <!-- HEADER / HERO -->
@@ -531,6 +717,11 @@
         <span class="wordmark-text">Transcript</span>
       </div>
       <p class="site-tagline">Paste a YouTube link. Read what was <em>actually</em> said.</p>
+      <div
+        id="usageChip"
+        class="usage-chip"
+        title="Your total Claude Code usage today (not the subscription limit %)."
+      ></div>
     </header>
 
     <!-- COMMAND BAR -->
@@ -548,42 +739,126 @@
     <!-- STATUS LINE -->
     <div id="status"></div>
 
-    <!-- CONTROLS ROW -->
-    <div class="controls-row">
-      <div class="view-toggle" role="group" aria-label="View mode">
-        <label>
-          <input type="radio" name="viewMode" value="plain" checked />
-          Readable
-        </label>
-        <label>
-          <input type="radio" name="viewMode" value="timestamps" />
-          Timecoded
-        </label>
+    <!-- TAB BAR -->
+    <div class="tab-bar" role="tablist" aria-label="Content sections">
+      <button
+        class="tab-btn"
+        id="tabTranscript"
+        role="tab"
+        aria-selected="true"
+        aria-controls="paneTranscript"
+        tabindex="0"
+      >Transcript</button>
+      <button
+        class="tab-btn"
+        id="tabDigest"
+        role="tab"
+        aria-selected="false"
+        aria-controls="paneDigest"
+        tabindex="-1"
+      >Digest <span id="digestDot" class="digest-dot" style="display:none" aria-hidden="true"></span></button>
+    </div>
+
+    <!-- TRANSCRIPT PANE -->
+    <div id="paneTranscript" role="tabpanel" aria-labelledby="tabTranscript">
+      <!-- CONTROLS ROW -->
+      <div class="controls-row">
+        <div class="view-toggle" role="group" aria-label="View mode">
+          <label>
+            <input type="radio" name="viewMode" value="plain" checked />
+            Readable
+          </label>
+          <label>
+            <input type="radio" name="viewMode" value="timestamps" />
+            Timecoded
+          </label>
+        </div>
+        <button id="digestBtn" disabled>AI digest</button>
       </div>
-      <button id="digestBtn" disabled>AI digest</button>
+
+      <!-- TRANSCRIPT OUTPUT -->
+      <div id="output" class="visible">
+        <p class="empty-state">Nothing loaded yet — drop a link above to pull the transcript.</p>
+      </div>
     </div>
 
-    <!-- TRANSCRIPT OUTPUT -->
-    <div id="output" class="visible">
-      <p class="empty-state">Nothing loaded yet — drop a link above to pull the transcript.</p>
+    <!-- DIGEST PANE -->
+    <div id="paneDigest" role="tabpanel" aria-labelledby="tabDigest" hidden>
+      <p id="digestEmptyState" class="digest-empty-state">No digest yet — hit AI digest to summarize this video in English.</p>
+      <div id="digestStatus"></div>
+      <div id="digestOutput"></div>
+      <div id="usageStats" class="usage-stats"></div>
     </div>
-
-    <!-- DIGEST AREA -->
-    <div id="digestStatus"></div>
-    <div id="digestOutput"></div>
 
   </div><!-- /.container -->
 
   <script>
-    let lastSegments = null;
+    /* ==============================================
+       STATE
+    =============================================== */
+    let lastSegments   = null;
+    let sessionCostUsd = 0;
+    let sessionTokens  = 0;
+    let indicatorTimer = null;
 
-    const urlInput  = document.getElementById('urlInput');
-    const fetchBtn  = document.getElementById('fetchBtn');
-    const statusEl  = document.getElementById('status');
-    const outputEl  = document.getElementById('output');
-    const radios    = document.querySelectorAll('input[name="viewMode"]');
+    /* ==============================================
+       ELEMENT REFS
+    =============================================== */
+    const urlInput        = document.getElementById('urlInput');
+    const fetchBtn        = document.getElementById('fetchBtn');
+    const statusEl        = document.getElementById('status');
+    const outputEl        = document.getElementById('output');
+    const radios          = document.querySelectorAll('input[name="viewMode"]');
+    const digestBtn       = document.getElementById('digestBtn');
+    const digestStatus    = document.getElementById('digestStatus');
+    const digestOutput    = document.getElementById('digestOutput');
+    const topIndicator    = document.getElementById('topIndicator');
+    const paneTranscript  = document.getElementById('paneTranscript');
+    const paneDigest      = document.getElementById('paneDigest');
+    const tabTranscript   = document.getElementById('tabTranscript');
+    const tabDigest       = document.getElementById('tabDigest');
+    const digestDot       = document.getElementById('digestDot');
+    const digestEmptySt   = document.getElementById('digestEmptyState');
+    const usageStatsEl    = document.getElementById('usageStats');
+    const usageChipEl     = document.getElementById('usageChip');
 
-    // ---- Segmented toggle active-class (cross-browser :has fallback) ----
+    /* ==============================================
+       TAB SWITCHING
+    =============================================== */
+    function switchTab(name) {
+      const toTranscript = name === 'transcript';
+
+      tabTranscript.setAttribute('aria-selected', toTranscript ? 'true' : 'false');
+      tabTranscript.tabIndex = toTranscript ? 0 : -1;
+
+      tabDigest.setAttribute('aria-selected', toTranscript ? 'false' : 'true');
+      tabDigest.tabIndex = toTranscript ? -1 : 0;
+
+      paneTranscript.hidden = !toTranscript;
+      paneDigest.hidden     = toTranscript;
+    }
+
+    tabTranscript.addEventListener('click', () => switchTab('transcript'));
+    tabDigest.addEventListener('click',     () => switchTab('digest'));
+
+    // Arrow-key roving focus within the tab bar
+    const tabBtns = [tabTranscript, tabDigest];
+    tabBtns.forEach((btn, i) => {
+      btn.addEventListener('keydown', e => {
+        let next = null;
+        if (e.key === 'ArrowRight') next = tabBtns[(i + 1) % tabBtns.length];
+        if (e.key === 'ArrowLeft')  next = tabBtns[(i - 1 + tabBtns.length) % tabBtns.length];
+        if (next) {
+          e.preventDefault();
+          next.focus();
+          switchTab(next === tabTranscript ? 'transcript' : 'digest');
+        }
+      });
+    });
+
+    /* ==============================================
+       SEGMENTED TOGGLE ACTIVE-CLASS (cross-browser :has fallback)
+    =============================================== */
     function syncToggleActive() {
       document.querySelectorAll('.view-toggle label').forEach(lbl => {
         lbl.classList.toggle('is-active', lbl.querySelector('input[type="radio"]').checked);
@@ -591,11 +866,134 @@
     }
     syncToggleActive();
 
+    /* ==============================================
+       STATUS HELPERS
+    =============================================== */
     function setStatus(msg, isError = false) {
       statusEl.textContent = msg;
       statusEl.className   = isError ? '' : 'info';
     }
 
+    function setDigestStatus(msg, isError = false) {
+      digestStatus.textContent = msg;
+      digestStatus.className   = isError ? '' : 'info';
+    }
+
+    /* ==============================================
+       TOP INDICATOR
+    =============================================== */
+    function setTopIndicator(state) {
+      clearTimeout(indicatorTimer);
+
+      // Reset
+      topIndicator.className   = '';
+      topIndicator.onclick     = null;
+      topIndicator.onkeydown   = null;
+      topIndicator.innerHTML   = '';
+      topIndicator.removeAttribute('tabindex');
+      topIndicator.removeAttribute('role');
+
+      if (state === 'idle') return;
+
+      topIndicator.classList.add('visible');
+
+      if (state === 'digesting') {
+        topIndicator.classList.add('digesting');
+        topIndicator.innerHTML = '<span class="indicator-dot" aria-hidden="true"></span>AI is digesting…';
+
+      } else if (state === 'done') {
+        topIndicator.classList.add('done');
+        topIndicator.innerHTML = 'Digest ready ✓';
+        topIndicator.setAttribute('tabindex', '0');
+        topIndicator.setAttribute('role', 'button');
+        const activate = () => {
+          switchTab('digest');
+          setTopIndicator('idle');
+        };
+        topIndicator.onclick   = activate;
+        topIndicator.onkeydown = e => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); }
+        };
+        indicatorTimer = setTimeout(() => setTopIndicator('idle'), 4000);
+
+      } else if (state === 'error') {
+        topIndicator.classList.add('error');
+        topIndicator.innerHTML = 'Digest failed';
+      }
+    }
+
+    /* ==============================================
+       USAGE FORMATTING HELPERS
+    =============================================== */
+    function formatTokens(n) {
+      if (n == null) return '—';
+      if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+      if (n >= 1_000)     return (n / 1_000).toFixed(1) + 'k';
+      return String(n);
+    }
+
+    function formatCostUsd(usd) {
+      if (usd == null) return null;
+      return '$' + usd.toFixed(2);
+    }
+
+    /* ==============================================
+       USAGE CHIP (header — today's totals)
+    =============================================== */
+    async function loadUsageChip() {
+      try {
+        const res  = await fetch('/api/usage');
+        const data = await res.json();
+
+        if (!res.ok || !data.available) {
+          usageChipEl.innerHTML = 'Today &middot; <span class="mono">usage n/a</span>';
+        } else {
+          const costStr   = formatCostUsd(data.costUsd) ?? 'n/a';
+          const tokenStr  = formatTokens(data.totalTokens);
+          usageChipEl.innerHTML =
+            'Today &middot; <span class="mono">' + costStr + '</span>' +
+            ' &middot; <span class="mono">' + tokenStr + ' tokens</span>';
+        }
+        usageChipEl.classList.add('visible');
+      } catch (_) { /* silently ignore — non-critical */ }
+    }
+
+    /* ==============================================
+       PER-DIGEST + SESSION USAGE DISPLAY
+    =============================================== */
+    function renderUsageStats(u) {
+      if (!u) return;
+
+      // Accumulate session totals (called once per successful digest)
+      if (u.totalTokens != null) sessionTokens  += u.totalTokens;
+      if (u.costUsd     != null) sessionCostUsd += u.costUsd;
+
+      // This-digest line
+      const digestParts = [
+        '<span class="mono">' + formatTokens(u.totalTokens) + ' tokens</span>',
+      ];
+      const thisCost = formatCostUsd(u.costUsd);
+      if (thisCost) digestParts.push('<span class="mono">' + thisCost + '</span>');
+      if (u.durationMs != null) {
+        digestParts.push('<span class="mono">' + Math.round(u.durationMs / 1000) + 's</span>');
+      }
+
+      // Session line
+      const sessCost   = formatCostUsd(sessionCostUsd) || '$0.00';
+      const sessTokens = formatTokens(sessionTokens);
+      const sessLine   =
+        '<span class="mono">' + sessCost + '</span>' +
+        ' &middot; <span class="mono">' + sessTokens + ' tokens</span>';
+
+      usageStatsEl.innerHTML =
+        '<div class="usage-line">This digest &middot; ' + digestParts.join(' &middot; ') + '</div>' +
+        '<div class="usage-line">Session &middot; ' + sessLine + '</div>';
+      usageStatsEl.classList.add('visible');
+    }
+
+    /* ==============================================
+       CORE TRANSCRIPT UTILITIES
+    =============================================== */
     function formatTime(seconds) {
       const s  = Math.floor(seconds);
       const m  = Math.floor(s / 60);
@@ -666,7 +1064,7 @@
 
       // Fallback: single paragraph with no sentence punctuation — hard-wrap at ~500 chars
       if (paragraphs.length === 1 && !/[.?!]/.test(paragraphs[0])) {
-        const raw = paragraphs[0];
+        const raw    = paragraphs[0];
         const chunks = [];
         let pos = 0;
         while (pos < raw.length) {
@@ -717,17 +1115,29 @@
       outputEl.classList.add('visible');
     }
 
+    /* ==============================================
+       FETCH TRANSCRIPT
+    =============================================== */
     async function fetchTranscript() {
       const url = urlInput.value.trim();
       if (!url) { setStatus('Please enter a YouTube URL or video ID.', true); return; }
 
       fetchBtn.disabled = true;
       outputEl.classList.remove('visible');
-      // Reset digest state on every new fetch
+
+      // Reset digest area completely on a new fetch
       digestBtn.disabled = true;
       digestOutput.classList.remove('visible');
-      digestOutput.innerHTML = '';
-      digestStatus.textContent = '';
+      digestOutput.innerHTML    = '';
+      digestStatus.textContent  = '';
+      digestStatus.className    = '';
+      digestEmptySt.classList.remove('is-hidden');
+      usageStatsEl.classList.remove('visible');
+      usageStatsEl.innerHTML    = '';
+      digestDot.style.display   = 'none';
+      setTopIndicator('idle');
+      switchTab('transcript');
+
       setStatus('Fetching transcript…');
 
       try {
@@ -739,7 +1149,7 @@
         const data = await res.json();
 
         if (!res.ok) {
-          const msg = data.error || 'Unknown error.';
+          const msg    = data.error || 'Unknown error.';
           const detail = data.detail ? `\n\nDetail: ${data.detail}` : '';
           setStatus(msg + detail, true);
           lastSegments = null;
@@ -759,23 +1169,15 @@
     }
 
     fetchBtn.addEventListener('click', fetchTranscript);
-    urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') fetchTranscript(); });
+    urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') fetchTranscript(); });
     radios.forEach(r => r.addEventListener('change', () => {
       syncToggleActive();
       if (lastSegments) renderSegments(lastSegments);
     }));
 
-    // ---- AI Digest ----
-
-    const digestBtn    = document.getElementById('digestBtn');
-    const digestStatus = document.getElementById('digestStatus');
-    const digestOutput = document.getElementById('digestOutput');
-
-    function setDigestStatus(msg, isError = false) {
-      digestStatus.textContent = msg;
-      digestStatus.className   = isError ? '' : 'info';
-    }
-
+    /* ==============================================
+       MARKDOWN RENDERER
+    =============================================== */
     /**
      * Minimal inline Markdown renderer.
      * Supports: ## h2, ### h3, - / * bullet lists, **bold**, paragraphs.
@@ -875,12 +1277,22 @@
         .join(' ');
     }
 
+    /* ==============================================
+       DIGEST HANDLER
+    =============================================== */
     digestBtn.addEventListener('click', async () => {
       if (!lastSegments || lastSegments.length === 0) return;
 
       digestBtn.disabled = true;
       digestOutput.classList.remove('visible');
-      digestOutput.innerHTML = '';
+      digestOutput.innerHTML   = '';
+      usageStatsEl.classList.remove('visible');
+      usageStatsEl.innerHTML   = '';
+
+      // Switch to Digest tab and show loading state there
+      switchTab('digest');
+      digestEmptySt.classList.add('is-hidden');
+      setTopIndicator('digesting');
       setDigestStatus('Reading the video and writing your digest — this takes 10–30s.', false);
 
       const plainText = buildPlainTranscript(lastSegments);
@@ -896,20 +1308,46 @@
         if (!res.ok) {
           const detail = data.detail ? ` — ${data.detail}` : '';
           setDigestStatus((data.error || 'Unknown error.') + detail, true);
+          setTopIndicator('error');
+          digestEmptySt.classList.remove('is-hidden');
           return;
         }
 
+        // Render digest content
         digestOutput.innerHTML =
           '<div class="digest-eyebrow">AI Digest</div>' +
           renderMarkdown(data.digest);
         digestOutput.classList.add('visible');
+
+        // Show ready dot on tab, update status, set indicator
+        digestDot.style.display = '';
         setDigestStatus('Digest ready.', false);
+        setTopIndicator('done');
+
+        // Usage readouts
+        if (data.usage) {
+          renderUsageStats(data.usage);
+        }
+
+        // Refresh header chip 2 s later so it picks up the new cost
+        setTimeout(loadUsageChip, 2000);
+
+        // Stay on / switch to Digest tab
+        switchTab('digest');
+
       } catch (err) {
         setDigestStatus('Network error: ' + err.message, true);
+        setTopIndicator('error');
+        digestEmptySt.classList.remove('is-hidden');
       } finally {
         digestBtn.disabled = false;
       }
     });
+
+    /* ==============================================
+       INITIALISE
+    =============================================== */
+    loadUsageChip();
   </script>
 </body>
 </html>
