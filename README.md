@@ -1,6 +1,9 @@
 <div align="center">
 
-# 🎙️ Echo
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="public/echo-logo-dark.png">
+  <img alt="Echo" src="public/echo-logo-light.png" width="210">
+</picture>
 
 ### _Paste a YouTube link. Read what was actually said._
 
