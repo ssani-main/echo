@@ -40,6 +40,22 @@ export function extractVideoId(rawUrl) {
 }
 
 /**
+ * Extract the playlist ID (the `list=` query param) from a YouTube URL.
+ * Returns the playlist ID string, or null if not present.
+ */
+export function extractPlaylistId(url) {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    const u = new URL(url.trim());
+    return u.searchParams.get('list') || null;
+  } catch {
+    // Fallback regex for non-standard URL strings
+    const m = url.match(/[?&]list=([A-Za-z0-9_-]+)/);
+    return m ? m[1] : null;
+  }
+}
+
+/**
  * Decode common HTML entities that appear in transcript text.
  */
 function decodeEntities(str) {
@@ -57,9 +73,13 @@ function decodeEntities(str) {
 /**
  * Primary: fetch via the youtube-transcript npm package.
  * Returns an array of { text: string, offset: number } where offset is in seconds.
+ * @param {string} videoId
+ * @param {string|undefined} lang  Optional BCP-47 language code (e.g. "en", "es").
  */
-async function fetchViaPackage(videoId) {
-  const segs = await YoutubeTranscript.fetchTranscript(videoId);
+async function fetchViaPackage(videoId, lang) {
+  const segs = lang
+    ? await YoutubeTranscript.fetchTranscript(videoId, { lang })
+    : await YoutubeTranscript.fetchTranscript(videoId);
 
   // Step 1: normalise each segment to raw form so we can inspect offsets before committing.
   const raw = segs.map((seg) => ({
@@ -102,8 +122,11 @@ async function fetchViaPackage(videoId) {
 /**
  * Fallback: fetch via yt-dlp (must be installed separately).
  * Returns an array of { text: string, offset: number } where offset is in seconds.
+ * @param {string} videoId
+ * @param {string|undefined} lang  Optional BCP-47 language code. Defaults to "en".
  */
-async function fetchViaYtDlp(videoId) {
+async function fetchViaYtDlp(videoId, lang) {
+  const effectiveLang = lang || 'en';
   const tmpBase = join(os.tmpdir(), `yt_transcript_${videoId}_${Date.now()}`);
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
@@ -111,14 +134,14 @@ async function fetchViaYtDlp(videoId) {
     '--skip-download',
     '--write-auto-subs',
     '--write-subs',
-    '--sub-lang', 'en',
+    '--sub-langs', effectiveLang,
     '--sub-format', 'json3',
     '-o', tmpBase,
     videoUrl,
   ]);
 
-  // yt-dlp writes the file as <base>.en.json3
-  const subFile = `${tmpBase}.en.json3`;
+  // yt-dlp writes the file as <base>.<lang>.json3
+  const subFile = `${tmpBase}.${effectiveLang}.json3`;
   const raw = await readFile(subFile, 'utf8');
 
   // Clean up temp file (best-effort)
@@ -170,15 +193,66 @@ export async function getVideoTitle(videoId) {
 }
 
 /**
+ * List all available subtitle/caption tracks for a YouTube video via yt-dlp.
+ * Returns an array of { code, name, auto } where:
+ *   - code  is the BCP-47 language code (e.g. "en", "es")
+ *   - name  is a human-readable label when available, otherwise the code itself
+ *   - auto  is true for auto-generated (ASR) tracks, false for manually uploaded ones
+ *
+ * On any failure (yt-dlp not installed, network error, etc.) returns [] — never throws.
+ */
+export async function listCaptionTracks(videoId) {
+  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
+  try {
+    const { stdout } = await execFileAsync('yt-dlp', [
+      '-J',
+      '--skip-download',
+      videoUrl,
+    ], { timeout: 20000 });
+
+    const info = JSON.parse(stdout);
+
+    // Use a Map keyed by language code so we can dedupe, preferring manual over auto.
+    const tracks = new Map();
+
+    // Add auto-generated captions first (lower priority).
+    const autoCaptions = info.automatic_captions || {};
+    for (const [code, formats] of Object.entries(autoCaptions)) {
+      const firstName = Array.isArray(formats) && formats[0] && formats[0].name;
+      tracks.set(code, { code, name: firstName || code, auto: true });
+    }
+
+    // Add manual subtitles second — overwrites any auto entry for the same code.
+    const subtitles = info.subtitles || {};
+    for (const [code, formats] of Object.entries(subtitles)) {
+      const firstName = Array.isArray(formats) && formats[0] && formats[0].name;
+      tracks.set(code, { code, name: firstName || code, auto: false });
+    }
+
+    return Array.from(tracks.values());
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Fetch the transcript for a YouTube video ID.
  * Tries the npm package first; falls back to yt-dlp if that fails.
  * Throws a descriptive Error if both methods fail.
+ *
+ * @param {string} videoId
+ * @param {{ lang?: string }} [opts]  Optional options object.
+ *   opts.lang — BCP-47 language code to request (e.g. "en", "es", "fr").
+ *               When omitted the default/auto-selected track is used, matching
+ *               the original single-argument behaviour exactly.
  */
-export async function fetchTranscript(videoId) {
+export async function fetchTranscript(videoId, opts = {}) {
+  const lang = opts.lang || undefined;
   let primaryError;
 
   try {
-    const segments = await fetchViaPackage(videoId);
+    const segments = await fetchViaPackage(videoId, lang);
     if (segments.length > 0) return segments;
     // Empty result treated as a failure so we try the fallback
     primaryError = new Error('youtube-transcript returned no segments');
@@ -187,7 +261,7 @@ export async function fetchTranscript(videoId) {
   }
 
   try {
-    const segments = await fetchViaYtDlp(videoId);
+    const segments = await fetchViaYtDlp(videoId, lang);
     if (segments.length > 0) return segments;
     throw new Error('yt-dlp returned no segments');
   } catch (ytDlpErr) {
@@ -204,5 +278,61 @@ export async function fetchTranscript(videoId) {
       `Primary: ${primaryError.message}. ` +
       `Fallback (yt-dlp): ${ytDlpErr.message}`
     );
+  }
+}
+
+/**
+ * Fetch metadata for a YouTube playlist (or a single video).
+ * Uses yt-dlp --flat-playlist so no per-video network requests are made.
+ * Returns { playlistTitle, videos: [{ videoId, title }] }.
+ *
+ * Accepts any of:
+ *   - A playlist URL:  https://www.youtube.com/playlist?list=PL...
+ *   - A watch URL with list param: https://www.youtube.com/watch?v=...&list=PL...
+ *   - A bare playlist ID (will be converted to a playlist URL)
+ *
+ * Caps the returned video list at 200 entries.
+ * On any failure returns { playlistTitle: null, videos: [] } — never throws.
+ */
+export async function extractPlaylist(url) {
+  if (!url || typeof url !== 'string') return { playlistTitle: null, videos: [] };
+
+  // If the caller passes a bare playlist ID, wrap it in a playlist URL.
+  let targetUrl = url.trim();
+  if (!/^https?:\/\//i.test(targetUrl) && !targetUrl.includes('youtube')) {
+    targetUrl = `https://www.youtube.com/playlist?list=${targetUrl}`;
+  }
+
+  const MAX_VIDEOS = 200;
+
+  try {
+    const { stdout } = await execFileAsync('yt-dlp', [
+      '--flat-playlist',
+      '-J',
+      targetUrl,
+    ], { timeout: 60000 });
+
+    const info = JSON.parse(stdout);
+
+    // Single-video result (yt-dlp returns _type:"video" for non-playlist URLs)
+    if (info._type !== 'playlist') {
+      return {
+        playlistTitle: null,
+        videos: info.id ? [{ videoId: info.id, title: info.title || '' }] : [],
+      };
+    }
+
+    const entries = Array.isArray(info.entries) ? info.entries : [];
+    const videos = entries
+      .slice(0, MAX_VIDEOS)
+      .filter((e) => e && e.id)
+      .map((e) => ({ videoId: e.id, title: e.title || '' }));
+
+    return {
+      playlistTitle: info.title || null,
+      videos,
+    };
+  } catch {
+    return { playlistTitle: null, videos: [] };
   }
 }

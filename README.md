@@ -38,30 +38,35 @@ You've been there: you find a great video, but you'd rather *read* it than sit t
 
 | | Feature | Notes |
 |---|---|---|
-| 📥 | **Transcript fetching** | Works with `watch?v=`, `youtu.be/`, `/shorts/`, `/embed/`, or a bare video ID |
-| 🧹 | **Readable mode** | Glues the ~2-second caption fragments back into proper sentences & paragraphs |
-| ⏱️ | **Timecoded mode** | Subtitle-editor style view with a monospace timecode gutter |
-| 🤖 | **AI digest** | TL;DR + key points + a topic-by-topic summary, always in English |
-| 📑 | **Tabbed UI** | Three panes (Transcript · Digest · Saved) — one visible at a time; long transcripts no longer bury the digest |
-| 🟢 | **Live status indicator** | Fixed pill shows "AI is digesting…" → "Digest ready ✓" as it processes, and jumps to the Digest pane |
+| 📥 | **Transcript fetching** | Works with `watch?v=`, `youtu.be/`, `/shorts/`, `/embed/`, or a bare video ID; pick your caption language from available tracks |
+| 🧹 | **Readable mode** | Glues captions into proper sentences & paragraphs; adjust font size (A−/A+) and column width (Narrow/Medium/Wide); find-in-transcript with live match counter and Prev/Next navigation; highlight passages, attach notes, and copy/download as Markdown — all persists across sessions |
+| ⏱️ | **Timecoded mode** | Subtitle-editor style with monospace timecode gutter; every timestamp deep-links YouTube (`&t=<sec>s`); same highlight & note features as Readable mode |
+| 🤖 | **AI Workspace** | Five-tab AI assistant grounded in your transcript: **Summary** (short/detailed, bullets/prose, pick output language), **Ask** (chat thread, answers sourced only from the transcript), **Fact-check** (claims assessed with confidence), **Chapters** (AI-generated outline with timecoded jumps), **Quotes** (key excerpts with timestamps) — all without web search |
+| 📑 | **Tabbed UI** | Three panes (Transcript · Digest/AI Workspace · Saved); AI Workspace has its own sub-nav to jump between tools |
+| 🟢 | **Live status indicator** | Fixed pill shows "AI is working…" → "Ready ✓" as it processes; click to jump to the Digest pane |
 | 📊 | **Usage readouts** | Today's total Claude Code cost + tokens (via **ccusage**), plus per-digest stats and session totals |
-| ⭐ | **Save for later** | Click ★ to store the video with its transcript & digest in a personal library; re-save to fold in digests added later |
+| ⭐ | **Library & organization** | Click ★ to save videos with transcripts; search, sort (Recently saved / Title A–Z / Favorites first), tag with chips, add per-video notes, and mark favorites; export your whole library as a ZIP of Markdown files or a JSON backup |
+| 📺 | **Playlist mode** | Paste a playlist URL (`list=`) to browse and load any video's transcript |
+| ⌨️ | **Keyboard shortcuts** | Press `?` for the overlay; `/` focus find, `1`/`2`/`3` switch tabs, `t` toggle dark mode, `Esc` close — all paused while typing |
+| 🎨 | **Dark mode & fonts** | Crisp dark theme, Inter for reading, JetBrains Mono for code; loading skeletons respect reduced-motion |
 | 🛟 | **Automatic fallback** | If the transcript library hiccups, `yt-dlp` steps in |
 | 🏠 | **Fully local** | Your own machine, your own browser — nothing leaves the room |
 
-## 🤖 About the AI digest
+## 🤖 About the AI Workspace
 
-The digest **doesn't need an Anthropic API key or any billing setup.** Instead, Echo shells out to your locally-installed [**Claude Code**](https://claude.com/claude-code) CLI in headless mode:
+The AI Workspace **doesn't need an Anthropic API key or any billing setup.** Instead, Echo shells out to your locally-installed [**Claude Code**](https://claude.com/claude-code) CLI in headless mode, reusing your existing login and subscription quota. Each tool runs the transcript through Claude with a tailored prompt:
 
-```bash
-claude -p --model sonnet   # transcript piped in via stdin
-```
+- **Summary**: TL;DR, key points, and topic-by-topic breakdown. Choose short or detailed, bullets or prose, and pick your output language (default English).
+- **Ask**: Multi-turn chat grounded in the transcript. Every answer is sourced only from what was said — no outside knowledge mixed in.
+- **Fact-check**: Extracts claims and assesses them as supported, disputed, or unverifiable with confidence levels. ⚠️ **Honest caveat:** assessment is from Claude's training knowledge **with no live web access** — use it as a starting point, but verify important claims yourself via other sources.
+- **Chapters**: Generates a chapter outline from the transcript with AI-generated titles and timecoded jump links to both YouTube and the transcript.
+- **Quotes**: Pulls key quotes directly from the transcript with their timecodes, suitable for reference or sharing.
 
-So it reuses your existing Claude Code login and runs on your subscription quota. The prompt lives in [`digest.js`](./digest.js) — tweak one string if you'd rather have a pure summary, a full translation, or a different model.
+The prompts live in [`digest.js`](./digest.js) — tweak them if you'd rather have a different model, tone, or analysis approach. Each tool shows its own **tokens · cost · duration**.
 
 ### Usage tracking
 
-Each digest shows its own **tokens · cost · duration**, and Echo tracks a **session total** from the CLI's JSON output. A **"Today" chip** in the header displays your total Claude Code usage for the current calendar day (cost + tokens), fetched on demand via the optional **ccusage** tool.
+Echo tracks Claude Code usage from the CLI's JSON output. A **"Today" chip** in the header displays your total Claude Code usage for the current calendar day (cost + tokens), fetched on demand via the optional **ccusage** tool.
 
 > **Note:** these are actual cost and token figures from Claude Code, **not** the Claude web app's daily usage percentage — that percentage isn't available via any API. The usage readouts show real billing data.
 
@@ -89,11 +94,13 @@ Then open **http://localhost:8000** 🎉
 
 ## 🕹️ How to use
 
-1. **Paste** a YouTube URL and hit **Get transcript** — it lands in the **Transcript** tab.
-2. Toggle between **Readable** and **Timecoded** views.
-3. Hit **AI digest** — a fixed status pill shows progress ("AI is digesting…" → "Digest ready ✓"), and you can click it to jump to the **Digest** tab. _(takes ~10–30s while Claude reads the whole thing)._
-4. Click **★ Save** to store the video (title, URL, transcript, digest) in your personal library — it appears in the **Saved** tab. Click an entry to re-open it, or delete it.
-5. The **"Today"** chip in the header shows your total Claude Code usage for the day (cost + tokens).
+1. **Paste** a YouTube URL, optionally pick a caption language, and hit **Get transcript** — it lands in the **Transcript** tab.
+2. **Read** — toggle between Readable and Timecoded views. Adjust font size (A−/A+) and column width (Narrow/Medium/Wide). Use `/` to search, Prev/Next to navigate, or highlight text and add notes (all saved automatically).
+3. **Copy or download** the transcript or digest as Markdown using the download button.
+4. **AI Workspace** — click any of the five tabs (Summary · Ask · Fact-check · Chapters · Quotes). A fixed status pill shows "AI is working…" and jumps to the Digest pane when ready. _(takes ~10–30s while Claude reads the whole thing)._
+5. **Save** — click **★** to store the video in your library; search/sort/tag/note it in the **Saved** tab. Export your whole library as a ZIP of Markdown files or JSON backup.
+6. **Playlist mode** — paste a `list=` URL to browse and load videos from a playlist.
+7. **Keyboard help** — press `?` for shortcuts. The **"Today"** chip shows your total Claude Code usage for the day (cost + tokens).
 
 ## 🧩 Project structure
 
@@ -101,40 +108,56 @@ Then open **http://localhost:8000** 🎉
 echo/
 ├── server.js         # Express server: API routes + serves the UI
 ├── transcript.js     # video-ID parsing + transcript fetch (library + yt-dlp fallback)
-├── digest.js         # shells out to the Claude Code CLI for the AI digest
+├── digest.js         # shells out to the Claude Code CLI for the AI workspace tools
 ├── usage.js          # fetches today's Claude Code usage stats via ccusage
 ├── store.js          # file-based store for saved videos (library.json)
 ├── data/             # (gitignored) stores user's personal video library
-│   └── library.json  # saved videos: metadata, transcripts, digests
+│   └── library.json  # saved videos: metadata, transcripts, digests, tags, notes, highlights
 ├── public/
-│   └── index.html    # the whole UI — one self-contained file, no build step
+│   └── index.html    # the whole UI — one self-contained file, no build step; loads JSZip from CDN for library export
 ├── package.json
 └── README.md
 ```
 
-### API, briefly
+### API
 
 | Method | Route | Body | Returns |
 |--------|-------|------|---------|
-| `POST` | `/api/transcript` | `{ url }` | `{ videoId, url, title, segments: [{ text, offset }] }` |
-| `POST` | `/api/digest` | `{ text }` | `{ digest, usage: { costUsd, totalTokens, durationMs } }` |
-| `GET` | `/api/usage` | _(none)_ | `{ available, date, costUsd, totalTokens }` — today's Claude Code totals |
-| `GET` | `/api/saved` | _(none)_ | list of saved entries (metadata only) |
-| `GET` | `/api/saved/:videoId` | _(none)_ | one full entry with transcript + digest |
-| `POST` | `/api/saved` | `{ url, videoId, title, segments, digest }` | saved entry metadata — save or update (upsert by `videoId`) |
+| `POST` | `/api/transcript` | `{ url, lang? }` | `{ videoId, url, title, segments }` |
+| `GET` | `/api/languages` | `?videoId=` | `{ tracks: [{ code, name, auto }] }` |
+| `POST` | `/api/playlist` | `{ url }` | `{ playlistTitle, videos: [{ videoId, title }] }` |
+| `POST` | `/api/digest` | `{ text, length?, format?, language? }` | `{ digest, usage }` |
+| `POST` | `/api/chat` | `{ text, question }` | `{ answer, usage }` |
+| `POST` | `/api/chapters` | `{ segments }` | `{ chapters: [{ title, startSec }], usage }` |
+| `POST` | `/api/quotes` | `{ segments }` | `{ quotes: [{ text, startSec }], usage }` |
+| `POST` | `/api/factcheck` | `{ text }` | `{ claims: [{ claim, assessment, confidence, explanation }], caveat, usage }` |
+| `GET` | `/api/usage` | _(none)_ | today's Claude Code totals |
+| `GET` | `/api/saved` | _(none)_ | list of saved entries (metadata incl. tags, favorite, noteCount, highlightCount) |
+| `GET` | `/api/saved/export` | _(none)_ | `{ entries: [ ...full entries... ] }` |
+| `GET` | `/api/saved/:videoId` | _(none)_ | one full entry (transcript, digest, tags, notes, highlights) |
+| `POST` | `/api/saved` | `{ url, videoId, title, segments, digest }` | saved entry metadata (upsert by `videoId`) |
 | `DELETE` | `/api/saved/:videoId` | _(none)_ | `{ ok: true }` |
+| `PATCH` | `/api/saved/:videoId/tags` | `{ tags }` | updated entry |
+| `PATCH` | `/api/saved/:videoId/favorite` | `{ favorite }` | updated entry |
+| `POST` | `/api/saved/:videoId/notes` | `{ text }` | created note |
+| `DELETE` | `/api/saved/:videoId/notes/:noteId` | _(none)_ | `{ ok: true }` |
+| `PUT` | `/api/saved/:videoId/highlights` | `{ highlights }` | updated entry |
+| `POST` | `/api/saved/:videoId/highlights` | `{ text, note?, color? }` | created highlight |
+| `DELETE` | `/api/saved/:videoId/highlights/:highlightId` | _(none)_ | `{ ok: true }` |
 
 ## ⚠️ Good to know
 
 - Videos with **captions disabled**, or that are **private / age-restricted**, can't be transcribed — Echo says so clearly instead of crashing.
 - YouTube occasionally shifts its internals; that's exactly what the `yt-dlp` fallback is there to cover.
-- The AI digest needs Claude Code installed and logged in — without it, everything else still works.
+- The **AI Workspace** tools need Claude Code installed and logged in — without it, transcript reading, search, and library features work just fine.
 - Your **saved library** (`data/library.json`) is **gitignored** — it never leaves your machine and doesn't get pushed to any repo.
+- **Fact-check** is grounded in Claude's training knowledge; it has **no live web access**, so verify important claims via other sources.
 - The **usage readouts** show real Claude Code costs and tokens; the **"Today" chip** is cached ~60s server-side.
+- Library **export to ZIP** loads JSZip from a CDN; if the CDN is unavailable, the app falls back to a single JSON backup file.
 
 ## 🛠️ Built with
 
-**Node.js** · **Express** · **[youtube-transcript](https://www.npmjs.com/package/youtube-transcript)** · **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** · **[Claude Code](https://claude.com/claude-code)** · plain HTML/CSS/JS (Space Grotesk · Newsreader · JetBrains Mono)
+**Node.js** · **Express** · **[youtube-transcript](https://www.npmjs.com/package/youtube-transcript)** · **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** · **[Claude Code](https://claude.com/claude-code)** · plain HTML/CSS/JS (Space Grotesk · Inter · JetBrains Mono)
 
 ---
 

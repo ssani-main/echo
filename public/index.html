@@ -5,10 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>YouTube Transcript</title>
 
+  <!-- No-FOUC: set theme token before first paint -->
+  <script>
+    (function () {
+      var saved = localStorage.getItem('echo-theme');
+      var sysDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.setAttribute('data-theme', saved || (sysDark ? 'dark' : 'light'));
+    })();
+  </script>
+
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Newsreader:ital,wght@0,400;0,500;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- JSZip — used by Export library (ZIP download); graceful fallback if unavailable -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
   <style>
     /* ==============================================
@@ -25,12 +37,49 @@
       --accent-soft:  #E6F0EB;
       --warn:         #B4232A;
 
+      /* Extra tokens (also defined in dark block below) */
+      --on-accent:        #FFFFFF;
+      --warn-soft:        #fef2f2;
+      --warn-ring:        rgba(180, 35, 42, 0.12);
+      --shadow-indicator: rgba(0, 0, 0, 0.10);
+
       --font-sans:  'Space Grotesk', system-ui, sans-serif;
-      --font-serif: 'Newsreader', Georgia, serif;
+      --font-serif: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
       --font-mono:  'JetBrains Mono', 'Courier New', monospace;
 
       --radius:   8px;
       --col-max:  760px;
+
+      /* Find-in-transcript highlight tokens */
+      --find-hit:        #FEF3C7;
+      --find-hit-active: #FCD34D;
+
+      /* Overlay backdrop */
+      --overlay-backdrop: rgba(0, 0, 0, 0.45);
+    }
+
+    /* Dark-theme overrides — applied via data-theme="dark" on <html> */
+    :root[data-theme="dark"] {
+      --paper:             #14161A;
+      --surface:           #1C1F26;
+      --ink:               #ECEAE4;
+      --muted:             #9AA1AA;
+      --rule:              #2A2F38;
+      --accent:            #35C489;
+      --accent-dark:       #2AAD78;
+      --accent-soft:       #15332A;
+      --warn:              #F0656B;
+      --on-accent:         #0C1F17;
+      --warn-soft:         #2A1517;
+      --warn-ring:         rgba(240, 101, 107, 0.20);
+      --shadow-indicator:  rgba(0, 0, 0, 0.35);
+
+      /* Find-in-transcript highlight tokens */
+      --find-hit:        #292108;
+      --find-hit-active: #78350F;
+
+      /* Overlay backdrop */
+      --overlay-backdrop: rgba(0, 0, 0, 0.65);
     }
 
     /* ==============================================
@@ -234,7 +283,7 @@
       font-family: var(--font-sans);
       font-size: 0.9rem;
       font-weight: 500;
-      color: #fff;
+      color: var(--on-accent);
       background: var(--accent);
       border: none;
       border-radius: var(--radius);
@@ -270,7 +319,7 @@
       min-height: 1.4em;
       font-family: var(--font-sans);
       font-size: 0.8rem;
-      color: #b91c1c;
+      color: var(--warn);
       margin-bottom: 1rem;
       letter-spacing: 0.01em;
     }
@@ -504,10 +553,11 @@
     /* Readable / plain mode: flowing paragraphs in serif */
     #output p {
       font-family: var(--font-serif);
-      font-size: 1.075rem;
+      font-size: calc(1.05rem * var(--reading-scale, 1));
       line-height: 1.72;
       color: var(--ink);
       margin-bottom: 1.1em;
+      max-width: var(--reading-measure, 62rem);
     }
 
     #output p:last-child {
@@ -543,7 +593,7 @@
     .ts-text {
       flex: 1;
       font-family: var(--font-serif);
-      font-size: 0.975rem;
+      font-size: calc(0.975rem * var(--reading-scale, 1));
       color: var(--ink);
       padding-left: 0.9rem;
       line-height: 1.65;
@@ -572,7 +622,7 @@
       min-height: 1.4em;
       font-family: var(--font-sans);
       font-size: 0.8rem;
-      color: #b91c1c;
+      color: var(--warn);
       margin-bottom: 0.75rem;
       letter-spacing: 0.01em;
     }
@@ -692,10 +742,10 @@
     =============================================== */
     #topIndicator {
       position: fixed;
-      top: 1rem;
+      top: 12px;
       left: 50%;
       transform: translateX(-50%);
-      z-index: 9999;
+      z-index: 8000;
       display: none;
       align-items: center;
       gap: 0.45rem;
@@ -703,7 +753,7 @@
       background: var(--surface);
       border: 1px solid var(--rule);
       border-radius: 999px;
-      box-shadow: 0 2px 16px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 2px 16px var(--shadow-indicator);
       font-family: var(--font-sans);
       font-size: 0.8rem;
       font-weight: 500;
@@ -768,8 +818,7 @@
 
     .saved-card {
       display: flex;
-      align-items: center;
-      gap: 0.75rem;
+      flex-direction: column;
       background: var(--surface);
       border: 1px solid var(--rule);
       border-radius: var(--radius);
@@ -778,6 +827,13 @@
       cursor: pointer;
       outline: none;
       transition: border-color 0.12s, box-shadow 0.12s;
+    }
+
+    /* Inner row: star + main content + delete btn */
+    .saved-card-body {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
     }
 
     .saved-card:hover {
@@ -884,17 +940,71 @@
     .saved-delete-btn:hover {
       color: var(--warn);
       border-color: var(--warn);
-      background: #fef2f2;
+      background: var(--warn-soft);
     }
 
     .saved-delete-btn:focus-visible {
       color: var(--warn);
       border-color: var(--warn);
-      box-shadow: 0 0 0 3px rgba(180, 35, 42, 0.12);
+      box-shadow: 0 0 0 3px var(--warn-ring);
     }
 
     /* ==============================================
-       14. RESPONSIVE
+       14. THEME TOGGLE BUTTON
+    =============================================== */
+    .theme-toggle {
+      margin-left: auto;
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      background: transparent;
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      color: var(--muted);
+      cursor: pointer;
+      outline: none;
+    }
+
+    .theme-toggle:hover {
+      color: var(--ink);
+      border-color: var(--accent);
+    }
+
+    .theme-toggle:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    /* ==============================================
+       15. THEME TRANSITIONS
+       Applied only when motion is acceptable.
+       Elements with their own transition declarations
+       (buttons, inputs) keep theirs; this rule
+       provides smooth theme-switching for everything
+       that does NOT already declare a transition.
+    =============================================== */
+    @media (prefers-reduced-motion: no-preference) {
+      html,
+      body,
+      #output,
+      #digestOutput,
+      #topIndicator,
+      .now-reading,
+      .tab-bar,
+      .saved-card,
+      .usage-stats,
+      .theme-toggle {
+        transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease,
+                    box-shadow 150ms ease;
+      }
+    }
+
+    /* ==============================================
+       16. RESPONSIVE
     =============================================== */
     @media (max-width: 520px) {
       body {
@@ -926,6 +1036,9 @@
 
       .saved-card {
         padding: 0.75rem 0.85rem;
+      }
+
+      .saved-card-body {
         flex-wrap: wrap;
       }
 
@@ -941,6 +1054,1869 @@
         font-size: 0.72rem;
       }
     }
+
+    /* ==============================================
+       17. MINI BUTTONS & ACTION ROW
+    =============================================== */
+    .mini-btn {
+      padding: 0.28rem 0.7rem;
+      font-family: var(--font-sans);
+      font-size: 0.755rem;
+      font-weight: 500;
+      color: var(--accent);
+      background: transparent;
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      outline: none;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+    }
+
+    .mini-btn:hover:not(:disabled) {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+    }
+
+    .mini-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .mini-btn:disabled {
+      color: var(--muted);
+      border-color: var(--rule);
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    .action-row {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      margin-bottom: 0.55rem;
+      flex-wrap: wrap;
+    }
+
+    /* ==============================================
+       18. FIND BAR
+    =============================================== */
+    .find-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      margin-bottom: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    /* Group: input + counter + Prev/Next stay together as one flex unit */
+    .find-group {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      flex: 1 1 auto;
+      min-width: 0;
+      flex-wrap: nowrap;
+    }
+
+    .find-bar-input-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .find-bar-icon {
+      position: absolute;
+      left: 0.55rem;
+      color: var(--muted);
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+    }
+
+    #findInput {
+      padding: 0.28rem 0.75rem 0.28rem 1.85rem;
+      font-family: var(--font-sans);
+      font-size: 0.795rem;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      outline: none;
+      width: 100%;       /* fills the input-wrap, which itself is flex: 1 */
+      min-width: 0;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    #findInput::placeholder {
+      color: var(--muted);
+      opacity: 1;
+    }
+
+    #findInput:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    /* Remove default browser "x" clear button in search inputs */
+    #findInput::-webkit-search-cancel-button {
+      -webkit-appearance: none;
+    }
+
+    .find-counter {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--muted);
+      min-width: 4rem;
+      white-space: nowrap;
+    }
+
+    /* ==============================================
+       19. TIMECODE LINKS
+    =============================================== */
+    .ts-badge.ts-link {
+      text-decoration: none;
+      /* inherits color: var(--accent) from .ts-badge */
+    }
+
+    .ts-badge.ts-link:hover {
+      text-decoration: underline;
+    }
+
+    .ts-badge.ts-link:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+
+    /* ==============================================
+       20. FIND HIGHLIGHTS
+    =============================================== */
+    mark.find-hit {
+      background: var(--find-hit);
+      color: var(--ink);
+      border-radius: 2px;
+      padding: 0 1px;
+    }
+
+    mark.find-hit.active {
+      background: var(--find-hit-active);
+      color: var(--ink);
+      outline: 2px solid var(--find-hit-active);
+      outline-offset: 1px;
+    }
+
+    /* Visually hidden but accessible */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    /* ==============================================
+       21. AI WORKSPACE — SUB-NAV
+    =============================================== */
+    .ai-subnav {
+      display: inline-flex;
+      align-items: center;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 999px;
+      padding: 3px;
+      gap: 2px;
+      margin-bottom: 1.25rem;
+      /* Mobile: horizontally scrollable without clipping pills */
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      flex-wrap: nowrap;
+      max-width: 100%;
+    }
+
+    /* Hide scrollbar on desktop when not needed */
+    .ai-subnav::-webkit-scrollbar { height: 0; }
+
+    .ai-subnav-btn {
+      padding: 0.3rem 1rem;
+      font-family: var(--font-sans);
+      font-size: 0.75rem;
+      font-weight: 500;
+      letter-spacing: 0.03em;
+      color: var(--muted);
+      background: transparent;
+      border: none;
+      border-radius: 999px;
+      cursor: pointer;
+      outline: none;
+      transition: background 0.12s, color 0.12s, box-shadow 0.12s;
+      white-space: nowrap;
+      flex: 0 0 auto; /* prevent pills from shrinking */
+    }
+
+    .ai-subnav-btn[aria-selected="true"] {
+      background: var(--surface);
+      color: var(--ink);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.10);
+    }
+
+    .ai-subnav-btn:hover:not([aria-selected="true"]) {
+      color: var(--ink);
+    }
+
+    .ai-subnav-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    /* ==============================================
+       22. DIGEST OPTIONS ROW
+    =============================================== */
+    .digest-opts {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .digest-opt-label {
+      font-family: var(--font-sans);
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    /* Mini segmented toggle — mirrors .view-toggle at a smaller scale */
+    .digest-seg {
+      display: inline-flex;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .digest-seg label {
+      position: relative;
+      display: flex;
+      align-items: center;
+      padding: 0.22rem 0.65rem;
+      font-family: var(--font-sans);
+      font-size: 0.75rem;
+      font-weight: 500;
+      letter-spacing: 0.03em;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.12s, color 0.12s;
+    }
+
+    .digest-seg label:not(:last-child) {
+      border-right: 1px solid var(--rule);
+    }
+
+    .digest-seg input[type="radio"] {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+      pointer-events: none;
+    }
+
+    .digest-seg label:has(input:checked),
+    .digest-seg label.is-active {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .digest-seg label:focus-within {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+
+    #digestLangInput {
+      padding: 0.22rem 0.65rem;
+      font-family: var(--font-sans);
+      font-size: 0.75rem;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      outline: none;
+      width: 105px;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    #digestLangInput::placeholder {
+      color: var(--muted);
+      opacity: 1;
+    }
+
+    #digestLangInput:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    /* ==============================================
+       23. ASK PANEL
+    =============================================== */
+    .ask-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.6rem;
+      align-items: flex-start;
+    }
+
+    #askInput {
+      flex: 1;
+      min-width: 0;
+      padding: 0.55rem 0.8rem;
+      font-family: var(--font-serif);
+      font-size: 0.9rem;
+      line-height: 1.5;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      outline: none;
+      resize: vertical;
+      min-height: 2.75rem;
+      max-height: 8rem;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    #askInput::placeholder {
+      color: var(--muted);
+      opacity: 1;
+      font-style: italic;
+    }
+
+    #askInput:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    #askBtn {
+      flex-shrink: 0;
+      padding: 0.55rem 1.1rem;
+      font-family: var(--font-sans);
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--on-accent);
+      background: var(--accent);
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      white-space: nowrap;
+      outline: none;
+      transition: background 0.15s;
+    }
+
+    #askBtn:hover:not(:disabled) {
+      background: var(--accent-dark);
+    }
+
+    #askBtn:focus-visible {
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    #askBtn:disabled {
+      background: var(--muted);
+      opacity: 0.6;
+      cursor: default;
+    }
+
+    .ai-inline-status {
+      min-height: 1.3em;
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+      letter-spacing: 0.01em;
+    }
+
+    .ai-inline-status.error {
+      color: var(--warn);
+    }
+
+    .qa-thread {
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+    }
+
+    .qa-card {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .qa-question {
+      font-family: var(--font-sans);
+      font-size: 0.82rem;
+      font-weight: 500;
+      color: var(--muted);
+      background: var(--paper);
+      padding: 0.55rem 1rem;
+      border-bottom: 1px solid var(--rule);
+      letter-spacing: 0.01em;
+      line-height: 1.5;
+    }
+
+    .qa-answer {
+      padding: 0.85rem 1.1rem;
+    }
+
+    .qa-answer p {
+      font-family: var(--font-serif);
+      font-size: 0.975rem;
+      line-height: 1.7;
+      color: var(--ink);
+      margin-bottom: 0.75rem;
+    }
+
+    .qa-answer p:last-child { margin-bottom: 0; }
+
+    .qa-answer ul {
+      padding-left: 1.4rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .qa-answer li {
+      font-family: var(--font-serif);
+      font-size: 0.975rem;
+      line-height: 1.65;
+      color: var(--ink);
+      margin-bottom: 0.25rem;
+    }
+
+    .qa-answer h2 {
+      font-family: var(--font-sans);
+      font-size: 0.925rem;
+      font-weight: 600;
+      color: var(--ink);
+      margin: 0.9rem 0 0.35rem;
+    }
+
+    .qa-answer h3 {
+      font-family: var(--font-sans);
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--ink);
+      margin: 0.75rem 0 0.3rem;
+    }
+
+    .qa-answer strong { font-weight: 600; }
+
+    .qa-usage {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--muted);
+      padding: 0.35rem 1rem 0.45rem;
+      border-top: 1px solid var(--rule);
+      letter-spacing: 0.01em;
+    }
+
+    .ask-clear-row {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 0.65rem;
+    }
+
+    /* ==============================================
+       24. FACT-CHECK PANEL
+    =============================================== */
+    /* Static disclaimer — always visible above the Check facts button */
+    .fc-disclaimer {
+      background: var(--warn-soft);
+      border: 1px solid var(--warn-ring);
+      border-radius: var(--radius);
+      padding: 0.5rem 0.85rem;
+      margin-bottom: 0.9rem;
+      font-family: var(--font-serif);
+      font-size: 0.85rem;
+      line-height: 1.6;
+      color: var(--muted);
+    }
+
+    .fc-btn-row {
+      margin-bottom: 1rem;
+    }
+
+    #factCheckBtn {
+      padding: 0.375rem 1rem;
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--accent);
+      background: transparent;
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      outline: none;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    #factCheckBtn:hover:not(:disabled) {
+      background: var(--accent-soft);
+    }
+
+    #factCheckBtn:focus-visible {
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    #factCheckBtn:disabled {
+      color: var(--muted);
+      border-color: var(--rule);
+      opacity: 0.6;
+      cursor: default;
+    }
+
+    .fc-caveat {
+      background: var(--warn-soft);
+      border: 1px solid var(--warn-ring);
+      border-radius: var(--radius);
+      padding: 0.8rem 1rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .fc-caveat-label {
+      font-family: var(--font-sans);
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--warn);
+      margin-bottom: 0.35rem;
+    }
+
+    .fc-caveat-body {
+      font-family: var(--font-serif);
+      font-size: 0.88rem;
+      line-height: 1.65;
+      color: var(--ink);
+    }
+
+    .fc-claims {
+      display: flex;
+      flex-direction: column;
+      gap: 0.7rem;
+    }
+
+    .fc-claim-card {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      padding: 0.9rem 1.1rem;
+    }
+
+    .fc-claim-text {
+      font-family: var(--font-serif);
+      font-size: 0.975rem;
+      font-weight: 500;
+      color: var(--ink);
+      line-height: 1.5;
+      margin-bottom: 0.55rem;
+    }
+
+    .fc-claim-header {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.55rem;
+    }
+
+    /* Assessment badges — all colors via existing tokens, no new tokens needed */
+    .fc-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.12rem 0.55rem;
+      border-radius: 999px;
+      font-family: var(--font-sans);
+      font-size: 0.63rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .fc-badge.supported {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .fc-badge.disputed {
+      background: var(--warn-soft);
+      color: var(--warn);
+    }
+
+    /* unverifiable: uses rule token as a neutral tinted bg (readable in both themes) */
+    .fc-badge.unverifiable {
+      background: var(--rule);
+      color: var(--muted);
+    }
+
+    .fc-confidence {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.1rem 0.45rem;
+      border-radius: 4px;
+      font-family: var(--font-sans);
+      font-size: 0.65rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      border: 1px solid var(--rule);
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+
+    .fc-explanation {
+      font-family: var(--font-serif);
+      font-size: 0.9rem;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .fc-usage {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--muted);
+      margin-top: 1rem;
+      padding-top: 0.65rem;
+      border-top: 1px solid var(--rule);
+      letter-spacing: 0.01em;
+    }
+
+    /* ==============================================
+       25. CHAPTERS PANEL
+    =============================================== */
+    #chaptersBtn {
+      padding: 0.375rem 1rem;
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--accent);
+      background: transparent;
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      outline: none;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    #chaptersBtn:hover:not(:disabled) {
+      background: var(--accent-soft);
+    }
+
+    #chaptersBtn:focus-visible {
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    #chaptersBtn:disabled {
+      color: var(--muted);
+      border-color: var(--rule);
+      opacity: 0.6;
+      cursor: default;
+    }
+
+    .ch-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .ch-item {
+      display: flex;
+      align-items: baseline;
+      gap: 0.65rem;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      padding: 0.65rem 1rem;
+    }
+
+    .ch-num {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      font-weight: 500;
+      color: var(--muted);
+      flex-shrink: 0;
+      min-width: 1.7rem;
+      text-align: right;
+    }
+
+    .ch-title {
+      flex: 1;
+      font-family: var(--font-serif);
+      font-size: 0.975rem;
+      color: var(--ink);
+      line-height: 1.4;
+    }
+
+    .ch-tc-group {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      flex-shrink: 0;
+    }
+
+    .ch-tc-link {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 500;
+      color: var(--accent);
+      text-decoration: none;
+      letter-spacing: 0.01em;
+    }
+
+    .ch-tc-link:hover {
+      text-decoration: underline;
+    }
+
+    .ch-tc-link:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+
+    .ch-jump-btn,
+    .qt-jump-btn {
+      padding: 0.1rem 0.45rem;
+      font-family: var(--font-sans);
+      font-size: 0.68rem;
+      font-weight: 500;
+      color: var(--muted);
+      background: transparent;
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      cursor: pointer;
+      outline: none;
+      white-space: nowrap;
+      transition: color 0.12s, border-color 0.12s, background 0.12s;
+    }
+
+    .ch-jump-btn:hover,
+    .qt-jump-btn:hover {
+      color: var(--accent);
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .ch-jump-btn:focus-visible,
+    .qt-jump-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    .ch-usage {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--muted);
+      margin-top: 1rem;
+      padding-top: 0.65rem;
+      border-top: 1px solid var(--rule);
+      letter-spacing: 0.01em;
+    }
+
+    /* ==============================================
+       26. QUOTES PANEL
+    =============================================== */
+    #quotesBtn {
+      padding: 0.375rem 1rem;
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--accent);
+      background: transparent;
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      outline: none;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    #quotesBtn:hover:not(:disabled) {
+      background: var(--accent-soft);
+    }
+
+    #quotesBtn:focus-visible {
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    #quotesBtn:disabled {
+      color: var(--muted);
+      border-color: var(--rule);
+      opacity: 0.6;
+      cursor: default;
+    }
+
+    .qt-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .qt-card {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      padding: 0.9rem 1.1rem;
+    }
+
+    .qt-blockquote {
+      font-family: var(--font-serif);
+      font-size: 1rem;
+      line-height: 1.7;
+      color: var(--ink);
+      border-left: 3px solid var(--accent);
+      padding-left: 0.9rem;
+      margin: 0 0 0.65rem 0;
+      font-style: italic;
+    }
+
+    .qt-footer {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .qt-tc-link {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 500;
+      color: var(--accent);
+      text-decoration: none;
+      letter-spacing: 0.01em;
+    }
+
+    .qt-tc-link:hover {
+      text-decoration: underline;
+    }
+
+    .qt-tc-link:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+
+    .qt-usage {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--muted);
+      margin-top: 1rem;
+      padding-top: 0.65rem;
+      border-top: 1px solid var(--rule);
+      letter-spacing: 0.01em;
+    }
+
+    /* ==============================================
+       27. JUMP-TO-TRANSCRIPT FLASH
+    =============================================== */
+    /* (section 27 content is below — new sections 28-32 follow the closing keyframe) */
+
+    /* ==============================================
+       28. SAVED TOOLBAR (search + sort + export)
+    =============================================== */
+    .saved-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.65rem;
+      flex-wrap: wrap;
+    }
+
+    .saved-search-wrap {
+      flex: 1;
+      min-width: 130px;
+    }
+
+    #savedSearchInput {
+      width: 100%;
+      padding: 0.35rem 0.75rem;
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    #savedSearchInput::placeholder {
+      color: var(--muted);
+      opacity: 1;
+    }
+
+    #savedSearchInput:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    #savedSearchInput::-webkit-search-cancel-button {
+      -webkit-appearance: none;
+    }
+
+    #savedSortSelect {
+      padding: 0.35rem 0.6rem;
+      font-family: var(--font-sans);
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      max-width: 150px;
+    }
+
+    #savedSortSelect:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .saved-result-count {
+      font-family: var(--font-sans);
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-bottom: 0.4rem;
+      min-height: 1.1em;
+      letter-spacing: 0.01em;
+    }
+
+    .saved-status-msg {
+      font-family: var(--font-sans);
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+      min-height: 1.1em;
+    }
+
+    .saved-status-msg.error {
+      color: var(--warn);
+    }
+
+    /* ==============================================
+       29. STAR / FAVORITE BUTTON
+    =============================================== */
+    .saved-star-btn {
+      flex-shrink: 0;
+      align-self: flex-start;
+      margin-top: 0.05rem;
+      padding: 0.15rem 0.3rem;
+      font-size: 1.05rem;
+      line-height: 1;
+      color: var(--muted);
+      background: transparent;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      outline: none;
+      transition: color 0.12s, transform 0.12s;
+    }
+
+    .saved-star-btn[aria-pressed="true"] {
+      color: var(--accent);
+    }
+
+    .saved-star-btn:hover {
+      color: var(--accent);
+      transform: scale(1.2);
+    }
+
+    .saved-star-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    /* ==============================================
+       30. TAG CHIPS + TAG EDITOR
+    =============================================== */
+    .saved-tags-row {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      flex-wrap: wrap;
+      margin-top: 0.35rem;
+    }
+
+    /* Visual wrapper for the two-button tag chip */
+    .saved-tag-chip {
+      display: inline-flex;
+      align-items: center;
+      background: var(--accent-soft);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    /* Left part — clicking filters the list */
+    .saved-tag-filter {
+      padding: 0.12rem 0.35rem 0.12rem 0.55rem;
+      font-family: var(--font-sans);
+      font-size: 0.66rem;
+      font-weight: 500;
+      color: var(--accent);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      outline: none;
+      line-height: 1.4;
+      white-space: nowrap;
+    }
+
+    .saved-tag-filter:hover {
+      text-decoration: underline;
+    }
+
+    .saved-tag-filter:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+
+    /* Right part — × removes the tag */
+    .saved-tag-remove {
+      padding: 0.12rem 0.45rem 0.12rem 0.15rem;
+      font-size: 0.7rem;
+      line-height: 1.4;
+      color: var(--muted);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      outline: none;
+      transition: color 0.1s;
+    }
+
+    .saved-tag-remove:hover {
+      color: var(--warn);
+    }
+
+    .saved-tag-remove:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+
+    /* Dashed + tag affordance */
+    .saved-tag-add-btn {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.1rem 0.45rem;
+      font-family: var(--font-sans);
+      font-size: 0.66rem;
+      font-weight: 500;
+      color: var(--muted);
+      background: transparent;
+      border: 1px dashed var(--rule);
+      border-radius: 999px;
+      cursor: pointer;
+      outline: none;
+      white-space: nowrap;
+      transition: color 0.12s, border-color 0.12s;
+    }
+
+    .saved-tag-add-btn:hover {
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .saved-tag-add-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    /* Inline text input that replaces the + button */
+    .saved-tag-input {
+      padding: 0.1rem 0.45rem;
+      font-family: var(--font-sans);
+      font-size: 0.68rem;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      outline: none;
+      width: 88px;
+      transition: box-shadow 0.12s;
+    }
+
+    .saved-tag-input:focus {
+      box-shadow: 0 0 0 2px var(--accent-soft);
+    }
+
+    /* ==============================================
+       31. CARD ACTIONS ROW (notes btn lives here)
+    =============================================== */
+    .saved-card-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-top: 0.4rem;
+      flex-wrap: wrap;
+    }
+
+    .saved-notes-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.2rem;
+      padding: 0.18rem 0.6rem;
+      font-family: var(--font-sans);
+      font-size: 0.68rem;
+      font-weight: 500;
+      color: var(--muted);
+      background: transparent;
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      cursor: pointer;
+      outline: none;
+      white-space: nowrap;
+      transition: color 0.12s, border-color 0.12s, background 0.12s;
+    }
+
+    .saved-notes-btn:hover,
+    .saved-notes-btn[aria-expanded="true"] {
+      color: var(--accent);
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .saved-notes-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    /* ==============================================
+       32. NOTES PANEL (inline, below card body)
+    =============================================== */
+    .saved-notes-panel {
+      display: none;
+      border-top: 1px solid var(--rule);
+      margin-top: 0.65rem;
+      padding-top: 0.65rem;
+    }
+
+    .saved-notes-panel.expanded {
+      display: block;
+    }
+
+    .saved-notes-loading,
+    .saved-notes-empty {
+      font-family: var(--font-serif);
+      font-size: 0.85rem;
+      font-style: italic;
+      color: var(--muted);
+      padding: 0.25rem 0;
+    }
+
+    .saved-note-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      padding: 0.38rem 0;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .saved-note-item:last-of-type {
+      border-bottom: none;
+    }
+
+    .saved-note-text {
+      flex: 1;
+      font-family: var(--font-serif);
+      font-size: 0.875rem;
+      line-height: 1.55;
+      color: var(--ink);
+    }
+
+    .saved-note-date {
+      font-family: var(--font-mono);
+      font-size: 0.63rem;
+      color: var(--muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+      margin-top: 0.15rem;
+    }
+
+    .saved-note-delete {
+      flex-shrink: 0;
+      padding: 0.1rem 0.3rem;
+      font-size: 0.68rem;
+      line-height: 1;
+      color: var(--muted);
+      background: transparent;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      outline: none;
+      transition: color 0.1s;
+    }
+
+    .saved-note-delete:hover {
+      color: var(--warn);
+    }
+
+    .saved-note-delete:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    .saved-note-add-row {
+      display: flex;
+      gap: 0.4rem;
+      margin-top: 0.6rem;
+      align-items: flex-start;
+    }
+
+    .saved-note-textarea {
+      flex: 1;
+      min-width: 0;
+      padding: 0.38rem 0.6rem;
+      font-family: var(--font-serif);
+      font-size: 0.85rem;
+      line-height: 1.45;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      outline: none;
+      resize: vertical;
+      min-height: 2.3rem;
+      max-height: 6rem;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .saved-note-textarea::placeholder {
+      color: var(--muted);
+      font-style: italic;
+      opacity: 1;
+    }
+
+    .saved-note-textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .saved-note-submit {
+      flex-shrink: 0;
+      padding: 0.38rem 0.85rem;
+      font-family: var(--font-sans);
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: var(--on-accent);
+      background: var(--accent);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      outline: none;
+      transition: background 0.15s;
+    }
+
+    .saved-note-submit:hover:not(:disabled) {
+      background: var(--accent-dark);
+    }
+
+    .saved-note-submit:focus-visible {
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .saved-note-submit:disabled {
+      background: var(--muted);
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    /* ==============================================
+       27. JUMP-TO-TRANSCRIPT FLASH (continued)
+    =============================================== */
+    @keyframes ts-flash-anim {
+      0%   { background-color: var(--find-hit-active); }
+      70%  { background-color: var(--find-hit-active); }
+      100% { background-color: transparent; }
+    }
+
+    .ts-line.ts-flash {
+      animation: ts-flash-anim 1.4s ease-out forwards;
+      border-radius: 3px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ts-line.ts-flash {
+        animation: none;
+        background-color: var(--find-hit-active);
+      }
+    }
+
+    /* ==============================================
+       33. READING CONTROLS (font-size + measure)
+    =============================================== */
+    .reading-controls {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      flex-shrink: 0;
+    }
+
+    .reading-scale-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      font-family: var(--font-sans);
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--muted);
+      background: transparent;
+      border: 1px solid var(--rule);
+      border-radius: 5px;
+      cursor: pointer;
+      outline: none;
+      transition: color 0.12s, border-color 0.12s, background 0.12s;
+      white-space: nowrap;
+      letter-spacing: -0.02em;
+    }
+
+    .reading-scale-btn:hover:not(:disabled) {
+      color: var(--ink);
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .reading-scale-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .reading-scale-btn:disabled {
+      opacity: 0.32;
+      cursor: default;
+    }
+
+    .reading-measure-seg {
+      display: inline-flex;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 5px;
+      overflow: hidden;
+    }
+
+    .reading-measure-seg label {
+      position: relative;
+      display: flex;
+      align-items: center;
+      padding: 0.22rem 0.5rem;
+      font-family: var(--font-sans);
+      font-size: 0.7rem;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.12s, color 0.12s;
+      white-space: nowrap;
+    }
+
+    .reading-measure-seg label:not(:last-child) {
+      border-right: 1px solid var(--rule);
+    }
+
+    .reading-measure-seg input[type="radio"] {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+      pointer-events: none;
+    }
+
+    .reading-measure-seg label:has(input:checked),
+    .reading-measure-seg label.is-active {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .reading-measure-seg label:focus-within {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+
+    /* ==============================================
+       34. USER HIGHLIGHTS
+    =============================================== */
+    mark.user-highlight {
+      background: var(--accent-soft);
+      color: var(--ink);
+      border-left: 2px solid var(--accent);
+      border-radius: 0 2px 2px 0;
+      padding: 0 2px;
+      cursor: pointer;
+    }
+
+    mark.user-highlight:hover {
+      filter: brightness(0.92);
+    }
+
+    /* Superscript dot when a note is attached */
+    mark.user-highlight[data-note]::after {
+      content: '\00B7';
+      font-size: 0.65em;
+      vertical-align: super;
+      color: var(--accent);
+      margin-left: 1px;
+      pointer-events: none;
+    }
+
+    /* ==============================================
+       35. HIGHLIGHT POPOVERS
+    =============================================== */
+    .hl-popover {
+      /* Hidden by default — [hidden] attribute alone is overridden by display:flex,
+         so we set display:none here and expose via :not([hidden]) below. */
+      display: none;
+      position: fixed;
+      z-index: 8500; /* below shortcuts modal (19000), above topIndicator (8000) */
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      box-shadow: 0 4px 20px var(--shadow-indicator);
+      padding: 0.55rem 0.65rem;
+      flex-direction: column;
+      gap: 0.38rem;
+      min-width: 160px;
+      max-width: 260px;
+    }
+
+    /* Show popover when the hidden attribute is absent */
+    .hl-popover:not([hidden]) {
+      display: flex;
+    }
+
+    .hl-popover-actions {
+      display: flex;
+      gap: 0.3rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .hl-popover-note-text {
+      font-family: var(--font-serif);
+      font-size: 0.84rem;
+      line-height: 1.5;
+      color: var(--ink);
+      padding: 0.15rem 0 0.1rem;
+      border-bottom: 1px solid var(--rule);
+      margin-bottom: 0.1rem;
+    }
+
+    .hl-note-textarea {
+      width: 100%;
+      padding: 0.32rem 0.5rem;
+      font-family: var(--font-serif);
+      font-size: 0.82rem;
+      line-height: 1.45;
+      color: var(--ink);
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 5px;
+      outline: none;
+      resize: vertical;
+      min-height: 2rem;
+      max-height: 5rem;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .hl-note-textarea::placeholder {
+      color: var(--muted);
+      font-style: italic;
+      opacity: 1;
+    }
+
+    .hl-note-textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-soft);
+    }
+
+    /* ==============================================
+       36. LOADING SKELETON
+    =============================================== */
+    @keyframes skeleton-shimmer {
+      0%   { background-position: -200% 0; }
+      100% { background-position:  200% 0; }
+    }
+
+    .skeleton-block {
+      padding: 0.25rem 0;
+    }
+
+    .skeleton-line {
+      height: 0.9em;
+      border-radius: 4px;
+      background: linear-gradient(
+        90deg,
+        var(--rule)    25%,
+        var(--surface) 50%,
+        var(--rule)    75%
+      );
+      background-size: 200% 100%;
+      animation: skeleton-shimmer 1.5s ease-in-out infinite;
+      margin-bottom: 0.85em;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .skeleton-line {
+        animation: none;
+        background: var(--rule);
+      }
+    }
+
+    /* ==============================================
+       37. LANGUAGE PICKER
+    =============================================== */
+    .lang-picker-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.65rem;
+      flex-wrap: wrap;
+    }
+
+    .lang-picker-label {
+      font-family: var(--font-sans);
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .lang-picker-select {
+      padding: 0.28rem 0.65rem;
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      max-width: 280px;
+    }
+
+    .lang-picker-select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .lang-picker-status {
+      font-family: var(--font-sans);
+      font-size: 0.75rem;
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    .lang-picker-status.error {
+      color: var(--warn);
+      font-style: normal;
+    }
+
+    /* ==============================================
+       38. PLAYLIST PANEL
+    =============================================== */
+    .playlist-panel {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      margin-bottom: 1rem;
+      overflow: hidden;
+    }
+
+    .playlist-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.55rem 1rem;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .playlist-header-title {
+      flex: 1;
+      font-family: var(--font-sans);
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--ink);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .playlist-header-count {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--muted);
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+
+    .playlist-header-toggle,
+    .playlist-header-dismiss {
+      background: transparent;
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.72rem;
+      padding: 0.1rem 0.4rem;
+      outline: none;
+      flex-shrink: 0;
+      transition: color 0.1s, border-color 0.1s;
+    }
+
+    .playlist-header-toggle:hover,
+    .playlist-header-dismiss:hover {
+      color: var(--ink);
+      border-color: var(--accent);
+    }
+
+    .playlist-header-dismiss:hover {
+      color: var(--warn);
+      border-color: var(--warn);
+    }
+
+    .playlist-header-toggle:focus-visible,
+    .playlist-header-dismiss:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    .playlist-body {
+      max-height: 260px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    .playlist-body.collapsed {
+      display: none;
+    }
+
+    .playlist-item {
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+      padding: 0.42rem 1rem;
+      border-bottom: 1px solid var(--rule);
+      cursor: pointer;
+      font-family: var(--font-serif);
+      font-size: 0.875rem;
+      color: var(--ink);
+      line-height: 1.35;
+      transition: background 0.1s;
+      outline: none;
+    }
+
+    .playlist-item:last-of-type {
+      border-bottom: none;
+    }
+
+    .playlist-item:hover {
+      background: var(--accent-soft);
+    }
+
+    .playlist-item:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+
+    .playlist-item.active {
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    .playlist-item-num {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--muted);
+      flex-shrink: 0;
+      min-width: 1.6rem;
+      text-align: right;
+    }
+
+    .playlist-item.active .playlist-item-num {
+      color: var(--accent);
+    }
+
+    .playlist-more {
+      padding: 0.42rem 1rem;
+      font-family: var(--font-sans);
+      font-size: 0.75rem;
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    /* ==============================================
+       39. KEYBOARD SHORTCUTS OVERLAY
+    =============================================== */
+    .shortcuts-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      font-weight: 600;
+      background: transparent;
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      color: var(--muted);
+      cursor: pointer;
+      outline: none;
+      margin-left: 0.35rem;
+      transition: color 0.12s, border-color 0.12s;
+    }
+
+    .shortcuts-toggle:hover {
+      color: var(--ink);
+      border-color: var(--accent);
+    }
+
+    .shortcuts-toggle:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    #shortcutsOverlay {
+      position: fixed;
+      inset: 0;
+      z-index: 19000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #shortcutsOverlay[hidden] {
+      display: none;
+    }
+
+    .shortcuts-backdrop {
+      position: absolute;
+      inset: 0;
+      background: var(--overlay-backdrop);
+    }
+
+    .shortcuts-modal {
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      box-shadow: 0 8px 40px var(--shadow-indicator);
+      padding: 1.5rem 1.75rem;
+      max-width: 400px;
+      width: calc(100% - 2rem);
+      z-index: 1;
+      max-height: calc(100vh - 4rem);
+      overflow-y: auto;
+    }
+
+    .shortcuts-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+
+    .shortcuts-modal-title {
+      font-family: var(--font-sans);
+      font-size: 0.9rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      color: var(--ink);
+    }
+
+    .shortcuts-close-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      background: transparent;
+      border: 1px solid var(--rule);
+      border-radius: 5px;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.78rem;
+      outline: none;
+      transition: color 0.1s, border-color 0.1s;
+    }
+
+    .shortcuts-close-btn:hover {
+      color: var(--ink);
+      border-color: var(--accent);
+    }
+
+    .shortcuts-close-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    .shortcuts-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .shortcuts-table td {
+      padding: 0.45rem 0;
+      vertical-align: middle;
+      font-family: var(--font-serif);
+      font-size: 0.9rem;
+      color: var(--ink);
+      line-height: 1.5;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .shortcuts-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .shortcuts-table td:first-child {
+      width: 36%;
+      padding-right: 1rem;
+      white-space: nowrap;
+    }
+
+    kbd {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.1rem 0.4rem;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      font-weight: 500;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      color: var(--ink);
+      box-shadow: 0 1px 0 var(--rule);
+      margin: 0 0.1rem;
+    }
   </style>
 </head>
 <body>
@@ -955,6 +2931,19 @@
       <div class="wordmark">
         <span class="record-dot" aria-hidden="true"></span>
         <span class="wordmark-text">Transcript</span>
+        <button
+          id="themeToggle"
+          class="theme-toggle"
+          aria-label="Switch to dark theme"
+          aria-pressed="false"
+          title="Toggle dark/light theme"
+        ></button>
+        <button
+          id="shortcutsBtn"
+          class="shortcuts-toggle"
+          aria-label="Keyboard shortcuts"
+          title="Keyboard shortcuts (?)"
+        >?</button>
       </div>
       <p class="site-tagline">Paste a YouTube link. Read what was <em>actually</em> said.</p>
 
@@ -1029,9 +3018,84 @@
             Timecoded
           </label>
         </div>
+        <!-- Reading controls: font scale + line width -->
+        <div class="reading-controls" role="group" aria-label="Reading display controls">
+          <button class="reading-scale-btn" id="fontDecBtn"
+                  aria-label="Decrease font size" title="Smaller text">A−</button>
+          <button class="reading-scale-btn" id="fontIncBtn"
+                  aria-label="Increase font size" title="Larger text">A+</button>
+          <div class="reading-measure-seg" role="group" aria-label="Line width">
+            <label title="Narrow line width">
+              <input type="radio" name="readingMeasure" value="46rem" />
+              Narrow
+            </label>
+            <label title="Medium line width">
+              <input type="radio" name="readingMeasure" value="62rem" checked />
+              Medium
+            </label>
+            <label title="Wide line width">
+              <input type="radio" name="readingMeasure" value="80rem" />
+              Wide
+            </label>
+          </div>
+        </div>
         <button id="digestBtn" disabled>AI digest</button>
         <button id="saveBtn" disabled>&#9733; Save</button>
       </div>
+
+      <!-- LANGUAGE PICKER — hidden until tracks load -->
+      <div id="langPickerWrap" class="lang-picker-wrap" hidden>
+        <label class="lang-picker-label" for="langSelect">Language</label>
+        <select
+          id="langSelect"
+          class="lang-picker-select"
+          aria-label="Caption language"
+        ></select>
+        <span id="langPickerStatus" class="lang-picker-status" aria-live="polite"></span>
+      </div>
+
+      <!-- TRANSCRIPT ACTION ROW (copy / download) -->
+      <div class="action-row" id="transcriptActionRow">
+        <button class="mini-btn" id="transcriptCopyBtn"
+                aria-label="Copy transcript to clipboard" disabled>Copy</button>
+        <button class="mini-btn" id="transcriptDownloadBtn"
+                aria-label="Download transcript as a Markdown file" disabled>Download .md</button>
+      </div>
+
+      <!-- FIND BAR -->
+      <div class="find-bar" id="findBar" role="search">
+        <label class="sr-only" for="findInput">Find in transcript</label>
+        <!-- find-group keeps input + counter + Prev/Next as one non-wrapping unit -->
+        <div class="find-group">
+          <div class="find-bar-input-wrap">
+            <span class="find-bar-icon" aria-hidden="true">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="2.5"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+            </span>
+            <input
+              id="findInput"
+              type="search"
+              placeholder="Find…"
+              autocomplete="off"
+              spellcheck="false"
+              aria-label="Find in transcript"
+            />
+          </div>
+          <span id="findCounter" class="find-counter"
+                aria-live="polite" aria-atomic="true"></span>
+          <button class="mini-btn" id="findPrevBtn"
+                  aria-label="Previous match">&#8593; Prev</button>
+          <button class="mini-btn" id="findNextBtn"
+                  aria-label="Next match">Next &#8595;</button>
+        </div>
+      </div>
+
+      <!-- PLAYLIST PANEL — hidden until a playlist URL is submitted -->
+      <div id="playlistPanel" class="playlist-panel" hidden></div>
 
       <!-- TRANSCRIPT OUTPUT -->
       <div id="output" class="visible">
@@ -1039,31 +3103,299 @@
       </div>
     </div>
 
-    <!-- DIGEST PANE -->
+    <!-- DIGEST PANE / AI WORKSPACE -->
     <div id="paneDigest" role="tabpanel" aria-labelledby="tabDigest" hidden>
-      <p id="digestEmptyState" class="digest-empty-state">No digest yet — hit AI digest to summarize this video in English.</p>
-      <div id="digestStatus"></div>
-      <div id="digestOutput"></div>
-      <div id="usageStats" class="usage-stats"></div>
+
+      <!-- AI Sub-nav (pill segmented control — visually distinct from top-level tabs) -->
+      <div class="ai-subnav" role="tablist" aria-label="AI tools">
+        <button
+          class="ai-subnav-btn"
+          id="aiTabSummary"
+          role="tab"
+          aria-selected="true"
+          aria-controls="aiPanelSummary"
+          tabindex="0"
+        >Summary</button>
+        <button
+          class="ai-subnav-btn"
+          id="aiTabAsk"
+          role="tab"
+          aria-selected="false"
+          aria-controls="aiPanelAsk"
+          tabindex="-1"
+        >Ask</button>
+        <button
+          class="ai-subnav-btn"
+          id="aiTabFactcheck"
+          role="tab"
+          aria-selected="false"
+          aria-controls="aiPanelFactcheck"
+          tabindex="-1"
+        >Fact-check</button>
+        <button
+          class="ai-subnav-btn"
+          id="aiTabChapters"
+          role="tab"
+          aria-selected="false"
+          aria-controls="aiPanelChapters"
+          tabindex="-1"
+        >Chapters</button>
+        <button
+          class="ai-subnav-btn"
+          id="aiTabQuotes"
+          role="tab"
+          aria-selected="false"
+          aria-controls="aiPanelQuotes"
+          tabindex="-1"
+        >Quotes</button>
+      </div>
+
+      <!-- SUMMARY PANEL — existing digest feature + options -->
+      <div id="aiPanelSummary" role="tabpanel" aria-labelledby="aiTabSummary">
+        <!-- Compact options row -->
+        <div class="digest-opts">
+          <span class="digest-opt-label">Length</span>
+          <div class="digest-seg" role="group" aria-label="Digest length">
+            <label>
+              <input type="radio" name="digestLength" value="detailed" checked />
+              Detailed
+            </label>
+            <label>
+              <input type="radio" name="digestLength" value="short" />
+              Short
+            </label>
+          </div>
+          <span class="digest-opt-label">Format</span>
+          <div class="digest-seg" role="group" aria-label="Digest format">
+            <label>
+              <input type="radio" name="digestFormat" value="bullets" checked />
+              Bullets
+            </label>
+            <label>
+              <input type="radio" name="digestFormat" value="prose" />
+              Prose
+            </label>
+          </div>
+          <label class="digest-opt-label" for="digestLangInput">Language</label>
+          <input
+            id="digestLangInput"
+            type="text"
+            placeholder="English"
+            aria-label="Language for digest output"
+          />
+          <button
+            id="digestRegenBtn"
+            class="mini-btn"
+            disabled
+            aria-label="Generate or regenerate digest with current options"
+          >Generate digest</button>
+        </div>
+
+        <p id="digestEmptyState" class="digest-empty-state">No digest yet — choose your options above and hit <strong>Generate digest</strong>.</p>
+        <div id="digestStatus"></div>
+
+        <!-- Export row (lived at pane root before; now lives here near the digest output) -->
+        <div class="action-row" id="digestExportRow" hidden>
+          <button class="mini-btn" id="digestCopyBtn"
+                  aria-label="Copy digest to clipboard">Copy</button>
+          <button class="mini-btn" id="digestDownloadBtn"
+                  aria-label="Download digest as a Markdown file">Download .md</button>
+        </div>
+
+        <div id="digestOutput"></div>
+        <div id="usageStats" class="usage-stats"></div>
+      </div>
+
+      <!-- ASK PANEL -->
+      <div id="aiPanelAsk" role="tabpanel" aria-labelledby="aiTabAsk" hidden>
+        <div class="ask-row">
+          <textarea
+            id="askInput"
+            rows="2"
+            placeholder="Ask a question about this video… (Enter to submit, Shift+Enter for newline)"
+            aria-label="Question about the video"
+          ></textarea>
+          <button id="askBtn" aria-label="Submit question">Ask</button>
+        </div>
+        <div id="askInlineStatus" class="ai-inline-status" aria-live="polite" aria-atomic="true"></div>
+        <div id="qaThread" class="qa-thread" aria-live="polite" aria-atomic="false"></div>
+        <div class="ask-clear-row" id="askClearRow" hidden>
+          <button class="mini-btn" id="askClearBtn" aria-label="Clear conversation thread">Clear</button>
+        </div>
+      </div>
+
+      <!-- FACT-CHECK PANEL -->
+      <div id="aiPanelFactcheck" role="tabpanel" aria-labelledby="aiTabFactcheck" hidden>
+        <p class="fc-disclaimer">Heads-up: claims are assessed from the model's training knowledge only (no live web search) — verify important claims yourself before relying on them.</p>
+        <div class="fc-btn-row">
+          <button id="factCheckBtn" aria-label="Run AI fact-check on this transcript">Check facts</button>
+        </div>
+        <div id="fcInlineStatus" class="ai-inline-status" aria-live="polite" aria-atomic="true"></div>
+        <div id="fcResults"></div>
+      </div>
+
+      <!-- CHAPTERS PANEL -->
+      <div id="aiPanelChapters" role="tabpanel" aria-labelledby="aiTabChapters" hidden>
+        <div class="fc-btn-row">
+          <button id="chaptersBtn" aria-label="Generate chapter outline from this transcript">Generate chapters</button>
+        </div>
+        <div id="chInlineStatus" class="ai-inline-status" aria-live="polite" aria-atomic="true"></div>
+        <div id="chResults"></div>
+      </div>
+
+      <!-- QUOTES PANEL -->
+      <div id="aiPanelQuotes" role="tabpanel" aria-labelledby="aiTabQuotes" hidden>
+        <div class="fc-btn-row">
+          <button id="quotesBtn" aria-label="Pull key quotes from this transcript">Pull key quotes</button>
+        </div>
+        <div id="qtInlineStatus" class="ai-inline-status" aria-live="polite" aria-atomic="true"></div>
+        <div id="qtResults"></div>
+      </div>
+
     </div>
 
     <!-- SAVED PANE -->
     <div id="paneSaved" role="tabpanel" aria-labelledby="tabSaved" hidden>
+      <!-- Toolbar: search + sort + export -->
+      <div class="saved-toolbar">
+        <div class="saved-search-wrap">
+          <input
+            id="savedSearchInput"
+            type="search"
+            placeholder="Search by title or tag…"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="Search saved videos by title or tag"
+          />
+        </div>
+        <select id="savedSortSelect" aria-label="Sort saved videos">
+          <option value="recent">Recently saved</option>
+          <option value="title">Title A–Z</option>
+          <option value="favorites">Favorites first</option>
+        </select>
+        <button
+          id="savedExportBtn"
+          class="mini-btn"
+          aria-label="Export saved library as a ZIP of Markdown files"
+        >Export library</button>
+      </div>
+      <div id="savedResultCount" class="saved-result-count" aria-live="polite" aria-atomic="true"></div>
+      <div id="savedStatusMsg" class="saved-status-msg" aria-live="polite" aria-atomic="true"></div>
       <div id="savedOutput"></div>
     </div>
 
   </div><!-- /.container -->
+
+  <!-- KEYBOARD SHORTCUTS OVERLAY -->
+  <div id="shortcutsOverlay" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" hidden>
+    <div class="shortcuts-backdrop" id="shortcutsBackdrop"></div>
+    <div class="shortcuts-modal">
+      <div class="shortcuts-modal-header">
+        <span class="shortcuts-modal-title">Keyboard shortcuts</span>
+        <button class="shortcuts-close-btn" id="shortcutsClose" aria-label="Close shortcuts">✕</button>
+      </div>
+      <table class="shortcuts-table">
+        <tbody>
+          <tr>
+            <td><kbd>?</kbd></td>
+            <td>Open this shortcuts overlay</td>
+          </tr>
+          <tr>
+            <td><kbd>Esc</kbd></td>
+            <td>Close overlay or popover</td>
+          </tr>
+          <tr>
+            <td><kbd>/</kbd></td>
+            <td>Focus the find-in-transcript box</td>
+          </tr>
+          <tr>
+            <td><kbd>1</kbd></td>
+            <td>Switch to Transcript tab</td>
+          </tr>
+          <tr>
+            <td><kbd>2</kbd></td>
+            <td>Switch to Digest tab</td>
+          </tr>
+          <tr>
+            <td><kbd>3</kbd></td>
+            <td>Switch to Saved tab</td>
+          </tr>
+          <tr>
+            <td><kbd>t</kbd></td>
+            <td>Toggle light / dark theme</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- HIGHLIGHT CREATION POPOVER (shown on text selection) -->
+  <div id="hlCreatePopover" class="hl-popover" role="dialog"
+       aria-label="Highlight selected text" aria-modal="false" hidden>
+    <div class="hl-popover-actions">
+      <button class="mini-btn" id="hlCreateBtn" aria-label="Save as highlight">Highlight</button>
+      <button class="mini-btn" id="hlWithNoteBtn" aria-label="Highlight and add a note">+ Note</button>
+      <button class="mini-btn" id="hlCreateClose" aria-label="Close" title="Close (Esc)">✕</button>
+    </div>
+    <div id="hlNoteArea" hidden>
+      <textarea id="hlNoteInput" class="hl-note-textarea" rows="2"
+                placeholder="Add a note…"
+                aria-label="Note for this highlight"></textarea>
+      <div class="hl-popover-actions" style="margin-top:0.15rem">
+        <button class="mini-btn" id="hlNoteSave" aria-label="Save highlight with note">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- HIGHLIGHT VIEW POPOVER (shown on clicking an existing highlight) -->
+  <div id="hlViewPopover" class="hl-popover" role="dialog"
+       aria-label="Highlight details" aria-modal="false" hidden>
+    <div id="hlViewNoteText" class="hl-popover-note-text" hidden></div>
+    <div class="hl-popover-actions">
+      <button class="mini-btn" id="hlViewRemoveBtn" aria-label="Remove this highlight">Remove</button>
+      <button class="mini-btn" id="hlViewClose" aria-label="Close" title="Close (Esc)">✕</button>
+    </div>
+  </div>
 
   <script>
     /* ==============================================
        STATE
     =============================================== */
     let lastSegments   = null;
+    let currentSegments = null; // mirrors lastSegments; set on fetch success and openSavedEntry
     let sessionCostUsd = 0;
     let sessionTokens  = 0;
     let indicatorTimer = null;
     let currentMeta    = null;  // { videoId, url, title }
     let currentDigest  = null;  // string | null
+    let lastChapters   = null;  // cached chapters array from last /api/chapters call
+    let lastQuotes     = null;  // cached quotes array from last /api/quotes call
+
+    // Saved library state
+    let savedList        = [];     // full fetched list from /api/saved
+    let savedSearchQuery = '';     // current search filter string
+    let savedSortMode    = 'recent'; // 'recent' | 'title' | 'favorites'
+    // Per-videoId notes cache: Map<videoId, Note[]>  — loaded lazily when notes panel opens
+    const savedNotesCache = new Map();
+
+    // Find-in-transcript state
+    let findQuery         = '';
+    let findMatches       = [];   // Array of <mark> DOM nodes
+    let findIndex         = -1;
+    let findDebounceTimer = null;
+
+    // User highlights state
+    let currentHighlights = [];   // [{id, text, note, color, createdAt}] for current video
+    let hlPendingText     = '';   // text selected when create-popover is open
+    let hlViewActiveId    = null; // id of highlight shown in view-popover
+
+    // Reading controls state
+    const READING_SCALES = [0.9, 1.0, 1.15, 1.3];
+    let readingScaleIdx  = 1;    // default: 1.0
+    let readingMeasure   = '62rem'; // default
+
+    // Per-button copy-flash timer tracking (guards against overlapping timers)
+    const copyTimers = new WeakMap();
 
     /* ==============================================
        ELEMENT REFS
@@ -1089,9 +3421,59 @@
     const usageStatsEl    = document.getElementById('usageStats');
     const usageChipEl     = document.getElementById('usageChip');
     const savedOutput     = document.getElementById('savedOutput');
-    const nowReadingEl    = document.getElementById('nowReading');
-    const nowReadingTitle = document.getElementById('nowReadingTitle');
-    const nowReadingUrl   = document.getElementById('nowReadingUrl');
+    const nowReadingEl          = document.getElementById('nowReading');
+    const nowReadingTitle       = document.getElementById('nowReadingTitle');
+    const nowReadingUrl         = document.getElementById('nowReadingUrl');
+    const transcriptCopyBtn     = document.getElementById('transcriptCopyBtn');
+    const transcriptDownloadBtn = document.getElementById('transcriptDownloadBtn');
+    const digestExportRow       = document.getElementById('digestExportRow');
+    const digestCopyBtn         = document.getElementById('digestCopyBtn');
+    const digestDownloadBtn     = document.getElementById('digestDownloadBtn');
+    const findInput             = document.getElementById('findInput');
+    const findCounter           = document.getElementById('findCounter');
+    const findPrevBtn           = document.getElementById('findPrevBtn');
+    const findNextBtn           = document.getElementById('findNextBtn');
+
+    // AI workspace — sub-nav tabs
+    const aiTabSummary   = document.getElementById('aiTabSummary');
+    const aiTabAsk       = document.getElementById('aiTabAsk');
+    const aiTabFactcheck = document.getElementById('aiTabFactcheck');
+    const aiTabChapters  = document.getElementById('aiTabChapters');
+    const aiTabQuotes    = document.getElementById('aiTabQuotes');
+
+    // AI workspace — panels
+    const aiPanelSummary   = document.getElementById('aiPanelSummary');
+    const aiPanelAsk       = document.getElementById('aiPanelAsk');
+    const aiPanelFactcheck = document.getElementById('aiPanelFactcheck');
+    const aiPanelChapters  = document.getElementById('aiPanelChapters');
+    const aiPanelQuotes    = document.getElementById('aiPanelQuotes');
+
+    // Chapters panel
+    const chaptersBtn    = document.getElementById('chaptersBtn');
+    const chInlineStatus = document.getElementById('chInlineStatus');
+    const chResults      = document.getElementById('chResults');
+
+    // Quotes panel
+    const quotesBtn      = document.getElementById('quotesBtn');
+    const qtInlineStatus = document.getElementById('qtInlineStatus');
+    const qtResults      = document.getElementById('qtResults');
+
+    // Summary panel controls
+    const digestRegenBtn  = document.getElementById('digestRegenBtn');
+    const digestLangInput = document.getElementById('digestLangInput');
+
+    // Ask panel
+    const askInputEl       = document.getElementById('askInput');
+    const askBtn           = document.getElementById('askBtn');
+    const askInlineStatus  = document.getElementById('askInlineStatus');
+    const qaThread         = document.getElementById('qaThread');
+    const askClearRow      = document.getElementById('askClearRow');
+    const askClearBtn      = document.getElementById('askClearBtn');
+
+    // Fact-check panel
+    const factCheckBtn   = document.getElementById('factCheckBtn');
+    const fcInlineStatus = document.getElementById('fcInlineStatus');
+    const fcResults      = document.getElementById('fcResults');
 
     /* ==============================================
        TAB SWITCHING
@@ -1135,7 +3517,7 @@
        SEGMENTED TOGGLE ACTIVE-CLASS (cross-browser :has fallback)
     =============================================== */
     function syncToggleActive() {
-      document.querySelectorAll('.view-toggle label').forEach(lbl => {
+      document.querySelectorAll('.view-toggle label, .digest-seg label').forEach(lbl => {
         lbl.classList.toggle('is-active', lbl.querySelector('input[type="radio"]').checked);
       });
     }
@@ -1183,17 +3565,21 @@
         topIndicator.setAttribute('role', 'button');
         const activate = () => {
           switchTab('digest');
+          switchAiTool('summary');
           setTopIndicator('idle');
         };
         topIndicator.onclick   = activate;
         topIndicator.onkeydown = e => {
           if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); }
         };
-        indicatorTimer = setTimeout(() => setTopIndicator('idle'), 4000);
+        // Auto-dismiss after 2500ms
+        indicatorTimer = setTimeout(() => setTopIndicator('idle'), 2500);
 
       } else if (state === 'error') {
         topIndicator.classList.add('error');
         topIndicator.innerHTML = 'Digest failed';
+        // Auto-dismiss after 2500ms
+        indicatorTimer = setTimeout(() => setTopIndicator('idle'), 2500);
       }
     }
 
@@ -1391,9 +3777,18 @@
           .join('');
       } else {
         // Timecoded mode: gutter layout — timecode left, caption text right
-        outputEl.innerHTML = segments.map(s =>
-          `<div class="ts-line"><span class="ts-badge">${formatTime(s.offset)}</span><span class="ts-text">${escapeHtml(s.text)}</span></div>`
-        ).join('');
+        const vid = currentMeta?.videoId || null;
+        outputEl.innerHTML = segments.map(s => {
+          const tc = formatTime(s.offset);
+          const t  = Math.floor(s.offset);
+          const badge = vid
+            ? `<a class="ts-badge ts-link"
+                  href="https://www.youtube.com/watch?v=${escapeAttr(vid)}&t=${t}s"
+                  target="_blank" rel="noopener noreferrer"
+                  aria-label="Jump to ${escapeAttr(tc)}">${tc}</a>`
+            : `<span class="ts-badge">${tc}</span>`;
+          return `<div class="ts-line">${badge}<span class="ts-text">${escapeHtml(s.text)}</span></div>`;
+        }).join('');
       }
 
       outputEl.classList.add('visible');
@@ -1414,23 +3809,732 @@
     }
 
     /* ==============================================
+       COPY / DOWNLOAD HELPERS  (Feature 1)
+    =============================================== */
+    /**
+     * Write `text` to the clipboard and briefly change btn label to "Copied ✓".
+     * `origLabel` is the stable label to restore; guards against overlapping timers.
+     */
+    function copyToClipboard(btn, text, origLabel) {
+      if (!navigator.clipboard) return;
+      clearTimeout(copyTimers.get(btn));
+      navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = 'Copied ✓';
+        const t = setTimeout(() => { btn.textContent = origLabel; }, 1500);
+        copyTimers.set(btn, t);
+      }).catch(() => { /* clipboard access denied — silently skip */ });
+    }
+
+    function slugify(str) {
+      return str
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+    }
+
+    function downloadMd(filename, content) {
+      const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = filename + '.md';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    /** Show or hide the digest export row based on whether a digest exists. */
+    function syncDigestExportRow() {
+      digestExportRow.hidden = !currentDigest;
+    }
+
+    /**
+     * Sync the Generate/Regenerate button in the Summary panel.
+     * - Enabled whenever a transcript is loaded.
+     * - Label is "Generate digest" when no digest exists yet, "Regenerate" otherwise.
+     */
+    function syncDigestRegenBtn() {
+      const hasTranscript = !!(lastSegments && lastSegments.length > 0);
+      digestRegenBtn.disabled   = !hasTranscript;
+      digestRegenBtn.textContent = currentDigest ? 'Regenerate' : 'Generate digest';
+    }
+
+    /* --- Transcript copy / download --- */
+    transcriptCopyBtn.addEventListener('click', () => {
+      if (!lastSegments) return;
+      let text;
+      if (getMode() === 'plain') {
+        const paras = reflowToParagraphs(lastSegments);
+        text = paras.join('\n\n');
+      } else {
+        text = lastSegments
+          .map(s => `[${formatTime(s.offset)}] ${s.text.replace(/[\r\n]+/g, ' ').trim()}`)
+          .join('\n');
+      }
+      copyToClipboard(transcriptCopyBtn, text, 'Copy');
+    });
+
+    transcriptDownloadBtn.addEventListener('click', () => {
+      if (!lastSegments) return;
+      const title     = currentMeta?.title || 'Transcript';
+      const sourceUrl = currentMeta?.url   || '';
+      const paras     = reflowToParagraphs(lastSegments);
+      const body      = paras.join('\n\n');
+      const md        = `# ${title}\n\nSource: ${sourceUrl}\n\n${body}`;
+      const slug      = slugify(title) || 'echo-transcript';
+      downloadMd(slug, md);
+    });
+
+    /* --- Digest copy / download --- */
+    digestCopyBtn.addEventListener('click', () => {
+      if (!currentDigest) return;
+      copyToClipboard(digestCopyBtn, currentDigest, 'Copy');
+    });
+
+    digestDownloadBtn.addEventListener('click', () => {
+      if (!currentDigest) return;
+      const title     = currentMeta?.title || 'Digest';
+      const sourceUrl = currentMeta?.url   || '';
+      const md        = `# ${title}\n\nSource: ${sourceUrl}\n\n${currentDigest}`;
+      const slug      = (slugify(title) || 'echo') + '-digest';
+      downloadMd(slug, md);
+    });
+
+    /* ==============================================
+       FIND IN TRANSCRIPT  (Feature 3)
+    =============================================== */
+    function escapeRegex(str) {
+      return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    /** Clear the find input and remove all highlights. */
+    function resetFind() {
+      clearTimeout(findDebounceTimer);
+      findQuery       = '';
+      findInput.value = '';
+      clearFindHighlights();
+    }
+
+    /** Remove all <mark class="find-hit"> wrappers, re-merge text nodes. */
+    function clearFindHighlights() {
+      outputEl.querySelectorAll('mark.find-hit').forEach(mark => {
+        const parent = mark.parentNode;
+        if (!parent) return;
+        while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+        parent.removeChild(mark);
+        parent.normalize();
+      });
+      findMatches             = [];
+      findIndex               = -1;
+      findCounter.textContent = '';
+    }
+
+    /**
+     * Walk text nodes under outputEl and wrap all case-insensitive occurrences of
+     * `query` in <mark class="find-hit">.  Does NOT use innerHTML replace so
+     * existing element tags (links, spans) are never corrupted.
+     */
+    function applyFindHighlights(query) {
+      clearFindHighlights();
+      if (!query) return;
+
+      const regex = new RegExp(escapeRegex(query), 'gi');
+
+      // Collect text nodes up front to avoid live-mutation issues during iteration
+      const walker = document.createTreeWalker(
+        outputEl,
+        NodeFilter.SHOW_TEXT,
+        {
+          acceptNode(node) {
+            const tag = node.parentElement?.tagName?.toLowerCase();
+            if (tag === 'script' || tag === 'style') return NodeFilter.FILTER_REJECT;
+            // Skip text already inside a find-hit mark (none should exist here)
+            if (node.parentElement?.closest('mark.find-hit')) return NodeFilter.FILTER_REJECT;
+            // Skip text inside user-highlight marks to avoid nesting
+            if (node.parentElement?.closest('mark.user-highlight')) return NodeFilter.FILTER_REJECT;
+            return NodeFilter.FILTER_ACCEPT;
+          }
+        }
+      );
+
+      const textNodes = [];
+      let node;
+      while ((node = walker.nextNode())) textNodes.push(node);
+
+      for (const textNode of textNodes) {
+        const text = textNode.textContent;
+        regex.lastIndex = 0;
+        if (!regex.test(text)) continue;
+        regex.lastIndex = 0;
+
+        const frag  = document.createDocumentFragment();
+        let lastIdx = 0;
+        let match;
+
+        while ((match = regex.exec(text)) !== null) {
+          if (match.index > lastIdx) {
+            frag.appendChild(document.createTextNode(text.slice(lastIdx, match.index)));
+          }
+          const mark       = document.createElement('mark');
+          mark.className   = 'find-hit';
+          mark.textContent = match[0];
+          frag.appendChild(mark);
+          findMatches.push(mark);
+          lastIdx = match.index + match[0].length;
+        }
+
+        if (lastIdx < text.length) {
+          frag.appendChild(document.createTextNode(text.slice(lastIdx)));
+        }
+
+        textNode.parentNode.replaceChild(frag, textNode);
+      }
+
+      if (findMatches.length > 0) {
+        findIndex = 0;
+        activateFindMatch(0);
+      } else {
+        updateFindCounter();
+      }
+    }
+
+    function updateFindCounter() {
+      if (!findQuery) {
+        findCounter.textContent = '';
+        return;
+      }
+      if (findMatches.length === 0) {
+        findCounter.textContent = 'No matches';
+        return;
+      }
+      findCounter.textContent = `${findIndex + 1}/${findMatches.length}`;
+    }
+
+    function activateFindMatch(idx) {
+      findMatches.forEach((m, i) => m.classList.toggle('active', i === idx));
+      if (findMatches[idx]) {
+        const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        findMatches[idx].scrollIntoView({
+          block:    'center',
+          behavior: reduced ? 'auto' : 'smooth',
+        });
+      }
+      updateFindCounter();
+    }
+
+    function findNext() {
+      if (findMatches.length === 0) return;
+      findIndex = (findIndex + 1) % findMatches.length;
+      activateFindMatch(findIndex);
+    }
+
+    function findPrev() {
+      if (findMatches.length === 0) return;
+      findIndex = (findIndex - 1 + findMatches.length) % findMatches.length;
+      activateFindMatch(findIndex);
+    }
+
+    findInput.addEventListener('input', () => {
+      clearTimeout(findDebounceTimer);
+      findDebounceTimer = setTimeout(() => {
+        findQuery = findInput.value;
+        applyFindHighlights(findQuery);
+      }, 120);
+    });
+
+    findInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) findPrev(); else findNext();
+      }
+    });
+
+    findPrevBtn.addEventListener('click', findPrev);
+    findNextBtn.addEventListener('click', findNext);
+
+    /* ==============================================
+       READING CONTROLS — FEATURE A
+    =============================================== */
+    function applyReadingStyles() {
+      outputEl.style.setProperty('--reading-scale', READING_SCALES[readingScaleIdx]);
+      outputEl.style.setProperty('--reading-measure', readingMeasure);
+    }
+
+    function syncReadingControls() {
+      const fontDecBtn = document.getElementById('fontDecBtn');
+      const fontIncBtn = document.getElementById('fontIncBtn');
+      if (fontDecBtn) fontDecBtn.disabled = readingScaleIdx <= 0;
+      if (fontIncBtn) fontIncBtn.disabled = readingScaleIdx >= READING_SCALES.length - 1;
+      syncMeasureActive();
+    }
+
+    function syncMeasureActive() {
+      document.querySelectorAll('.reading-measure-seg label').forEach(lbl => {
+        const inp = lbl.querySelector('input[type="radio"]');
+        if (inp) lbl.classList.toggle('is-active', inp.checked);
+      });
+    }
+
+    // Init: restore persisted reading settings, apply early to avoid layout shift
+    (function initReadingControls() {
+      const savedScale   = localStorage.getItem('echo-reading-scale');
+      const savedMeasure = localStorage.getItem('echo-reading-measure');
+
+      if (savedScale != null) {
+        const idx = READING_SCALES.indexOf(parseFloat(savedScale));
+        if (idx !== -1) readingScaleIdx = idx;
+      }
+      if (savedMeasure && ['46rem', '62rem', '80rem'].includes(savedMeasure)) {
+        readingMeasure = savedMeasure;
+        // Sync radio to persisted value
+        const inp = document.querySelector(`input[name="readingMeasure"][value="${savedMeasure}"]`);
+        if (inp) inp.checked = true;
+      }
+
+      applyReadingStyles();
+      syncReadingControls();
+    })();
+
+    // Font-size buttons
+    document.getElementById('fontDecBtn')?.addEventListener('click', () => {
+      if (readingScaleIdx > 0) {
+        readingScaleIdx--;
+        localStorage.setItem('echo-reading-scale', READING_SCALES[readingScaleIdx]);
+        applyReadingStyles();
+        syncReadingControls();
+      }
+    });
+
+    document.getElementById('fontIncBtn')?.addEventListener('click', () => {
+      if (readingScaleIdx < READING_SCALES.length - 1) {
+        readingScaleIdx++;
+        localStorage.setItem('echo-reading-scale', READING_SCALES[readingScaleIdx]);
+        applyReadingStyles();
+        syncReadingControls();
+      }
+    });
+
+    // Measure (line-width) radios
+    document.querySelectorAll('input[name="readingMeasure"]').forEach(r => {
+      r.addEventListener('change', () => {
+        readingMeasure = r.value;
+        localStorage.setItem('echo-reading-measure', readingMeasure);
+        applyReadingStyles();
+        syncMeasureActive();
+      });
+    });
+
+    /* ==============================================
+       USER HIGHLIGHTS — FEATURE B
+    =============================================== */
+
+    /** Unwrap all user-highlight marks, re-merging adjacent text nodes. */
+    function clearHighlightMarks() {
+      outputEl.querySelectorAll('mark.user-highlight').forEach(mark => {
+        const parent = mark.parentNode;
+        if (!parent) return;
+        while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+        parent.removeChild(mark);
+        parent.normalize();
+      });
+    }
+
+    /**
+     * Walk text nodes under outputEl (readable mode only) and wrap all
+     * occurrences of hl.text with <mark class="user-highlight">.
+     * Skips text already inside any <mark> to avoid nesting.
+     */
+    function wrapHighlightText(text, hlId, note) {
+      if (!text) return;
+      const regex = new RegExp(escapeRegex(text.trim()), 'g');
+
+      const walker = document.createTreeWalker(
+        outputEl,
+        NodeFilter.SHOW_TEXT,
+        {
+          acceptNode(node) {
+            const tag = node.parentElement?.tagName?.toLowerCase();
+            if (tag === 'script' || tag === 'style') return NodeFilter.FILTER_REJECT;
+            if (node.parentElement?.closest('mark')) return NodeFilter.FILTER_REJECT;
+            return NodeFilter.FILTER_ACCEPT;
+          }
+        }
+      );
+
+      const textNodes = [];
+      let nd;
+      while ((nd = walker.nextNode())) textNodes.push(nd);
+
+      for (const textNode of textNodes) {
+        const txt = textNode.textContent;
+        regex.lastIndex = 0;
+        if (!regex.test(txt)) continue;
+        regex.lastIndex = 0;
+
+        const frag   = document.createDocumentFragment();
+        let lastIdx  = 0;
+        let match;
+
+        while ((match = regex.exec(txt)) !== null) {
+          if (match.index > lastIdx) {
+            frag.appendChild(document.createTextNode(txt.slice(lastIdx, match.index)));
+          }
+          const mark       = document.createElement('mark');
+          mark.className   = 'user-highlight';
+          mark.dataset.hlId = String(hlId);
+          if (note) {
+            mark.dataset.note = '1';
+            mark.title        = note;
+          }
+          mark.setAttribute('aria-label', note ? `Highlighted: ${note}` : 'Highlighted text');
+          mark.textContent = match[0];
+          frag.appendChild(mark);
+          lastIdx = match.index + match[0].length;
+        }
+
+        if (lastIdx < txt.length) {
+          frag.appendChild(document.createTextNode(txt.slice(lastIdx)));
+        }
+
+        textNode.parentNode.replaceChild(frag, textNode);
+      }
+    }
+
+    /** Wire click listeners on every .user-highlight mark to show the view popover. */
+    function wireHighlightClicks() {
+      outputEl.querySelectorAll('mark.user-highlight').forEach(mark => {
+        mark.addEventListener('click', e => {
+          e.stopPropagation();
+          const hlId = mark.dataset.hlId;
+          const hl   = currentHighlights.find(h => String(h.id) === String(hlId));
+          if (!hl) return;
+          hideHighlightCreatePopover();
+          showHighlightViewPopover(mark, hl);
+        });
+      });
+    }
+
+    /**
+     * Apply all highlights from the array to the DOM.
+     * Only operates in readable (plain) mode — no-op in timecoded.
+     */
+    function applyHighlights(highlights) {
+      clearHighlightMarks();
+      if (!highlights || highlights.length === 0) return;
+      if (getMode() !== 'plain') return;
+      for (const hl of highlights) {
+        try { wrapHighlightText(hl.text, hl.id, hl.note || null); } catch (_) {}
+      }
+      wireHighlightClicks();
+    }
+
+    /**
+     * Re-apply both user-highlights and the active find query after any re-render.
+     * Call this every time renderSegments() is called.
+     */
+    function reApplyOverlays() {
+      clearFindHighlights();
+      applyHighlights(currentHighlights);
+      if (findQuery) applyFindHighlights(findQuery);
+    }
+
+    /* --- Highlight create popover --- */
+    const hlCreatePopover = document.getElementById('hlCreatePopover');
+    const hlViewPopover   = document.getElementById('hlViewPopover');
+
+    function showHighlightCreatePopover(rect, text) {
+      hlPendingText = text;
+      document.getElementById('hlNoteArea').hidden   = true;
+      document.getElementById('hlNoteInput').value   = '';
+
+      // Fixed positioning: getBoundingClientRect() is already viewport-relative —
+      // do NOT add window.scrollY/scrollX.
+      const popW = 220;
+      const popH = 120; // conservative estimate of popover height
+      const vw   = window.innerWidth;
+      const vh   = window.innerHeight;
+
+      // Prefer below the selection; fall back to above if not enough room
+      let top;
+      if (rect.bottom + 6 + popH > vh) {
+        top = Math.max(8, rect.top - popH - 8); // above
+      } else {
+        top = rect.bottom + 6;
+      }
+
+      const left = Math.max(8, Math.min(rect.left, vw - popW - 8));
+
+      hlCreatePopover.style.top  = top  + 'px';
+      hlCreatePopover.style.left = left + 'px';
+      hlCreatePopover.hidden     = false;
+      document.getElementById('hlCreateBtn').focus();
+    }
+
+    function hideHighlightCreatePopover() {
+      hlCreatePopover.hidden   = true;
+      hlPendingText            = '';
+      document.getElementById('hlNoteArea').hidden = true;
+      document.getElementById('hlNoteInput').value = '';
+    }
+
+    function showHighlightViewPopover(markEl, hl) {
+      hlViewActiveId = String(hl.id);
+      const noteEl   = document.getElementById('hlViewNoteText');
+      if (hl.note) {
+        noteEl.textContent = hl.note;
+        noteEl.hidden      = false;
+      } else {
+        noteEl.textContent = '';
+        noteEl.hidden      = true;
+      }
+
+      // Fixed positioning: getBoundingClientRect() is already viewport-relative —
+      // do NOT add window.scrollY/scrollX.
+      const rect = markEl.getBoundingClientRect();
+      const popW = 200;
+      const popH = 80; // conservative estimate
+      const vw   = window.innerWidth;
+      const vh   = window.innerHeight;
+
+      // Prefer below the mark; fall back to above if not enough room
+      let top;
+      if (rect.bottom + 6 + popH > vh) {
+        top = Math.max(8, rect.top - popH - 8); // above
+      } else {
+        top = rect.bottom + 6;
+      }
+
+      const left = Math.max(8, Math.min(rect.left, vw - popW - 8));
+
+      hlViewPopover.style.top  = top  + 'px';
+      hlViewPopover.style.left = left + 'px';
+      hlViewPopover.hidden     = false;
+      document.getElementById('hlViewRemoveBtn').focus();
+    }
+
+    function hideHighlightViewPopover() {
+      hlViewPopover.hidden = true;
+      hlViewActiveId       = null;
+    }
+
+    /* --- Selection listener → show create popover --- */
+    outputEl.addEventListener('mouseup', e => {
+      setTimeout(() => {
+        // If click target is a user-highlight mark, let its click handler manage things
+        if (e.target.closest && e.target.closest('mark.user-highlight')) return;
+
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed) {
+          if (!hlCreatePopover.hidden) hideHighlightCreatePopover();
+          return;
+        }
+
+        const text = sel.toString().trim();
+        if (!text || text.length < 2) {
+          if (!hlCreatePopover.hidden) hideHighlightCreatePopover();
+          return;
+        }
+
+        // Only in readable mode with a loaded transcript
+        if (getMode() !== 'plain' || !currentMeta || !lastSegments) return;
+
+        // Verify selection is within #output
+        const range = sel.getRangeAt(0);
+        if (!outputEl.contains(range.commonAncestorContainer)) return;
+
+        const rect = range.getBoundingClientRect();
+        hideHighlightViewPopover();
+        showHighlightCreatePopover(rect, text);
+      }, 15);
+    });
+
+    /* --- Create popover buttons --- */
+    document.getElementById('hlCreateBtn')?.addEventListener('click', async () => {
+      const text = hlPendingText;
+      hideHighlightCreatePopover();
+      await saveHighlight(text, '');
+    });
+
+    document.getElementById('hlWithNoteBtn')?.addEventListener('click', () => {
+      const noteArea = document.getElementById('hlNoteArea');
+      noteArea.hidden = !noteArea.hidden;
+      if (!noteArea.hidden) document.getElementById('hlNoteInput').focus();
+    });
+
+    document.getElementById('hlNoteSave')?.addEventListener('click', async () => {
+      const note = document.getElementById('hlNoteInput').value.trim();
+      const text = hlPendingText;
+      hideHighlightCreatePopover();
+      await saveHighlight(text, note);
+    });
+
+    document.getElementById('hlNoteInput')?.addEventListener('keydown', e => {
+      e.stopPropagation();
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        document.getElementById('hlNoteSave')?.click();
+      }
+      if (e.key === 'Escape') hideHighlightCreatePopover();
+    });
+
+    document.getElementById('hlNoteInput')?.addEventListener('click', e => e.stopPropagation());
+
+    document.getElementById('hlCreateClose')?.addEventListener('click', hideHighlightCreatePopover);
+
+    /* --- View popover buttons --- */
+    document.getElementById('hlViewRemoveBtn')?.addEventListener('click', async () => {
+      const id = hlViewActiveId;
+      hideHighlightViewPopover();
+      if (id) await removeHighlight(id);
+    });
+
+    document.getElementById('hlViewClose')?.addEventListener('click', hideHighlightViewPopover);
+
+    /* --- Keyboard: Esc closes any open overlay or popover --- */
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        const so = document.getElementById('shortcutsOverlay');
+        if (so && !so.hidden)        { so.hidden = true; return; }
+        if (!hlCreatePopover.hidden) { hideHighlightCreatePopover(); return; }
+        if (!hlViewPopover.hidden)   { hideHighlightViewPopover();   return; }
+      }
+    });
+
+    /* --- Click outside → close popovers --- */
+    document.addEventListener('click', e => {
+      if (!hlCreatePopover.hidden) {
+        if (!hlCreatePopover.contains(e.target) && !outputEl.contains(e.target)) {
+          hideHighlightCreatePopover();
+        }
+      }
+      if (!hlViewPopover.hidden) {
+        if (!hlViewPopover.contains(e.target) && !outputEl.contains(e.target)) {
+          hideHighlightViewPopover();
+        }
+      }
+    });
+
+    /* --- Auto-save video to library before persisting a highlight --- */
+    async function ensureSaved() {
+      if (savedList.some(e => e.videoId === currentMeta.videoId)) return true;
+
+      try {
+        const res = await fetch('/api/saved', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            url:      currentMeta.url,
+            videoId:  currentMeta.videoId,
+            title:    currentMeta.title,
+            segments: lastSegments,
+            digest:   currentDigest,
+          }),
+        });
+        if (!res.ok) return false;
+
+        // Subtly notify user
+        const prev = statusEl.textContent;
+        setStatus('Saved to library ✓', false);
+        setTimeout(() => { if (statusEl.textContent === 'Saved to library ✓') setStatus(prev, false); }, 2500);
+
+        // Refresh saved list so savedList is up-to-date
+        await loadSaved();
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    /** POST a new highlight to the backend, update local state, re-render. */
+    async function saveHighlight(text, note) {
+      if (!text || !currentMeta) return;
+      const videoId = currentMeta.videoId;
+
+      const saved = await ensureSaved();
+      if (!saved) {
+        setStatus('Could not save highlight — library save failed.', true);
+        return;
+      }
+
+      try {
+        const body = { text: text.trim() };
+        if (note) body.note = note;
+
+        const res = await fetch(`/api/saved/${encodeURIComponent(videoId)}/highlights`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(body),
+        });
+
+        if (res.status === 404) {
+          setStatus('Highlight failed — video not in library.', true);
+          return;
+        }
+        if (!res.ok) return;
+
+        const hl = await res.json();
+        currentHighlights.push(hl);
+        reApplyOverlays();
+      } catch (err) {
+        setStatus('Network error saving highlight: ' + err.message, true);
+      }
+    }
+
+    /** DELETE a highlight, update local state, re-render. */
+    async function removeHighlight(hlId) {
+      if (!currentMeta) return;
+      const videoId = currentMeta.videoId;
+
+      try {
+        const res = await fetch(
+          `/api/saved/${encodeURIComponent(videoId)}/highlights/${encodeURIComponent(hlId)}`,
+          { method: 'DELETE' }
+        );
+        if (!res.ok) return;
+
+        currentHighlights = currentHighlights.filter(h => String(h.id) !== String(hlId));
+        reApplyOverlays();
+      } catch (err) {
+        setStatus('Network error removing highlight: ' + err.message, true);
+      }
+    }
+
+    /* ==============================================
        FETCH TRANSCRIPT
     =============================================== */
+    // Flag: set to true by playlist item navigation so fetchTranscript preserves the panel
+    let _playlistNavFlag = false;
+
     async function fetchTranscript() {
       const url = urlInput.value.trim();
       if (!url) { setStatus('Please enter a YouTube URL or video ID.', true); return; }
 
+      // Read and clear the playlist-navigation flag before any await
+      const keepPlaylist = _playlistNavFlag;
+      _playlistNavFlag   = false;
+
       fetchBtn.disabled = true;
       outputEl.classList.remove('visible');
+      showTranscriptSkeleton();
 
       // Reset meta state on new fetch
-      currentMeta   = null;
-      currentDigest = null;
+      currentMeta       = null;
+      currentDigest     = null;
+      currentSegments   = null;
+      currentHighlights = [];
       updateNowReading();
+      syncDigestExportRow();
+      resetFind();
+      transcriptCopyBtn.disabled     = true;
+      transcriptDownloadBtn.disabled = true;
 
-      // Reset digest area completely on a new fetch
-      digestBtn.disabled = true;
-      saveBtn.disabled   = true;
+      // Reset digest / AI workspace completely on a new fetch
+      digestBtn.disabled      = true;
+      digestRegenBtn.disabled = true;
+      digestRegenBtn.textContent = 'Generate digest'; // reset label for new video
+      saveBtn.disabled        = true;
       digestOutput.classList.remove('visible');
       digestOutput.innerHTML    = '';
       digestStatus.textContent  = '';
@@ -1440,7 +4544,45 @@
       usageStatsEl.innerHTML    = '';
       digestDot.style.display   = 'none';
       setTopIndicator('idle');
+      // Reset Ask panel
+      qaThread.innerHTML           = '';
+      askClearRow.hidden           = true;
+      askInlineStatus.textContent  = '';
+      askInlineStatus.className    = 'ai-inline-status';
+      // Reset Fact-check panel
+      fcResults.innerHTML          = '';
+      fcInlineStatus.textContent   = '';
+      fcInlineStatus.className     = 'ai-inline-status';
+      // Reset Chapters panel
+      lastChapters                 = null;
+      chResults.innerHTML          = '';
+      chInlineStatus.textContent   = '';
+      chInlineStatus.className     = 'ai-inline-status';
+      // Reset Quotes panel
+      lastQuotes                   = null;
+      qtResults.innerHTML          = '';
+      qtInlineStatus.textContent   = '';
+      qtInlineStatus.className     = 'ai-inline-status';
+      // Return to Summary sub-tab
+      switchAiTool('summary');
       switchTab('transcript');
+
+      // Reset language picker for the new video
+      currentLangCode = null;
+      const _lpWrap   = document.getElementById('langPickerWrap');
+      const _lpSel    = document.getElementById('langSelect');
+      const _lpStatus = document.getElementById('langPickerStatus');
+      if (_lpWrap)   { _lpWrap.hidden = true; }
+      if (_lpSel)    { _lpSel.innerHTML = ''; }
+      if (_lpStatus) { _lpStatus.textContent = ''; _lpStatus.className = 'lang-picker-status'; }
+
+      // Reset playlist panel unless this is a playlist-item navigation
+      if (!keepPlaylist) {
+        const _pp = document.getElementById('playlistPanel');
+        if (_pp) { _pp.hidden = true; }
+        playlistVideos    = [];
+        activePlaylistIdx = -1;
+      }
 
       setStatus('Fetching transcript…');
 
@@ -1456,21 +4598,52 @@
           const msg    = data.error || 'Unknown error.';
           const detail = data.detail ? `\n\nDetail: ${data.detail}` : '';
           setStatus(msg + detail, true);
+          outputEl.classList.remove('visible');
+          outputEl.innerHTML = '';
           lastSegments = null;
           return;
         }
 
-        lastSegments  = data.segments;
-        currentMeta   = { videoId: data.videoId, url: data.url, title: data.title };
-        currentDigest = null;
+        lastSegments    = data.segments;
+        currentSegments = data.segments;
+        currentMeta     = { videoId: data.videoId, url: data.url, title: data.title };
+        currentDigest   = null;
         updateNowReading();
+        syncDigestExportRow();
 
         setStatus(`Loaded ${data.segments.length} segments for video ${data.videoId}.`);
         renderSegments(lastSegments);
-        digestBtn.disabled = false;
-        saveBtn.disabled   = false;
+
+        // Async: if this video is already saved, load its highlights
+        (function loadHighlightsIfSaved(videoId) {
+          fetch(`/api/saved/${encodeURIComponent(videoId)}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(entry => {
+              if (entry && Array.isArray(entry.highlights) && entry.highlights.length > 0) {
+                currentHighlights = entry.highlights;
+                reApplyOverlays();
+              }
+            })
+            .catch(() => {});
+        })(data.videoId);
+
+        digestBtn.disabled              = false;
+        saveBtn.disabled                = false;
+        transcriptCopyBtn.disabled      = false;
+        transcriptDownloadBtn.disabled  = false;
+        syncDigestRegenBtn(); // update label + enable state based on transcript & digest state
+
+        // Async (non-blocking): load caption language tracks for the picker
+        loadLanguageTracks(data.videoId);
+
+        // Async (non-blocking): load playlist if this is a playlist URL
+        if (!keepPlaylist && url.includes('list=')) {
+          loadPlaylist(url);
+        }
       } catch (err) {
         setStatus('Network error: ' + err.message, true);
+        outputEl.classList.remove('visible');
+        outputEl.innerHTML = '';
         lastSegments = null;
       } finally {
         fetchBtn.disabled = false;
@@ -1481,7 +4654,10 @@
     urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') fetchTranscript(); });
     radios.forEach(r => r.addEventListener('change', () => {
       syncToggleActive();
-      if (lastSegments) renderSegments(lastSegments);
+      if (lastSegments) {
+        renderSegments(lastSegments);
+        reApplyOverlays();
+      }
     }));
 
     /* ==============================================
@@ -1586,31 +4762,79 @@
         .join(' ');
     }
 
+    /** Returns the plain-text transcript string used by all AI calls. */
+    function getTranscriptText() {
+      if (!lastSegments || lastSegments.length === 0) return '';
+      return buildPlainTranscript(lastSegments);
+    }
+
     /* ==============================================
-       DIGEST HANDLER
+       AI SUB-NAV SWITCHING
     =============================================== */
-    digestBtn.addEventListener('click', async () => {
+    function switchAiTool(name) {
+      const tools    = ['summary', 'ask', 'factcheck', 'chapters', 'quotes'];
+      const tabEls   = [aiTabSummary, aiTabAsk, aiTabFactcheck, aiTabChapters, aiTabQuotes];
+      const panelEls = [aiPanelSummary, aiPanelAsk, aiPanelFactcheck, aiPanelChapters, aiPanelQuotes];
+
+      tools.forEach((t, i) => {
+        const active = t === name;
+        tabEls[i].setAttribute('aria-selected', active ? 'true' : 'false');
+        tabEls[i].tabIndex = active ? 0 : -1;
+        panelEls[i].hidden = !active;
+      });
+    }
+
+    // Sub-nav click + arrow-key roving focus
+    const aiSubTabBtns  = [aiTabSummary, aiTabAsk, aiTabFactcheck, aiTabChapters, aiTabQuotes];
+    const aiSubTabNames = ['summary', 'ask', 'factcheck', 'chapters', 'quotes'];
+    aiSubTabBtns.forEach((btn, i) => {
+      btn.addEventListener('click', () => switchAiTool(aiSubTabNames[i]));
+      btn.addEventListener('keydown', e => {
+        let next = null;
+        if (e.key === 'ArrowRight') next = (i + 1) % aiSubTabBtns.length;
+        if (e.key === 'ArrowLeft')  next = (i - 1 + aiSubTabBtns.length) % aiSubTabBtns.length;
+        if (next !== null) {
+          e.preventDefault();
+          aiSubTabBtns[next].focus();
+          switchAiTool(aiSubTabNames[next]);
+        }
+      });
+    });
+
+    /* ==============================================
+       DIGEST HANDLER (extracted for reuse by both
+       digestBtn in Transcript pane and digestRegenBtn
+       in Summary panel)
+    =============================================== */
+    async function runDigest() {
       if (!lastSegments || lastSegments.length === 0) return;
 
-      digestBtn.disabled = true;
+      // Read options live from the Summary panel controls
+      const lengthOpt = document.querySelector('input[name="digestLength"]:checked')?.value || 'detailed';
+      const formatOpt = document.querySelector('input[name="digestFormat"]:checked')?.value || 'bullets';
+      const langOpt   = digestLangInput.value.trim() || 'English';
+
+      digestBtn.disabled      = true;
+      digestRegenBtn.disabled = true;
       digestOutput.classList.remove('visible');
       digestOutput.innerHTML   = '';
       usageStatsEl.classList.remove('visible');
       usageStatsEl.innerHTML   = '';
 
-      // Switch to Digest tab and show loading state there
+      // Switch to Digest tab / Summary sub-panel and show loading state
       switchTab('digest');
+      switchAiTool('summary');
       digestEmptySt.classList.add('is-hidden');
       setTopIndicator('digesting');
       setDigestStatus('Reading the video and writing your digest — this takes 10–30s.', false);
 
-      const plainText = buildPlainTranscript(lastSegments);
+      const plainText = getTranscriptText();
 
       try {
         const res  = await fetch('/api/digest', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ text: plainText }),
+          body:    JSON.stringify({ text: plainText, length: lengthOpt, format: formatOpt, language: langOpt }),
         });
         const data = await res.json();
 
@@ -1630,6 +4854,8 @@
 
         // Capture digest text so Save can include it
         currentDigest = data.digest;
+        syncDigestExportRow();
+        syncDigestRegenBtn(); // switch label to "Regenerate"
 
         // Show ready dot on tab, update status, set indicator
         digestDot.style.display = '';
@@ -1644,7 +4870,7 @@
         // Refresh header chip 2 s later so it picks up the new cost
         setTimeout(loadUsageChip, 2000);
 
-        // Stay on / switch to Digest tab
+        // Stay on Digest tab / Summary sub-panel
         switchTab('digest');
 
       } catch (err) {
@@ -1652,9 +4878,427 @@
         setTopIndicator('error');
         digestEmptySt.classList.remove('is-hidden');
       } finally {
-        digestBtn.disabled = false;
+        digestBtn.disabled      = false;
+        digestRegenBtn.disabled = false;
+      }
+    }
+
+    digestBtn.addEventListener('click', runDigest);
+    digestRegenBtn.addEventListener('click', runDigest);
+
+    // Sync active-class for digest option segments on change
+    document.querySelectorAll('input[name="digestLength"], input[name="digestFormat"]').forEach(r => {
+      r.addEventListener('change', syncToggleActive);
+    });
+
+    /* ==============================================
+       ASK HANDLER
+    =============================================== */
+    async function submitAsk() {
+      const question = askInputEl.value.trim();
+      if (!question) return;
+
+      const text = getTranscriptText();
+      if (!text) {
+        askInlineStatus.textContent = 'Load a transcript first.';
+        askInlineStatus.className   = 'ai-inline-status error';
+        return;
+      }
+
+      askBtn.disabled             = true;
+      askInlineStatus.textContent = 'Thinking…';
+      askInlineStatus.className   = 'ai-inline-status';
+
+      const t0 = Date.now();
+      try {
+        const res  = await fetch('/api/chat', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ text, question }),
+        });
+        const data = await res.json();
+        const elapsed = Date.now() - t0;
+
+        if (!res.ok) {
+          askInlineStatus.textContent = data.error || 'Unknown error.';
+          askInlineStatus.className   = 'ai-inline-status error';
+          return;
+        }
+
+        askInlineStatus.textContent = '';
+        askInlineStatus.className   = 'ai-inline-status';
+
+        // Build per-answer usage line
+        let usageHtml = '';
+        if (data.usage) {
+          const parts = ['<span>' + formatTokens(data.usage.totalTokens) + ' tokens</span>'];
+          const cost  = formatCostUsd(data.usage.costUsd);
+          if (cost) parts.push('<span>' + cost + '</span>');
+          parts.push('<span>' + Math.round(elapsed / 1000) + 's</span>');
+          usageHtml = '<div class="qa-usage">' + parts.join(' · ') + '</div>';
+        }
+
+        // Append Q&A card to thread
+        const card       = document.createElement('div');
+        card.className   = 'qa-card';
+        card.innerHTML   =
+          '<div class="qa-question">' + escapeHtml(question) + '</div>' +
+          '<div class="qa-answer">'   + renderMarkdown(data.answer) + '</div>' +
+          usageHtml;
+        qaThread.appendChild(card);
+
+        // Clear input, reveal Clear button, scroll new card into view
+        askInputEl.value   = '';
+        askClearRow.hidden = false;
+        const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        card.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' });
+
+        setTimeout(loadUsageChip, 2000);
+
+      } catch (err) {
+        askInlineStatus.textContent = 'Network error: ' + err.message;
+        askInlineStatus.className   = 'ai-inline-status error';
+      } finally {
+        askBtn.disabled = false;
+        askInputEl.focus();
+      }
+    }
+
+    askBtn.addEventListener('click', submitAsk);
+
+    askInputEl.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submitAsk();
       }
     });
+
+    askClearBtn.addEventListener('click', () => {
+      qaThread.innerHTML          = '';
+      askClearRow.hidden          = true;
+      askInlineStatus.textContent = '';
+      askInlineStatus.className   = 'ai-inline-status';
+      askInputEl.value            = '';
+      askInputEl.focus();
+    });
+
+    /* ==============================================
+       FACT-CHECK HANDLER
+    =============================================== */
+    async function submitFactCheck() {
+      const text = getTranscriptText();
+      if (!text) {
+        fcInlineStatus.textContent = 'Load a transcript first.';
+        fcInlineStatus.className   = 'ai-inline-status error';
+        return;
+      }
+
+      factCheckBtn.disabled      = true;
+      fcInlineStatus.textContent = 'Checking facts — this may take a moment…';
+      fcInlineStatus.className   = 'ai-inline-status';
+      fcResults.innerHTML        = '';
+
+      try {
+        const res  = await fetch('/api/factcheck', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ text }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          fcInlineStatus.textContent = data.error || 'Unknown error.';
+          fcInlineStatus.className   = 'ai-inline-status error';
+          return;
+        }
+
+        fcInlineStatus.textContent = '';
+        fcInlineStatus.className   = 'ai-inline-status';
+
+        let html = '';
+
+        // Caveat banner — PROMINENT; tells user this is model knowledge, not live web
+        if (data.caveat) {
+          html +=
+            '<div class="fc-caveat">' +
+              '<div class="fc-caveat-label">Important note</div>' +
+              '<div class="fc-caveat-body">' + escapeHtml(data.caveat) + '</div>' +
+            '</div>';
+        }
+
+        if (Array.isArray(data.claims) && data.claims.length > 0) {
+          html += '<div class="fc-claims">';
+          data.claims.forEach(claim => {
+            const assess = (claim.assessment || '').toLowerCase();
+            const conf   = (claim.confidence  || '').toLowerCase();
+            const badgeLabels = { supported: 'Supported', disputed: 'Disputed', unverifiable: 'Unverifiable' };
+            const badgeLabel  = badgeLabels[assess] || assess;
+            html +=
+              '<div class="fc-claim-card">' +
+                '<div class="fc-claim-text">' + escapeHtml(claim.claim) + '</div>' +
+                '<div class="fc-claim-header">' +
+                  '<span class="fc-badge ' + escapeAttr(assess) + '">' + escapeHtml(badgeLabel) + '</span>' +
+                  '<span class="fc-confidence">' + escapeHtml(conf) + ' confidence</span>' +
+                '</div>' +
+                '<div class="fc-explanation">' + escapeHtml(claim.explanation) + '</div>' +
+              '</div>';
+          });
+          html += '</div>';
+        } else {
+          html += '<p class="digest-empty-state">No specific claims were identified to check.</p>';
+        }
+
+        // Usage (shown subtly below results)
+        if (data.usage) {
+          const parts = [formatTokens(data.usage.totalTokens) + ' tokens'];
+          const cost  = formatCostUsd(data.usage.costUsd);
+          if (cost) parts.push(cost);
+          html += '<div class="fc-usage">' + parts.join(' · ') + '</div>';
+        }
+
+        fcResults.innerHTML = html;
+        setTimeout(loadUsageChip, 2000);
+
+      } catch (err) {
+        fcInlineStatus.textContent = 'Network error: ' + err.message;
+        fcInlineStatus.className   = 'ai-inline-status error';
+      } finally {
+        factCheckBtn.disabled = false;
+      }
+    }
+
+    factCheckBtn.addEventListener('click', submitFactCheck);
+
+    /* ==============================================
+       JUMP-TO-TRANSCRIPT HELPER
+       Shared by Chapters and Quotes panels.
+       Switches to Transcript tab, ensures Timecoded
+       view, finds nearest segment by offset, scrolls
+       to it, and briefly flashes it.
+    =============================================== */
+    function jumpToTranscriptAt(sec) {
+      if (!currentSegments || currentSegments.length === 0) return;
+
+      // 1. Switch to the transcript tab
+      switchTab('transcript');
+
+      // 2. Ensure timecoded view is active so .ts-line elements exist
+      const timestampRadio = [...radios].find(r => r.value === 'timestamps');
+      if (timestampRadio && !timestampRadio.checked) {
+        timestampRadio.checked = true;
+        syncToggleActive();
+        renderSegments(currentSegments);
+        reApplyOverlays();
+      }
+
+      // 3. Find the nearest segment by offset (absolute time difference)
+      let nearestIdx = 0;
+      let minDiff    = Infinity;
+      currentSegments.forEach((seg, i) => {
+        const diff = Math.abs(seg.offset - sec);
+        if (diff < minDiff) { minDiff = diff; nearestIdx = i; }
+      });
+
+      // 4. Scroll to the corresponding .ts-line DOM element and flash it
+      const tsLines = outputEl.querySelectorAll('.ts-line');
+      const target  = tsLines[nearestIdx];
+      if (!target) return;
+
+      const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      target.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' });
+
+      // Restart animation even if already flashing
+      target.classList.remove('ts-flash');
+      void target.offsetWidth; // force reflow so the animation restarts
+      target.classList.add('ts-flash');
+      setTimeout(() => target.classList.remove('ts-flash'), 1500);
+    }
+
+    /* ==============================================
+       CHAPTERS HANDLER
+    =============================================== */
+    async function submitChapters() {
+      if (!currentSegments || currentSegments.length === 0) {
+        chInlineStatus.textContent = 'Load a transcript first.';
+        chInlineStatus.className   = 'ai-inline-status error';
+        return;
+      }
+
+      chaptersBtn.disabled       = true;
+      chInlineStatus.textContent = 'Generating chapters — this may take a moment…';
+      chInlineStatus.className   = 'ai-inline-status';
+      chResults.innerHTML        = '';
+
+      try {
+        const res  = await fetch('/api/chapters', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ segments: currentSegments }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          chInlineStatus.textContent = data.error || 'Unknown error.';
+          chInlineStatus.className   = 'ai-inline-status error';
+          return;
+        }
+
+        chInlineStatus.textContent = '';
+        chInlineStatus.className   = 'ai-inline-status';
+
+        if (!Array.isArray(data.chapters) || data.chapters.length === 0) {
+          chResults.innerHTML = '<p class="digest-empty-state">No chapters were identified.</p>';
+          lastChapters = [];
+          return;
+        }
+
+        // Cache and render
+        lastChapters = data.chapters;
+        const vid    = currentMeta?.videoId || null;
+        let html     = '<div class="ch-list">';
+        data.chapters.forEach((ch, i) => {
+          const num  = String(i + 1).padStart(2, '0');
+          const tc   = formatTime(ch.startSec);
+          const sec  = Math.floor(ch.startSec);
+          const ytHref = vid
+            ? `https://www.youtube.com/watch?v=${escapeAttr(vid)}&t=${sec}s`
+            : null;
+          const tcLink = ytHref
+            ? `<a class="ch-tc-link"
+                  href="${ytHref}"
+                  target="_blank" rel="noopener noreferrer"
+                  aria-label="Open YouTube at ${escapeAttr(tc)}">${tc}</a>`
+            : `<span class="ch-tc-link">${tc}</span>`;
+          html +=
+            `<div class="ch-item">` +
+              `<span class="ch-num">${num}</span>` +
+              `<span class="ch-title">${escapeHtml(ch.title)}</span>` +
+              `<span class="ch-tc-group">` +
+                tcLink +
+                `<button class="ch-jump-btn" data-sec="${sec}"` +
+                  ` aria-label="Jump to ${escapeAttr(tc)} in transcript">&#8615; Go to</button>` +
+              `</span>` +
+            `</div>`;
+        });
+        html += '</div>';
+
+        if (data.usage) {
+          const parts = [formatTokens(data.usage.totalTokens) + ' tokens'];
+          const cost  = formatCostUsd(data.usage.costUsd);
+          if (cost) parts.push(cost);
+          html += '<div class="ch-usage">' + parts.join(' · ') + '</div>';
+        }
+
+        chResults.innerHTML = html;
+
+        // Wire up jump buttons
+        chResults.querySelectorAll('.ch-jump-btn').forEach(btn => {
+          btn.addEventListener('click', () => jumpToTranscriptAt(Number(btn.dataset.sec)));
+        });
+
+        setTimeout(loadUsageChip, 2000);
+
+      } catch (err) {
+        chInlineStatus.textContent = 'Network error: ' + err.message;
+        chInlineStatus.className   = 'ai-inline-status error';
+      } finally {
+        chaptersBtn.disabled = false;
+      }
+    }
+
+    chaptersBtn.addEventListener('click', submitChapters);
+
+    /* ==============================================
+       QUOTES HANDLER
+    =============================================== */
+    async function submitQuotes() {
+      if (!currentSegments || currentSegments.length === 0) {
+        qtInlineStatus.textContent = 'Load a transcript first.';
+        qtInlineStatus.className   = 'ai-inline-status error';
+        return;
+      }
+
+      quotesBtn.disabled         = true;
+      qtInlineStatus.textContent = 'Pulling key quotes — this may take a moment…';
+      qtInlineStatus.className   = 'ai-inline-status';
+      qtResults.innerHTML        = '';
+
+      try {
+        const res  = await fetch('/api/quotes', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ segments: currentSegments }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          qtInlineStatus.textContent = data.error || 'Unknown error.';
+          qtInlineStatus.className   = 'ai-inline-status error';
+          return;
+        }
+
+        qtInlineStatus.textContent = '';
+        qtInlineStatus.className   = 'ai-inline-status';
+
+        if (!Array.isArray(data.quotes) || data.quotes.length === 0) {
+          qtResults.innerHTML = '<p class="digest-empty-state">No key quotes were identified.</p>';
+          lastQuotes = [];
+          return;
+        }
+
+        // Cache and render
+        lastQuotes = data.quotes;
+        const vid  = currentMeta?.videoId || null;
+        let html   = '<div class="qt-list">';
+        data.quotes.forEach(qt => {
+          const tc   = formatTime(qt.startSec);
+          const sec  = Math.floor(qt.startSec);
+          const ytHref = vid
+            ? `https://www.youtube.com/watch?v=${escapeAttr(vid)}&t=${sec}s`
+            : null;
+          const tcLink = ytHref
+            ? `<a class="qt-tc-link"
+                  href="${ytHref}"
+                  target="_blank" rel="noopener noreferrer"
+                  aria-label="Open YouTube at ${escapeAttr(tc)}">${tc}</a>`
+            : `<span class="qt-tc-link">${tc}</span>`;
+          html +=
+            `<div class="qt-card">` +
+              `<blockquote class="qt-blockquote">${escapeHtml(qt.text)}</blockquote>` +
+              `<div class="qt-footer">` +
+                tcLink +
+                `<button class="qt-jump-btn" data-sec="${sec}"` +
+                  ` aria-label="Jump to ${escapeAttr(tc)} in transcript">&#8615; Go to</button>` +
+              `</div>` +
+            `</div>`;
+        });
+        html += '</div>';
+
+        if (data.usage) {
+          const parts = [formatTokens(data.usage.totalTokens) + ' tokens'];
+          const cost  = formatCostUsd(data.usage.costUsd);
+          if (cost) parts.push(cost);
+          html += '<div class="qt-usage">' + parts.join(' · ') + '</div>';
+        }
+
+        qtResults.innerHTML = html;
+
+        // Wire up jump buttons
+        qtResults.querySelectorAll('.qt-jump-btn').forEach(btn => {
+          btn.addEventListener('click', () => jumpToTranscriptAt(Number(btn.dataset.sec)));
+        });
+
+        setTimeout(loadUsageChip, 2000);
+
+      } catch (err) {
+        qtInlineStatus.textContent = 'Network error: ' + err.message;
+        qtInlineStatus.className   = 'ai-inline-status error';
+      } finally {
+        quotesBtn.disabled = false;
+      }
+    }
+
+    quotesBtn.addEventListener('click', submitQuotes);
 
     /* ==============================================
        SAVE BUTTON HANDLER
@@ -1706,17 +5350,79 @@
           return;
         }
         const data = await res.json();
-        renderSavedList(data);
+        savedList = Array.isArray(data) ? data : [];
+        renderSavedFiltered();
       } catch (_) {
         savedOutput.innerHTML =
           '<p class="saved-empty-state">Network error — could not load saved videos.</p>';
       }
     }
 
+    /** Apply current search filter + sort, then call renderSavedList with the view. */
+    function renderSavedFiltered() {
+      let items = savedList.slice();
+
+      // Filter
+      if (savedSearchQuery) {
+        const q = savedSearchQuery.toLowerCase();
+        items = items.filter(e => {
+          const title = (e.title || e.videoId || '').toLowerCase();
+          const tags  = (Array.isArray(e.tags) ? e.tags : []).join(' ').toLowerCase();
+          return title.includes(q) || tags.includes(q);
+        });
+      }
+
+      // Sort
+      if (savedSortMode === 'title') {
+        items.sort((a, b) =>
+          (a.title || a.videoId || '').localeCompare(b.title || b.videoId || ''));
+      } else if (savedSortMode === 'favorites') {
+        items.sort((a, b) => {
+          if (a.favorite && !b.favorite) return -1;
+          if (!a.favorite && b.favorite) return  1;
+          return new Date(b.savedAt) - new Date(a.savedAt);
+        });
+      } else {
+        items.sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
+      }
+
+      // Update result-count line
+      const countEl = document.getElementById('savedResultCount');
+      if (countEl) {
+        if (savedSearchQuery) {
+          countEl.textContent = items.length === 0
+            ? 'No saved videos match.'
+            : `${items.length} result${items.length === 1 ? '' : 's'}`;
+        } else {
+          countEl.textContent = savedList.length > 0
+            ? `${savedList.length} saved video${savedList.length === 1 ? '' : 's'}`
+            : '';
+        }
+      }
+
+      renderSavedList(items);
+    }
+
+    /** Formats a relative date string for note timestamps. */
+    function formatRelativeDate(iso) {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      const diff  = Date.now() - d.getTime();
+      const mins  = Math.floor(diff / 60000);
+      const hours = Math.floor(diff / 3600000);
+      const days  = Math.floor(diff / 86400000);
+      if (mins < 2)   return 'just now';
+      if (mins < 60)  return `${mins}m ago`;
+      if (hours < 24) return `${hours}h ago`;
+      if (days < 7)   return `${days}d ago`;
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+
     function renderSavedList(entries) {
       if (!Array.isArray(entries) || entries.length === 0) {
-        savedOutput.innerHTML =
-          '<p class="saved-empty-state">Nothing saved yet — load a video and hit ★ Save.</p>';
+        savedOutput.innerHTML = savedList.length === 0
+          ? '<p class="saved-empty-state">Nothing saved yet — load a video and hit ★ Save.</p>'
+          : '<p class="saved-empty-state">No saved videos match.</p>';
         return;
       }
 
@@ -1729,60 +5435,475 @@
             ' · ' +
             d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 
-        const badge = entry.hasDigest
-          ? '<span class="saved-badge">Digest</span>'
-          : '';
-        const segs  = entry.segmentCount != null
-          ? `<span class="saved-meta-item">${entry.segmentCount} lines</span>`
-          : '';
-        const sep   = (dateStr && (segs || entry.hasDigest))
+        const hasDigest = entry.digest != null || entry.hasDigest;
+        const badge     = hasDigest ? '<span class="saved-badge">Digest</span>' : '';
+        const sep       = (dateStr && hasDigest)
           ? '<span class="saved-meta-sep" aria-hidden="true">·</span>'
           : '';
+
+        // Star button
+        const isFav  = !!entry.favorite;
+        const starBtn =
+          `<button class="saved-star-btn"
+                   data-videoid="${escapeAttr(entry.videoId)}"
+                   aria-label="${isFav ? 'Remove from favorites' : 'Add to favorites'}"
+                   aria-pressed="${isFav ? 'true' : 'false'}"
+                   title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">${isFav ? '★' : '☆'}</button>`;
+
+        // Tag chips
+        const tags     = Array.isArray(entry.tags) ? entry.tags : [];
+        const chipsHtml = tags.map(tag =>
+          `<span class="saved-tag-chip">` +
+            `<button class="saved-tag-filter"
+                     data-tag="${escapeAttr(tag)}"
+                     aria-label="Filter by tag: ${escapeAttr(tag)}">${escapeHtml(tag)}</button>` +
+            `<button class="saved-tag-remove"
+                     data-videoid="${escapeAttr(entry.videoId)}"
+                     data-tag="${escapeAttr(tag)}"
+                     aria-label="Remove tag ${escapeAttr(tag)}">×</button>` +
+          `</span>`
+        ).join('');
+        const tagAddBtn =
+          `<button class="saved-tag-add-btn"
+                   data-videoid="${escapeAttr(entry.videoId)}"
+                   aria-label="Add a tag to ${escapeAttr(title)}">＋ tag</button>`;
+        const tagsRow =
+          `<div class="saved-tags-row" id="tags-row-${escapeAttr(entry.videoId)}">${chipsHtml}${tagAddBtn}</div>`;
+
+        // Notes toggle button
+        const noteCount  = entry.noteCount || 0;
+        const notesLabel = noteCount > 0 ? `Notes (${noteCount})` : 'Notes';
+        const notesBtn   =
+          `<button class="saved-notes-btn"
+                   data-videoid="${escapeAttr(entry.videoId)}"
+                   aria-label="Toggle notes for ${escapeAttr(title)}"
+                   aria-expanded="false">${escapeHtml(notesLabel)}</button>`;
 
         return `<div class="saved-card"
                      data-videoid="${escapeAttr(entry.videoId)}"
                      tabindex="0"
                      role="button"
                      aria-label="Open ${escapeAttr(title)}">
-          <div class="saved-card-main">
-            <div class="saved-card-title">${escapeHtml(title)}</div>
-            <a class="saved-card-url"
-               href="${escapeAttr(entry.url)}"
-               target="_blank"
-               rel="noopener noreferrer">${escapeHtml(entry.url)}</a>
-            <div class="saved-card-meta">
-              ${dateStr ? `<span class="saved-meta-item">${escapeHtml(dateStr)}</span>` : ''}
-              ${sep}${segs}${badge}
+          <div class="saved-card-body">
+            ${starBtn}
+            <div class="saved-card-main">
+              <div class="saved-card-title">${escapeHtml(title)}</div>
+              <a class="saved-card-url"
+                 href="${escapeAttr(entry.url)}"
+                 target="_blank"
+                 rel="noopener noreferrer">${escapeHtml(entry.url)}</a>
+              <div class="saved-card-meta">
+                ${dateStr ? `<span class="saved-meta-item">${escapeHtml(dateStr)}</span>` : ''}
+                ${sep}${badge}
+              </div>
+              ${tagsRow}
+              <div class="saved-card-actions">${notesBtn}</div>
             </div>
+            <button class="saved-delete-btn"
+                    data-videoid="${escapeAttr(entry.videoId)}"
+                    aria-label="Delete ${escapeAttr(title)}">✕ Delete</button>
           </div>
-          <button class="saved-delete-btn"
-                  data-videoid="${escapeAttr(entry.videoId)}"
-                  aria-label="Delete ${escapeAttr(title)}">✕ Delete</button>
+          <div class="saved-notes-panel" id="notes-panel-${escapeAttr(entry.videoId)}"></div>
         </div>`;
       }).join('');
 
-      // Wire up card clicks — open in app unless user clicked the URL link or delete btn
+      // Wire up card-level click (open entry) — stopPropagation handled per inner control
       savedOutput.querySelectorAll('.saved-card').forEach(card => {
         card.addEventListener('click', e => {
-          if (e.target.closest('.saved-delete-btn')) return;
-          if (e.target.closest('.saved-card-url'))   return; // let real anchor navigate
+          if (e.target.closest('.saved-delete-btn'))  return;
+          if (e.target.closest('.saved-card-url'))    return;
+          if (e.target.closest('.saved-star-btn'))    return;
+          if (e.target.closest('.saved-tag-chip'))    return;
+          if (e.target.closest('.saved-tag-add-btn')) return;
+          if (e.target.closest('.saved-tag-input'))   return;
+          if (e.target.closest('.saved-notes-btn'))   return;
+          if (e.target.closest('.saved-notes-panel')) return;
           openSavedEntry(card.dataset.videoid);
         });
         card.addEventListener('keydown', e => {
-          if (e.key === 'Enter' || e.key === ' ') {
+          if ((e.key === 'Enter' || e.key === ' ') && e.target === card) {
             e.preventDefault();
             openSavedEntry(card.dataset.videoid);
           }
         });
       });
 
-      // Wire up delete buttons
+      // Delete buttons
       savedOutput.querySelectorAll('.saved-delete-btn').forEach(btn => {
         btn.addEventListener('click', e => {
           e.stopPropagation();
           deleteSavedEntry(btn.dataset.videoid);
         });
       });
+
+      // Star buttons
+      savedOutput.querySelectorAll('.saved-star-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          toggleSavedFavorite(btn.dataset.videoid);
+        });
+      });
+
+      // Tag filter buttons (click chip text → set search to that tag)
+      savedOutput.querySelectorAll('.saved-tag-filter').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          const tag = btn.dataset.tag;
+          const inp = document.getElementById('savedSearchInput');
+          if (inp) {
+            inp.value        = tag;
+            savedSearchQuery = tag;
+            renderSavedFiltered();
+          }
+        });
+      });
+
+      // Tag remove buttons
+      savedOutput.querySelectorAll('.saved-tag-remove').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          patchSavedTags(btn.dataset.videoid,
+            (savedList.find(x => x.videoId === btn.dataset.videoid)?.tags || [])
+              .filter(t => t !== btn.dataset.tag));
+        });
+      });
+
+      // Tag + add buttons
+      savedOutput.querySelectorAll('.saved-tag-add-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          showSavedTagInput(btn.dataset.videoid, btn);
+        });
+      });
+
+      // Notes toggle buttons
+      savedOutput.querySelectorAll('.saved-notes-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          toggleSavedNotesPanel(btn.dataset.videoid, btn);
+        });
+      });
+    }
+
+    /* ==============================================
+       SAVED LIBRARY — FAVORITES
+    =============================================== */
+    async function toggleSavedFavorite(videoId) {
+      const entry = savedList.find(e => e.videoId === videoId);
+      if (!entry) return;
+      const newFav = !entry.favorite;
+      try {
+        const res = await fetch(`/api/saved/${encodeURIComponent(videoId)}/favorite`, {
+          method:  'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ favorite: newFav }),
+        });
+        if (!res.ok) return;
+        entry.favorite = newFav;
+        renderSavedFiltered();
+      } catch (_) { /* ignore — best-effort */ }
+    }
+
+    /* ==============================================
+       SAVED LIBRARY — TAGS
+    =============================================== */
+    async function patchSavedTags(videoId, newTags) {
+      const entry = savedList.find(e => e.videoId === videoId);
+      if (!entry) return;
+      try {
+        const res = await fetch(`/api/saved/${encodeURIComponent(videoId)}/tags`, {
+          method:  'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ tags: newTags }),
+        });
+        if (!res.ok) return;
+        entry.tags = newTags;
+        renderSavedFiltered();
+      } catch (_) { /* ignore */ }
+    }
+
+    function showSavedTagInput(videoId, addBtn) {
+      const container = addBtn.parentElement; // .saved-tags-row
+      if (container.querySelector('.saved-tag-input')) {
+        container.querySelector('.saved-tag-input').focus();
+        return;
+      }
+
+      addBtn.style.display = 'none';
+      const input          = document.createElement('input');
+      input.type           = 'text';
+      input.className      = 'saved-tag-input';
+      input.placeholder    = 'new tag…';
+      input.maxLength      = 30;
+      input.setAttribute('aria-label', 'New tag name — press Enter to confirm');
+
+      const commit = () => {
+        const val = input.value.trim();
+        if (val) {
+          const entry = savedList.find(e => e.videoId === videoId);
+          const current = entry?.tags || [];
+          if (!current.includes(val)) {
+            patchSavedTags(videoId, [...current, val]);
+          } else {
+            // Already exists — just restore UI
+            input.remove();
+            addBtn.style.display = '';
+          }
+        } else {
+          input.remove();
+          addBtn.style.display = '';
+        }
+      };
+
+      input.addEventListener('keydown', e => {
+        e.stopPropagation();
+        if (e.key === 'Enter')  { e.preventDefault(); commit(); }
+        if (e.key === 'Escape') { input.remove(); addBtn.style.display = ''; }
+      });
+      input.addEventListener('click',  e => e.stopPropagation());
+      input.addEventListener('blur',   () => setTimeout(() => {
+        if (document.contains(input)) commit();
+      }, 160));
+
+      container.appendChild(input);
+      input.focus();
+    }
+
+    /* ==============================================
+       SAVED LIBRARY — NOTES
+    =============================================== */
+    async function toggleSavedNotesPanel(videoId, btn) {
+      const panel = document.getElementById(`notes-panel-${videoId}`);
+      if (!panel) return;
+
+      const isExpanded = panel.classList.contains('expanded');
+      if (isExpanded) {
+        panel.classList.remove('expanded');
+        btn.setAttribute('aria-expanded', 'false');
+        return;
+      }
+
+      panel.classList.add('expanded');
+      btn.setAttribute('aria-expanded', 'true');
+
+      if (!savedNotesCache.has(videoId)) {
+        panel.innerHTML = '<div class="saved-notes-loading">Loading notes…</div>';
+        try {
+          const res = await fetch(`/api/saved/${encodeURIComponent(videoId)}`);
+          if (!res.ok) {
+            panel.innerHTML = '<div class="saved-notes-loading">Could not load notes.</div>';
+            return;
+          }
+          const data = await res.json();
+          savedNotesCache.set(videoId, Array.isArray(data.notes) ? data.notes : []);
+        } catch (_) {
+          panel.innerHTML = '<div class="saved-notes-loading">Network error — could not load notes.</div>';
+          return;
+        }
+      }
+
+      renderSavedNotesPanel(videoId, panel, btn);
+    }
+
+    function renderSavedNotesPanel(videoId, panel, notesBtn) {
+      const notes = savedNotesCache.get(videoId) || [];
+      let html = '';
+
+      if (notes.length === 0) {
+        html += '<div class="saved-notes-empty">No notes yet.</div>';
+      } else {
+        notes.forEach(note => {
+          const rel = formatRelativeDate(note.createdAt);
+          html +=
+            `<div class="saved-note-item" data-noteid="${escapeAttr(String(note.id))}">` +
+              `<span class="saved-note-text">${escapeHtml(note.text)}</span>` +
+              (rel ? `<span class="saved-note-date" title="${escapeAttr(note.createdAt)}">${escapeHtml(rel)}</span>` : '') +
+              `<button class="saved-note-delete"
+                       data-videoid="${escapeAttr(videoId)}"
+                       data-noteid="${escapeAttr(String(note.id))}"
+                       aria-label="Delete this note">×</button>` +
+            `</div>`;
+        });
+      }
+
+      html +=
+        `<div class="saved-note-add-row">` +
+          `<textarea class="saved-note-textarea"
+                     placeholder="Add a note… (Enter to save)"
+                     aria-label="Add a note"
+                     rows="2"></textarea>` +
+          `<button class="saved-note-submit"
+                   data-videoid="${escapeAttr(videoId)}"
+                   aria-label="Save note">Add</button>` +
+        `</div>`;
+
+      panel.innerHTML = html;
+
+      // Wire delete buttons
+      panel.querySelectorAll('.saved-note-delete').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          deleteSavedNote(videoId, btn.dataset.noteid, notesBtn, panel);
+        });
+      });
+
+      // Wire add row
+      const textarea  = panel.querySelector('.saved-note-textarea');
+      const submitBtn = panel.querySelector('.saved-note-submit');
+
+      if (textarea) {
+        textarea.addEventListener('click',   e => e.stopPropagation());
+        textarea.addEventListener('keydown', e => {
+          e.stopPropagation();
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            addSavedNote(videoId, textarea, submitBtn, notesBtn, panel);
+          }
+        });
+      }
+      if (submitBtn) {
+        submitBtn.addEventListener('click', e => {
+          e.stopPropagation();
+          addSavedNote(videoId, textarea, submitBtn, notesBtn, panel);
+        });
+      }
+    }
+
+    async function addSavedNote(videoId, textarea, submitBtn, notesBtn, panel) {
+      const text = textarea.value.trim();
+      if (!text) return;
+      submitBtn.disabled = true;
+      try {
+        const res = await fetch(`/api/saved/${encodeURIComponent(videoId)}/notes`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ text }),
+        });
+        if (!res.ok) return;
+        const note = await res.json();
+
+        // Update cache
+        const notes = savedNotesCache.get(videoId) || [];
+        notes.push(note);
+        savedNotesCache.set(videoId, notes);
+
+        // Update noteCount in savedList (without full re-render)
+        const entry = savedList.find(e => e.videoId === videoId);
+        if (entry) {
+          entry.noteCount = (entry.noteCount || 0) + 1;
+          const count = entry.noteCount;
+          notesBtn.textContent = `Notes (${count})`;
+        }
+
+        textarea.value     = '';
+        renderSavedNotesPanel(videoId, panel, notesBtn);
+      } catch (_) { /* ignore */ } finally {
+        submitBtn.disabled = false;
+      }
+    }
+
+    async function deleteSavedNote(videoId, noteId, notesBtn, panel) {
+      try {
+        const res = await fetch(
+          `/api/saved/${encodeURIComponent(videoId)}/notes/${encodeURIComponent(noteId)}`,
+          { method: 'DELETE' }
+        );
+        if (!res.ok) return;
+
+        // Update cache
+        const notes = (savedNotesCache.get(videoId) || []).filter(n => String(n.id) !== noteId);
+        savedNotesCache.set(videoId, notes);
+
+        // Update noteCount in savedList
+        const entry = savedList.find(e => e.videoId === videoId);
+        if (entry && entry.noteCount > 0) {
+          entry.noteCount--;
+          notesBtn.textContent = entry.noteCount > 0 ? `Notes (${entry.noteCount})` : 'Notes';
+        }
+
+        renderSavedNotesPanel(videoId, panel, notesBtn);
+      } catch (_) { /* ignore */ }
+    }
+
+    /* ==============================================
+       SAVED LIBRARY — EXPORT
+    =============================================== */
+    async function exportSavedLibrary() {
+      const exportBtn = document.getElementById('savedExportBtn');
+      const statusMsg = document.getElementById('savedStatusMsg');
+      if (!exportBtn || !statusMsg) return;
+
+      exportBtn.disabled      = true;
+      exportBtn.textContent   = 'Exporting…';
+      statusMsg.textContent   = '';
+      statusMsg.className     = 'saved-status-msg';
+
+      try {
+        const res = await fetch('/api/saved/export');
+        if (!res.ok) throw new Error(`Server error (${res.status})`);
+        const data    = await res.json();
+        const entries = Array.isArray(data.entries) ? data.entries : [];
+
+        if (window.JSZip) {
+          const zip = new window.JSZip();
+
+          for (const entry of entries) {
+            const slug = slugify(entry.title || entry.videoId) || entry.videoId;
+            let md = `# ${entry.title || entry.videoId}\n\nSource: ${entry.url}\n\n`;
+
+            if (entry.digest) {
+              md += `## AI digest\n\n${entry.digest}\n\n`;
+            }
+
+            if (Array.isArray(entry.segments) && entry.segments.length > 0) {
+              const paras = reflowToParagraphs(entry.segments);
+              md += paras.join('\n\n');
+            }
+
+            if (Array.isArray(entry.notes) && entry.notes.length > 0) {
+              md += '\n\n## Notes\n\n';
+              entry.notes.forEach(n => { md += `- ${n.text}\n`; });
+            }
+
+            zip.file(`${slug}.md`, md);
+          }
+
+          const blob = await zip.generateAsync({ type: 'blob' });
+          const url  = URL.createObjectURL(blob);
+          const a    = document.createElement('a');
+          a.href     = url;
+          a.download = 'echo-library.zip';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+
+          statusMsg.textContent = `Exported ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} as echo-library.zip.`;
+
+        } else {
+          // Graceful fallback: JSON backup when JSZip CDN is unavailable
+          const blob = new Blob([JSON.stringify(data, null, 2)], {
+            type: 'application/json;charset=utf-8',
+          });
+          const url  = URL.createObjectURL(blob);
+          const a    = document.createElement('a');
+          a.href     = url;
+          a.download = 'echo-library.json';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+
+          statusMsg.textContent = 'ZIP unavailable (CDN offline) — saved echo-library.json instead.';
+        }
+
+      } catch (err) {
+        statusMsg.className   = 'saved-status-msg error';
+        statusMsg.textContent = 'Export failed: ' + err.message;
+      } finally {
+        exportBtn.disabled  = false;
+        exportBtn.textContent = 'Export library';
+      }
     }
 
     /* ==============================================
@@ -1803,9 +5924,10 @@
         const entry = await res.json();
 
         // Restore shared state
-        lastSegments  = entry.segments;
-        currentMeta   = { videoId: entry.videoId, url: entry.url, title: entry.title };
-        currentDigest = entry.digest || null;
+        lastSegments    = entry.segments;
+        currentSegments = entry.segments;
+        currentMeta     = { videoId: entry.videoId, url: entry.url, title: entry.title };
+        currentDigest   = entry.digest || null;
 
         // Sync UI — command bar and now-reading strip
         urlInput.value = entry.url;
@@ -1821,6 +5943,25 @@
         usageStatsEl.innerHTML   = '';
         digestDot.style.display  = 'none';
         setTopIndicator('idle');
+        // Reset Ask and Fact-check panels
+        qaThread.innerHTML           = '';
+        askClearRow.hidden           = true;
+        askInlineStatus.textContent  = '';
+        askInlineStatus.className    = 'ai-inline-status';
+        fcResults.innerHTML          = '';
+        fcInlineStatus.textContent   = '';
+        fcInlineStatus.className     = 'ai-inline-status';
+        // Reset Chapters panel
+        lastChapters                 = null;
+        chResults.innerHTML          = '';
+        chInlineStatus.textContent   = '';
+        chInlineStatus.className     = 'ai-inline-status';
+        // Reset Quotes panel
+        lastQuotes                   = null;
+        qtResults.innerHTML          = '';
+        qtInlineStatus.textContent   = '';
+        qtInlineStatus.className     = 'ai-inline-status';
+        switchAiTool('summary');
 
         // Restore digest content if it was saved
         if (entry.digest) {
@@ -1833,10 +5974,19 @@
           setDigestStatus('Digest ready.', false);
         }
 
+        // Load highlights from the saved entry
+        currentHighlights = Array.isArray(entry.highlights) ? entry.highlights : [];
+
         // Render transcript and enable action buttons
+        resetFind();
         renderSegments(lastSegments);
-        digestBtn.disabled = false;
-        saveBtn.disabled   = false;
+        reApplyOverlays();
+        digestBtn.disabled              = false;
+        saveBtn.disabled                = false;
+        transcriptCopyBtn.disabled      = false;
+        transcriptDownloadBtn.disabled  = false;
+        syncDigestExportRow();
+        syncDigestRegenBtn(); // update label + enable state
 
         setStatus(`Loaded ${entry.segments.length} segments for video ${entry.videoId}.`);
 
@@ -1861,11 +6011,399 @@
           alert('Failed to delete. Please try again.');
           return;
         }
+        savedNotesCache.delete(videoId);
         loadSaved();
       } catch (err) {
         alert('Network error: ' + err.message);
       }
     }
+
+    /* ==============================================
+       THEME TOGGLE
+    =============================================== */
+    const themeToggleBtn = document.getElementById('themeToggle');
+
+    const MOON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+    const SUN_SVG  = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>';
+
+    function syncThemeToggle() {
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      themeToggleBtn.innerHTML = isDark ? SUN_SVG : MOON_SVG;
+      themeToggleBtn.setAttribute('aria-label',   isDark ? 'Switch to light theme' : 'Switch to dark theme');
+      themeToggleBtn.setAttribute('aria-pressed',  isDark ? 'true' : 'false');
+    }
+
+    themeToggleBtn.addEventListener('click', () => {
+      const current = document.documentElement.getAttribute('data-theme');
+      const next    = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('echo-theme', next);
+      syncThemeToggle();
+    });
+
+    // Follow system preference automatically — unless user has manually toggled
+    if (window.matchMedia) {
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+        if (!localStorage.getItem('echo-theme')) {
+          document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+          syncThemeToggle();
+        }
+      });
+    }
+
+    // Sync icon/label to the theme that was already applied by the no-FOUC head script
+    syncThemeToggle();
+
+    /* ==============================================
+       SAVED TOOLBAR — EVENT LISTENERS
+    =============================================== */
+    (function wireSavedToolbar() {
+      const searchInp  = document.getElementById('savedSearchInput');
+      const sortSel    = document.getElementById('savedSortSelect');
+      const exportBtn  = document.getElementById('savedExportBtn');
+
+      if (searchInp) {
+        searchInp.addEventListener('input', () => {
+          savedSearchQuery = searchInp.value.trim();
+          renderSavedFiltered();
+        });
+        // Allow clearing via the native ×
+        searchInp.addEventListener('search', () => {
+          savedSearchQuery = searchInp.value.trim();
+          renderSavedFiltered();
+        });
+      }
+
+      if (sortSel) {
+        sortSel.addEventListener('change', () => {
+          savedSortMode = sortSel.value;
+          renderSavedFiltered();
+        });
+      }
+
+      if (exportBtn) {
+        exportBtn.addEventListener('click', exportSavedLibrary);
+      }
+    })();
+
+    /* ==============================================
+       LOADING SKELETON
+    =============================================== */
+    function showTranscriptSkeleton() {
+      const widths = [90, 75, 85, 60, 95, 70, 80, 88, 65, 78];
+      outputEl.innerHTML =
+        '<div class="skeleton-block" aria-hidden="true">' +
+        widths.map(w => `<div class="skeleton-line" style="width:${w}%"></div>`).join('') +
+        '</div>';
+      outputEl.classList.add('visible');
+    }
+
+    /* ==============================================
+       LANGUAGE PICKER — FEATURE 1
+    =============================================== */
+    const langPickerWrap   = document.getElementById('langPickerWrap');
+    const langSelect       = document.getElementById('langSelect');
+    const langPickerStatus = document.getElementById('langPickerStatus');
+
+    let currentLangCode = null;  // language code currently displayed
+    let langPickerBusy  = false; // guard against concurrent re-fetches
+
+    async function loadLanguageTracks(videoId) {
+      if (!langPickerWrap || !langSelect) return;
+      langPickerWrap.hidden      = true;
+      langSelect.innerHTML       = '';
+      if (langPickerStatus) {
+        langPickerStatus.textContent = '';
+        langPickerStatus.className   = 'lang-picker-status';
+      }
+
+      try {
+        const res = await fetch(`/api/languages?videoId=${encodeURIComponent(videoId)}`);
+        if (!res.ok) return;
+        const data   = await res.json();
+        const tracks = Array.isArray(data.tracks) ? data.tracks : [];
+        if (tracks.length === 0) return; // keep picker hidden
+
+        // Dedupe by code; split manual vs auto
+        const seen   = new Set();
+        const manual = [];
+        const auto   = [];
+        for (const t of tracks) {
+          if (seen.has(t.code)) continue;
+          seen.add(t.code);
+          if (t.auto) auto.push(t); else manual.push(t);
+        }
+
+        const makeOpt = t => {
+          const sel = t.code === currentLangCode ? ' selected' : '';
+          const lbl = t.auto ? `${escapeHtml(t.name)} (auto)` : escapeHtml(t.name);
+          return `<option value="${escapeAttr(t.code)}"${sel}>${lbl}</option>`;
+        };
+
+        let html = '';
+        if (manual.length > 0) {
+          html += `<optgroup label="Original / manual">${manual.map(makeOpt).join('')}</optgroup>`;
+        }
+        if (auto.length > 0) {
+          html += `<optgroup label="Auto-translated">${auto.map(makeOpt).join('')}</optgroup>`;
+        }
+
+        langSelect.innerHTML  = html;
+        langPickerWrap.hidden = false;
+      } catch (_) {
+        /* Silently ignore — picker stays hidden */
+      }
+    }
+
+    langSelect && langSelect.addEventListener('change', async () => {
+      if (langPickerBusy || !currentMeta) return;
+      const code    = langSelect.value;
+      const prevCode = currentLangCode;
+      if (!code) return;
+
+      langPickerBusy  = true;
+      currentLangCode = code;
+      if (langPickerStatus) {
+        langPickerStatus.textContent = 'Loading…';
+        langPickerStatus.className   = 'lang-picker-status';
+      }
+
+      // Show skeleton while re-fetching
+      showTranscriptSkeleton();
+
+      try {
+        const res  = await fetch('/api/transcript', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ url: currentMeta.url, lang: code }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          // Revert to previous selection
+          currentLangCode = prevCode;
+          if (langSelect && prevCode) langSelect.value = prevCode;
+          if (langPickerStatus) {
+            langPickerStatus.textContent = data.error || 'Failed to load this language.';
+            langPickerStatus.className   = 'lang-picker-status error';
+          }
+          // Restore previous transcript display
+          if (lastSegments) { renderSegments(lastSegments); reApplyOverlays(); }
+          else { outputEl.classList.remove('visible'); outputEl.innerHTML = ''; }
+          return;
+        }
+
+        lastSegments    = data.segments;
+        currentSegments = data.segments;
+        if (langPickerStatus) {
+          langPickerStatus.textContent = '';
+          langPickerStatus.className   = 'lang-picker-status';
+        }
+        resetFind();
+        renderSegments(lastSegments);
+        reApplyOverlays();
+        setStatus(`Loaded ${data.segments.length} segments (${code}).`);
+
+      } catch (err) {
+        currentLangCode = prevCode;
+        if (langSelect && prevCode) langSelect.value = prevCode;
+        if (langPickerStatus) {
+          langPickerStatus.textContent = 'Network error: ' + err.message;
+          langPickerStatus.className   = 'lang-picker-status error';
+        }
+        if (lastSegments) { renderSegments(lastSegments); reApplyOverlays(); }
+        else { outputEl.classList.remove('visible'); outputEl.innerHTML = ''; }
+      } finally {
+        langPickerBusy = false;
+      }
+    });
+
+    /* ==============================================
+       PLAYLIST MODE — FEATURE 2
+    =============================================== */
+    const playlistPanelEl = document.getElementById('playlistPanel');
+
+    let playlistVideos    = [];
+    let activePlaylistIdx = -1;
+
+    const PLAYLIST_DISPLAY_CAP = 20;
+
+    function renderPlaylist(title, videos) {
+      if (!playlistPanelEl || !videos || videos.length === 0) {
+        if (playlistPanelEl) playlistPanelEl.hidden = true;
+        return;
+      }
+
+      const displayCount = Math.min(videos.length, PLAYLIST_DISPLAY_CAP);
+      const remaining    = videos.length - displayCount;
+
+      let itemsHtml = '';
+      for (let i = 0; i < displayCount; i++) {
+        const v        = videos[i];
+        const isActive = i === activePlaylistIdx;
+        const num      = String(i + 1).padStart(2, '0');
+        itemsHtml +=
+          `<div class="playlist-item${isActive ? ' active' : ''}"` +
+            ` data-idx="${i}"` +
+            ` tabindex="0"` +
+            ` role="button"` +
+            ` aria-label="Load: ${escapeAttr(v.title)}"` +
+            ` aria-current="${isActive ? 'true' : 'false'}">` +
+            `<span class="playlist-item-num">${num}</span>` +
+            `<span>${escapeHtml(v.title)}</span>` +
+          `</div>`;
+      }
+      if (remaining > 0) {
+        itemsHtml += `<div class="playlist-more">…and ${remaining} more video${remaining !== 1 ? 's' : ''}</div>`;
+      }
+
+      playlistPanelEl.innerHTML =
+        `<div class="playlist-header" id="playlistHeader">` +
+          `<span class="playlist-header-title">${escapeHtml(title)}</span>` +
+          `<span class="playlist-header-count">${videos.length} video${videos.length !== 1 ? 's' : ''}</span>` +
+          `<button class="playlist-header-toggle" id="playlistToggleBtn"` +
+            ` aria-label="Collapse playlist" aria-expanded="true">&#9660;</button>` +
+          `<button class="playlist-header-dismiss" id="playlistDismissBtn"` +
+            ` aria-label="Dismiss playlist">&#10005;</button>` +
+        `</div>` +
+        `<div class="playlist-body" id="playlistBody">${itemsHtml}</div>`;
+
+      playlistPanelEl.hidden = false;
+
+      // Toggle collapse
+      const toggleBtn = document.getElementById('playlistToggleBtn');
+      const bodyEl    = document.getElementById('playlistBody');
+      toggleBtn && toggleBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        const collapsed = bodyEl.classList.toggle('collapsed');
+        toggleBtn.innerHTML  = collapsed ? '&#9654;' : '&#9660;';
+        toggleBtn.setAttribute('aria-expanded',  String(!collapsed));
+        toggleBtn.setAttribute('aria-label', collapsed ? 'Expand playlist' : 'Collapse playlist');
+      });
+
+      // Header row click toggles too (but not the buttons)
+      const headerEl = document.getElementById('playlistHeader');
+      headerEl && headerEl.addEventListener('click', e => {
+        if (e.target.closest('.playlist-header-toggle')) return;
+        if (e.target.closest('.playlist-header-dismiss')) return;
+        toggleBtn && toggleBtn.click();
+      });
+
+      // Dismiss
+      const dismissBtn = document.getElementById('playlistDismissBtn');
+      dismissBtn && dismissBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        playlistPanelEl.hidden = true;
+        playlistVideos         = [];
+        activePlaylistIdx      = -1;
+      });
+
+      // Video row clicks
+      playlistPanelEl.querySelectorAll('.playlist-item').forEach(item => {
+        const loadVideo = e => {
+          e.stopPropagation();
+          const idx = Number(item.dataset.idx);
+          const v   = playlistVideos[idx];
+          if (!v) return;
+          activePlaylistIdx = idx;
+          // Re-render panel with updated active state (capture title before re-render)
+          const panelTitle = playlistPanelEl.querySelector('.playlist-header-title')?.textContent || '';
+          renderPlaylist(panelTitle, playlistVideos);
+          // Load the video through normal fetch flow, preserving the playlist panel
+          const ytUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(v.videoId)}`;
+          urlInput.value   = ytUrl;
+          _playlistNavFlag = true;
+          fetchTranscript();
+        };
+        item.addEventListener('click', loadVideo);
+        item.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadVideo(e); }
+        });
+      });
+    }
+
+    async function loadPlaylist(url) {
+      try {
+        const res  = await fetch('/api/playlist', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ url }),
+        });
+        const data = await res.json();
+        if (!res.ok || !Array.isArray(data.videos) || data.videos.length === 0) return;
+        playlistVideos    = data.videos;
+        activePlaylistIdx = -1;
+        renderPlaylist(data.playlistTitle || 'Playlist', data.videos);
+      } catch (_) {
+        /* Silently ignore — playlist is non-critical */
+      }
+    }
+
+    /* ==============================================
+       KEYBOARD SHORTCUTS OVERLAY — FEATURE 4
+    =============================================== */
+    const shortcutsOverlayEl = document.getElementById('shortcutsOverlay');
+
+    function openShortcutsOverlay() {
+      if (!shortcutsOverlayEl) return;
+      // Belt-and-suspenders: hide any open popovers before showing modal
+      if (!hlCreatePopover.hidden) hideHighlightCreatePopover();
+      if (!hlViewPopover.hidden)   hideHighlightViewPopover();
+      shortcutsOverlayEl.hidden = false;
+      document.getElementById('shortcutsClose')?.focus();
+    }
+
+    function closeShortcutsOverlay() {
+      if (!shortcutsOverlayEl) return;
+      shortcutsOverlayEl.hidden = true;
+    }
+
+    document.getElementById('shortcutsBtn')?.addEventListener('click', openShortcutsOverlay);
+    document.getElementById('shortcutsClose')?.addEventListener('click', closeShortcutsOverlay);
+    document.getElementById('shortcutsBackdrop')?.addEventListener('click', closeShortcutsOverlay);
+
+    /** Returns true if the keyboard event originates from a form-entry context. */
+    function isTypingContext(e) {
+      const t = e.target;
+      if (!t) return false;
+      const tag = (t.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+      if (t.isContentEditable) return true;
+      return false;
+    }
+
+    /** Global shortcut handler — ignores keystrokes that originate in form fields. */
+    document.addEventListener('keydown', e => {
+      // Skip modifier combos
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      // '?' opens overlay regardless of typing (it only fires with Shift on US keyboards)
+      if (e.key === '?') {
+        e.preventDefault();
+        openShortcutsOverlay();
+        return;
+      }
+
+      // All remaining shortcuts: skip when typing in a form field
+      if (isTypingContext(e)) return;
+
+      if (e.key === '/') {
+        e.preventDefault();
+        switchTab('transcript');
+        findInput.focus();
+        return;
+      }
+
+      if (e.key === '1') { e.preventDefault(); switchTab('transcript'); return; }
+      if (e.key === '2') { e.preventDefault(); switchTab('digest');     return; }
+      if (e.key === '3') { e.preventDefault(); switchTab('saved');      return; }
+
+      if (e.key === 't') {
+        e.preventDefault();
+        themeToggleBtn.click();
+        return;
+      }
+    });
 
     /* ==============================================
        INITIALISE
