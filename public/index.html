@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>YouTube Transcript</title>
+  <title>Echo — read what was actually said</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 
   <!-- No-FOUC: set theme token before first paint -->
   <script>
@@ -157,6 +158,34 @@
       .record-dot {
         animation: none;
         opacity: 1;
+      }
+    }
+
+    /* Echo brand lockup */
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--accent);
+    }
+
+    .brand-glyph {
+      flex: 0 0 auto;
+    }
+
+    .brand-word {
+      font-family: var(--font-sans);
+      font-weight: 600;
+      font-size: 1.2rem;
+      letter-spacing: -0.01em;
+      color: var(--ink);
+      line-height: 1;
+    }
+
+    @media (max-width: 520px) {
+      .brand-glyph {
+        width: 24px;
+        height: 24px;
       }
     }
 
@@ -2929,8 +2958,17 @@
     <!-- HEADER / HERO -->
     <header class="site-header">
       <div class="wordmark">
-        <span class="record-dot" aria-hidden="true"></span>
-        <span class="wordmark-text">Transcript</span>
+        <span class="brand" aria-label="Echo">
+          <svg class="brand-glyph" viewBox="0 0 40 40" width="28" height="28" aria-hidden="true" fill="none">
+            <g stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
+              <path d="M18 34.72 A17 17 0 0 1 18 5.28" opacity="0.26"/>
+              <path d="M20.25 30.83 A12.5 12.5 0 0 1 20.25 9.17" opacity="0.55"/>
+              <path d="M22.5 26.93 A8 8 0 0 1 22.5 13.07"/>
+            </g>
+            <circle cx="26.5" cy="20" r="3" fill="currentColor"/>
+          </svg>
+          <span class="brand-word">Echo</span>
+        </span>
         <button
           id="themeToggle"
           class="theme-toggle"
