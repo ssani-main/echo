@@ -7633,11 +7633,34 @@
       }
     });
 
+    function autoLoadFromQuery() {
+      try {
+        const params = new URLSearchParams(location.search);
+        const v   = params.get('v');
+        const url = params.get('url');
+        let target = '';
+        if (v && /^[\w-]{11}$/.test(v)) {
+          target = 'https://www.youtube.com/watch?v=' + v;
+        } else if (url) {
+          target = url;   // decoded automatically by URLSearchParams
+        }
+        if (!target) return;
+        if (typeof urlInput !== 'undefined' && urlInput) urlInput.value = target;
+        // Clean the query string so a refresh doesn't re-trigger and the bar looks tidy
+        if (window.history && history.replaceState) {
+          history.replaceState({}, document.title, location.pathname);
+        }
+        // Kick off the normal transcript fetch
+        fetchTranscript();
+      } catch (e) { /* non-fatal: ignore malformed query */ }
+    }
+
     /* ==============================================
        INITIALISE
     =============================================== */
     loadUsageChip();
     loadSaved();
+    autoLoadFromQuery();
   </script>
 </body>
 </html>
