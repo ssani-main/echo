@@ -5,8 +5,8 @@ session can resume with zero context loss. Delete it once all remaining tasks ar
 
 ## Big picture
 A round of robustness + feature work on Echo (local YouTube transcript reader, `claude -p`
-CLI for AI, no API key). Ten items were planned. **Five are done and committed on this
-branch**; five remain.
+CLI for AI, no API key). Ten items were planned. **All ten are done and committed on this
+branch** (`feat/sqlite-and-features`).
 
 ## Environment / decisions worth knowing
 - **Storage is now SQLite** via Node's built-in `node:sqlite` (NOT better-sqlite3 — that
@@ -43,53 +43,48 @@ branch**; five remain.
 5. **Cross-video digest** — `generateCrossDigest(entries, options)` in `digest.js`;
    `POST /api/cross-digest`; "Compare" multi-select mode + "Cross-digest (N)" + result modal
    in the Library UI.
+6. **Markdown / Obsidian export** — `markdown.js` with `entryToMarkdown()` helper;
+   `GET /api/saved/:videoId/export.md` (honors `?transcript=0` to skip full transcript);
+   "Download .md" button on each saved card + detail view. YAML frontmatter for Obsidian.
+   (commit `8f9e900`)
+7. **Highlights clip reel** — `clips.js` with `buildClips()` and `resolveHighlightSecond()`
+   helpers; `GET /api/clips` (optional `?videoId=` filter); "Clips" toolbar button + modal
+   showing grouped deep-links with per-clip Copy, Copy all, and Export .md actions.
+   (commit `f73aeb8`)
+8. **Batch playlist digest** — `playlistJob.js` in-memory background job (sequential,
+   per-video failure tolerant, fatal on CLAUDE_NOT_INSTALLED/AUTHED, prunes jobs >20);
+   routes `POST /api/playlist/digest`, `GET /api/playlist/digest/status`,
+   `POST /api/playlist/digest/cancel`; "Digest all" button on playlist panel + polling
+   progress line; refreshes saved library on completion. (commit `ee66314`)
+9. **Browser bookmarklet / send-to-Echo** — `autoLoadFromQuery()` reads `?v=<id>`/`?url=<url>`
+   on load, populates input, clears query via `history.replaceState`, auto-fetches; README
+   "Send to Echo" bookmarklet section + manual `/?v=`/`/?url=` usage documented.
+   (commit `a339cb6`)
+10. **Test suite** — `node:test` + `node:assert`, 37 tests (digest pure helpers, markdown
+    export, clips, store CRUD/tags/notes/highlights/search, API error-envelope integration);
+    `npm test` script; added `process.env.ECHO_DB_PATH` (temp DB, skips legacy-JSON
+    migration) and `process.env.PORT` hooks; guarded `app.listen` behind direct-run check
+    and `export { app }`; bumped engines to Node >=22.5. (commit `6d0dae4`)
 
-## REMAINING (not started) — specs to resume with
-Do these SEQUENTIALLY (each touches `server.js` and/or `public/index.html`). Each pass:
-backend + UI + verify, reusing the toast system + error envelope. Then run a sentinel scan.
+## Follow-ups / known gaps
 
-### 6. Markdown / Obsidian export
-- `GET /api/saved/:videoId/export.md` (or similar) returning clean Markdown for one saved
-  entry: title + source URL, the digest, notes, and highlights (with YouTube deep-links at
-  each highlight's second), and optionally the full transcript. YAML frontmatter (title,
-  url, tags, savedAt) so it drops straight into Obsidian/Notion.
-- Frontend: a "Download .md" action on each saved card + in the detail view. Reuse existing
-  download helpers (`downloadMd` exists).
+1. **Visual QA not done** — the automated screenshot pass (desktop/mobile, light/dark) for
+   the new UI (export buttons, Clips modal, playlist "Digest all", query-param auto-load)
+   could NOT run because the `obscura` headless browser isn't installed in this environment.
+   Needs a manual visual pass or a browser-automation tool before the UI is truly signed off.
 
-### 7. Highlights clip reel
-- A view that gathers all highlights (optionally across the whole library or per video) into
-  a shareable list of deep-link "clips" — each is a YouTube URL at the exact second
-  (`&t=<sec>s`) plus the highlighted text + any note. Copy-all / export.
-- Highlights already carry text/offset; the deep-link pattern already exists in the
-  timecoded transcript view. Mostly a new UI panel + maybe `GET /api/clips`.
-
-### 8. Batch playlist digest
-- Wire the existing playlist mode to the digest engine: given a playlist URL, fetch each
-  video's transcript (`transcript.js`) and digest it (`generateDigest`), saving each into
-  the library (`saveEntry`). Run as a background job with progress reporting (the videos may
-  be many — stream progress via polling or SSE; reuse toast for status). Respect the 3-min
-  per-call timeout; handle per-video failures without aborting the whole batch.
-- Likely `POST /api/playlist/digest` (kick off) + `GET /api/playlist/digest/status`.
-
-### 9. Browser bookmarklet / "send to Echo"
-- A bookmarklet (and/or tiny extension) that, from a YouTube page, opens
-  `http://localhost:8000/?v=<videoId>` (or posts the URL) so Echo auto-loads that video.
-- Needs a small bit of `index.html` JS to read a `?v=`/`?url=` query param on load and
-  auto-fetch the transcript. Ship the bookmarklet snippet in README + an `extension/` folder
-  if doing the full extension.
-
-### 10. Test suite
-- Use `node:test` + `node:assert` (zero deps; add an `npm test` script). Make the store DB
-  path overridable (e.g. `process.env.ECHO_DB_PATH`) so tests use a temp DB — this is a
-  ~1-line change in `store.js`.
-- Cover: store CRUD + tags/notes/highlights/favorite + `searchLibrary` + migration
-  idempotency; digest pure helpers (`estimateTokens`, `chunkText`, `chunkSegments`,
-  `mergeUsage`); API integration for `/api/saved`, error envelope on bad `/api/transcript`
-  and `/api/digest`, and `/api/search` keyword mode. Boot the server on a custom port with a
-  temp DB (may require adding `PORT` env support to `server.js`).
+2. **Untrusted URL as href (pre-existing)** — stored `entry.url` is rendered as an `<a href>`
+   in the saved cards and in the Markdown export without http/https protocol validation;
+   a stored `javascript:` URL would be clickable. Only the clip-reel deep-links were hardened
+   this round. Consider validating/sanitizing `url` at save time or at every render site.
 
 ## How to run
 - `node server.js` -> http://localhost:8000  (needs Node >= 22.5)
+- `npm test` — runs 37 test cases via `node:test`; uses a temp DB via `process.env.ECHO_DB_PATH`
 - Test URL for manual QA: `https://www.youtube.com/watch?v=GRzaq5AHiV8`
 - Before calling any UI change "done": screenshot desktop + mobile, light + dark, and the
   digesting state.
+
+---
+
+**Delete this file after merging `feat/sqlite-and-features` to `main`.**
