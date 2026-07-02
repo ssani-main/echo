@@ -98,6 +98,56 @@ Then open **http://localhost:8000** 🎉
 
 > 💡 On Windows PowerShell, if `npm start` trips the execution policy, run `npm.cmd start` or launch it from `cmd`.
 
+## 🚀 Running Echo — Deployment modes
+
+Echo is one codebase that runs three ways—same core, different shells.
+
+### Local (default)
+
+```bash
+npm start
+```
+
+Opens **http://localhost:8000**. The AI Workspace shells out to your locally-installed [Claude Code CLI](https://claude.com/claude-code) — no API key or subscription setup needed, reuses your existing quota. **This is the standard way to run Echo and requires no environment configuration.**
+
+### Hosted web (BYOK — Bring Your Own Key)
+
+```bash
+ECHO_MODE=web PORT=8080 node server.js
+```
+
+Public web mode with no authentication. Each visitor:
+- **Provides their own Anthropic API key** in Settings (gear icon)
+- Key stored in browser's **localStorage**, sent per-request as `X-Echo-Api-Key` header — **never stored on server**
+- Library stored in browser's **IndexedDB** — each visitor's library is isolated, no user accounts
+
+**Web-mode limits:**
+- Semantic search disabled (falls back to client-side text filtering)
+- Per-IP rate limiting to prevent abuse
+- Transcript and AI payload size caps
+- Playlist digest disabled
+
+### Desktop app (Tauri v2)
+
+A native window wrapper running the same Node backend as a sidecar. Build prerequisites (Rust, VS C++ Build Tools 2022, WebView2) and commands (`npm run tauri:dev`, `npm run tauri:build`) are documented in `DESKTOP.md` — refer to that file.
+
+---
+
+## ⚙️ Environment variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` | `8000` | Server port |
+| `ECHO_MODE` | `local` | `local` (Claude Code CLI) or `web` (visitor-supplied keys) |
+| `ECHO_PROVIDER` | _(CLI)_ | Set to `api` to use Anthropic API instead of CLI. Web-mode per-request `X-Echo-Api-Key` also selects API provider. |
+| `ANTHROPIC_API_KEY` | _(unset)_ | API key used when no per-request key is supplied |
+| `ECHO_DB_PATH` | `data/library.db` | SQLite library database path |
+| `ECHO_MODELS_DIR` | `data/models` | Embeddings model cache directory |
+| `ECHO_MAX_TRANSCRIPT_CHARS` | `200000` | Web-mode transcript character limit |
+| `ECHO_MAX_AI_PAYLOAD_CHARS` | `200000` | Web-mode AI payload character limit |
+
+**Node version requirement:** ≥ 22.5 (for `node:sqlite` support).
+
 ## 🕹️ How to use
 
 1. **Paste** a YouTube URL, optionally pick a caption language, and hit **Get transcript** — it lands in the **Transcript** tab.
