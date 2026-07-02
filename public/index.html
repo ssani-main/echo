@@ -4347,6 +4347,15 @@
         .replace(/"/g, '&quot;');
     }
 
+    // Returns the URL only if it is a safe http(s) URL, else ''.
+    // Browsers ignore leading/trailing whitespace and embedded control chars
+    // (tab/newline/CR) when resolving a scheme, so strip those before testing.
+    function safeHttpUrl(raw) {
+      if (raw == null) return '';
+      const cleaned = String(raw).replace(/\s+/g, '');
+      return /^https?:\/\//i.test(cleaned) ? cleaned : '';
+    }
+
     function renderSegments(segments) {
       if (!segments || segments.length === 0) {
         outputEl.textContent = '(No transcript segments returned.)';
@@ -4388,8 +4397,13 @@
         return;
       }
       nowReadingTitle.textContent = currentMeta.title || currentMeta.videoId;
-      nowReadingUrl.textContent   = currentMeta.url;
-      nowReadingUrl.href          = currentMeta.url;
+      const safeUrl = safeHttpUrl(currentMeta.url);
+      nowReadingUrl.textContent  = currentMeta.url;
+      if (safeUrl) {
+        nowReadingUrl.href = safeUrl;
+      } else {
+        nowReadingUrl.removeAttribute('href');
+      }
       nowReadingEl.hidden         = false;
     }
 
@@ -6179,10 +6193,15 @@
             ${starBtn}
             <div class="saved-card-main">
               <div class="saved-card-title">${escapeHtml(title)}</div>
-              <a class="saved-card-url"
-                 href="${escapeAttr(entry.url)}"
-                 target="_blank"
-                 rel="noopener noreferrer">${escapeHtml(entry.url)}</a>
+              ${(() => {
+                const safeUrl = safeHttpUrl(entry.url);
+                return safeUrl
+                  ? `<a class="saved-card-url"
+                       href="${escapeAttr(safeUrl)}"
+                       target="_blank"
+                       rel="noopener noreferrer">${escapeHtml(entry.url)}</a>`
+                  : `<span class="saved-card-url">${escapeHtml(entry.url)}</span>`;
+              })()}
               <div class="saved-card-meta">
                 ${dateStr ? `<span class="saved-meta-item">${escapeHtml(dateStr)}</span>` : ''}
                 ${sep}${badge}
@@ -6841,7 +6860,8 @@
 
           for (const entry of entries) {
             const slug = slugify(entry.title || entry.videoId) || entry.videoId;
-            let md = `# ${entry.title || entry.videoId}\n\nSource: ${entry.url}\n\n`;
+            const safeSrc = safeHttpUrl(entry.url);
+            let md = `# ${entry.title || entry.videoId}\n\n${safeSrc ? `Source: ${safeSrc}\n\n` : ''}`;
 
             if (entry.digest) {
               md += `## AI digest\n\n${entry.digest}\n\n`;

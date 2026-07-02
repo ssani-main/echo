@@ -1,6 +1,8 @@
 // clips.js — builds a flat list of "clips" (highlight + deep-link) across saved entries.
 // Pure functions only; no I/O, no imports from store.js/server.js.
 
+import { safeHttpUrl } from './sanitize.js';
+
 /**
  * Format a whole-second duration as "M:SS" or "H:MM:SS".
  * @param {number} sec
@@ -64,9 +66,7 @@ export function buildClips(entries) {
     const videoId  = entry.videoId;
     const title    = entry.title || videoId;
     const rawUrl   = typeof entry.url === 'string' ? entry.url.trim() : '';
-    const videoUrl = /^https?:\/\//i.test(rawUrl)
-      ? rawUrl
-      : `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
+    const videoUrl = safeHttpUrl(rawUrl) || `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
     const segments = Array.isArray(entry.segments) ? entry.segments : [];
 
     for (const h of highlights) {

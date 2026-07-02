@@ -3,6 +3,8 @@
  * Pure, dependency-free, and defensive against missing/partial fields.
  */
 
+import { safeHttpUrl } from './sanitize.js';
+
 /** Escape double-quotes inside a YAML-quoted scalar. */
 function escapeYamlString(str) {
   return String(str || '').replace(/"/g, '\\"');
@@ -51,7 +53,7 @@ function resolveWatchUrl(entry) {
   const url = entry?.url;
   if (url && /youtube\.com\/watch|youtu\.be\//i.test(url)) return url;
   if (entry?.videoId) return `https://www.youtube.com/watch?v=${entry.videoId}`;
-  return url || '';
+  return safeHttpUrl(url);
 }
 
 /** Append a `t=<sec>s` deep-link param to a base URL, respecting existing query strings. */
@@ -76,7 +78,7 @@ export function entryToMarkdown(entry, opts = {}) {
   // --- Frontmatter ---
   lines.push('---');
   lines.push(`title: "${escapeYamlString(title)}"`);
-  lines.push(`url: "${escapeYamlString(url)}"`);
+  lines.push(`url: "${escapeYamlString(safeHttpUrl(url))}"`);
   lines.push(`videoId: "${escapeYamlString(e.videoId || '')}"`);
   if (tags.length > 0) {
     const flowList = tags.map((t) => `"${escapeYamlString(t)}"`).join(', ');
@@ -90,8 +92,9 @@ export function entryToMarkdown(entry, opts = {}) {
   // --- Title & source ---
   lines.push(`# ${title}`);
   lines.push('');
-  if (url) {
-    lines.push(`**Source:** [${url}](${url})`);
+  const safeSrc = safeHttpUrl(url);
+  if (safeSrc) {
+    lines.push(`**Source:** [${safeSrc}](${safeSrc})`);
     lines.push('');
   }
 

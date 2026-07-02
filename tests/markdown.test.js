@@ -81,3 +81,16 @@ test('entryToMarkdown: an entry with no digest/notes/highlights omits those sect
   assert.doesNotMatch(md, /## Highlights/);
   assert.match(md, /# Bare Entry/);
 });
+
+test('entryToMarkdown: an unsafe url (javascript:) never appears and no Source link is emitted', () => {
+  const entry = { ...buildFixture(), url: 'javascript:alert(1)' };
+  const md = entryToMarkdown(entry);
+  assert.doesNotMatch(md, /javascript:/);
+  assert.doesNotMatch(md, /\*\*Source:\*\*/);
+});
+
+test('entryToMarkdown: a valid https url produces a Source link', () => {
+  const entry = { ...buildFixture(), url: 'https://www.youtube.com/watch?v=abc12345678' };
+  const md = entryToMarkdown(entry);
+  assert.match(md, /\*\*Source:\*\* \[https:\/\/www\.youtube\.com\/watch\?v=abc12345678\]\(https:\/\/www\.youtube\.com\/watch\?v=abc12345678\)/);
+});

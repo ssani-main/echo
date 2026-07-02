@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { safeHttpUrl } from './sanitize.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = dirname(__filename);
@@ -334,6 +335,7 @@ export async function getEntry(videoId) {
 export async function saveEntry({ url, videoId, title, segments, digest, tags, favorite, notes, highlights }) {
   const now      = new Date().toISOString();
   const existing = db.prepare('SELECT * FROM videos WHERE videoId = ?').get(videoId);
+  const safeUrl  = safeHttpUrl(url);
 
   if (!existing) {
     // ---- New entry --------------------------------------------------------
@@ -342,7 +344,7 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       videoId,
-      url    ?? '',
+      safeUrl,
       title  || null,
       now, now,
       JSON.stringify(segments || []),
@@ -377,7 +379,7 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
       SET url = ?, title = ?, updatedAt = ?, segments = ?, digest = ?, favorite = ?
       WHERE videoId = ?
     `).run(
-      url ?? existing.url,
+      url != null ? safeUrl : existing.url,
       title || null,
       now,
       JSON.stringify(segments || []),

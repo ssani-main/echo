@@ -24,6 +24,9 @@ branch** (`feat/sqlite-and-features`).
   `handleApiError(data)`; backend returns a structured error envelope
   `{ error: { code, message, hint } }` via `sendError` / `sendCaughtError` in `server.js`.
   **Reuse these** in any new UI/endpoint.
+- **URL safety:** any external `url` must pass `safeHttpUrl()` (from `sanitize.js`) before
+  being used as an href or written into an export. It is enforced both at save time (`store.js`)
+  and at each render sink; reuse it rather than trusting stored `url` values.
 - The single-page frontend `public/index.html` is a ~6.5k-line monolith. Only ONE agent
   should edit it at a time (parallel edits clobber). Same for `server.js`.
 
@@ -60,27 +63,27 @@ branch** (`feat/sqlite-and-features`).
    on load, populates input, clears query via `history.replaceState`, auto-fetches; README
    "Send to Echo" bookmarklet section + manual `/?v=`/`/?url=` usage documented.
    (commit `a339cb6`)
-10. **Test suite** — `node:test` + `node:assert`, 37 tests (digest pure helpers, markdown
-    export, clips, store CRUD/tags/notes/highlights/search, API error-envelope integration);
-    `npm test` script; added `process.env.ECHO_DB_PATH` (temp DB, skips legacy-JSON
+10. **Test suite** — `node:test` + `node:assert`, 53 tests (digest pure helpers, markdown
+    export, clips, store CRUD/tags/notes/highlights/search, API error-envelope integration,
+    URL sanitization); `npm test` script; added `process.env.ECHO_DB_PATH` (temp DB, skips legacy-JSON
     migration) and `process.env.PORT` hooks; guarded `app.listen` behind direct-run check
     and `export { app }`; bumped engines to Node >=22.5. (commit `6d0dae4`)
 
 ## Follow-ups / known gaps
 
-1. **Visual QA not done** — the automated screenshot pass (desktop/mobile, light/dark) for
-   the new UI (export buttons, Clips modal, playlist "Digest all", query-param auto-load)
-   could NOT run because the `obscura` headless browser isn't installed in this environment.
-   Needs a manual visual pass or a browser-automation tool before the UI is truly signed off.
+Both previously-open gaps were resolved on 2026-07-02:
 
-2. **Untrusted URL as href (pre-existing)** — stored `entry.url` is rendered as an `<a href>`
-   in the saved cards and in the Markdown export without http/https protocol validation;
-   a stored `javascript:` URL would be clickable. Only the clip-reel deep-links were hardened
-   this round. Consider validating/sanitizing `url` at save time or at every render site.
+1. **Visual QA — DONE.** Ran an automated Playwright + Chromium screenshot pass (browsers used from the global install; NOT added to the repo's zero-dep package.json) against a seeded library on a local server. Captured desktop (1280×900) + mobile (390×844), light + dark: landing, query-param auto-load (`/?v=…`), Readable + Timecoded views, Saved library cards (tags/favorite/DIGEST badge/Notes/`.md`/Delete), Clips modal (Copy all / Export .md), and the playlist "Digest all" panel (loaded via a `watch?v=…&list=…` URL — 100-video playlist, "Digest all" button present). All flows render cleanly with good dark contrast, no mobile overflow, and ZERO console/page errors.
+
+2. **Untrusted URL as href — FIXED.** New module `sanitize.js` exports `safeHttpUrl(raw)` (strips all whitespace via `/\s+/g` — defeating tab/newline scheme-splitting like `java<TAB>script:` — then allowlists only `/^https?:\/\//i`). Applied defense-in-depth: validated at WRITE time in `store.js` `saveEntry()` (sanitizes `url` before INSERT/UPDATE) AND at every render sink — saved-card link degrades to a non-clickable `<span>` when unsafe, `updateNowReading()` removes the href when unsafe, the ZIP-export markdown omits the `Source:` line when unsafe, and `markdown.js` (frontmatter, `**Source:**` link, and the `resolveWatchUrl()` fallback) all route through it. `clips.js` was refactored to reuse the same helper; `public/index.html` carries an inline copy. Verified by vishnu-sentinel-scan + vishnu-guard (both clean).
+
+### Still open
+- The playlist **"Digest all" happy path has still not been run end-to-end** (it spawns a real `claude` call per video; only the UI/panel and job lifecycle/error paths are exercised). Worth one real manual run.
+- Branch is committed but **NOT pushed**. Delete this file once `feat/sqlite-and-features` is merged/pushed.
 
 ## How to run
 - `node server.js` -> http://localhost:8000  (needs Node >= 22.5)
-- `npm test` — runs 37 test cases via `node:test`; uses a temp DB via `process.env.ECHO_DB_PATH`
+- `npm test` — runs 53 test cases via `node:test`; uses a temp DB via `process.env.ECHO_DB_PATH`
 - Test URL for manual QA: `https://www.youtube.com/watch?v=GRzaq5AHiV8`
 - Before calling any UI change "done": screenshot desktop + mobile, light + dark, and the
   digesting state.

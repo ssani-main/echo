@@ -41,6 +41,37 @@ test('saveEntry then getEntry round-trips title, url, segments, digest, and defa
 });
 
 // ---------------------------------------------------------------------------
+// URL sanitization
+// ---------------------------------------------------------------------------
+
+test('saveEntry with an unsafe url (javascript:) stores/returns an empty url', async () => {
+  await store.saveEntry({
+    videoId: 'vid-unsafe-url',
+    url: 'javascript:alert(1)',
+    title: 'Unsafe URL Video',
+    segments: [{ text: 'hello', offset: 0 }],
+  });
+
+  const entry = await store.getEntry('vid-unsafe-url');
+  assert.ok(entry);
+  assert.equal(entry.url, '');
+});
+
+test('saveEntry with a valid https url round-trips that url', async () => {
+  const url = 'https://www.youtube.com/watch?v=vid-safe-url';
+  await store.saveEntry({
+    videoId: 'vid-safe-url',
+    url,
+    title: 'Safe URL Video',
+    segments: [{ text: 'hello', offset: 0 }],
+  });
+
+  const entry = await store.getEntry('vid-safe-url');
+  assert.ok(entry);
+  assert.equal(entry.url, url);
+});
+
+// ---------------------------------------------------------------------------
 // Idempotent upsert
 // ---------------------------------------------------------------------------
 
