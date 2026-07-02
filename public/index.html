@@ -2826,12 +2826,27 @@
       color: var(--accent);
     }
 
+    .playlist-item-badge {
+      margin-left: auto;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      flex-shrink: 0;
+    }
+
     .playlist-more {
       padding: 0.42rem 1rem;
       font-family: var(--font-sans);
       font-size: 0.75rem;
       color: var(--muted);
       font-style: italic;
+    }
+
+    .playlist-digest-progress {
+      padding: 0.42rem 1rem;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--muted);
+      border-top: 1px solid var(--rule);
     }
 
     /* ==============================================
@@ -7291,6 +7306,12 @@
 
     let playlistVideos    = [];
     let activePlaylistIdx = -1;
+    let currentPlaylistUrl = null;
+
+    // Batch playlist digest job state
+    let playlistJobId      = null;
+    let playlistPollTimer  = null;
+    let playlistPollInFlight = false;
 
     const PLAYLIST_DISPLAY_CAP = 20;
 
@@ -7327,14 +7348,24 @@
         `<div class="playlist-header" id="playlistHeader">` +
           `<span class="playlist-header-title">${escapeHtml(title)}</span>` +
           `<span class="playlist-header-count">${videos.length} video${videos.length !== 1 ? 's' : ''}</span>` +
+          `<button class="mini-btn" id="playlistDigestAllBtn"` +
+            ` aria-label="Digest all videos in this playlist"${playlistJobId ? ' disabled' : ''}>Digest all</button>` +
           `<button class="playlist-header-toggle" id="playlistToggleBtn"` +
             ` aria-label="Collapse playlist" aria-expanded="true">&#9660;</button>` +
           `<button class="playlist-header-dismiss" id="playlistDismissBtn"` +
             ` aria-label="Dismiss playlist">&#10005;</button>` +
         `</div>` +
-        `<div class="playlist-body" id="playlistBody">${itemsHtml}</div>`;
+        `<div class="playlist-body" id="playlistBody">${itemsHtml}</div>` +
+        `<div id="playlistDigestProgress" class="playlist-digest-progress" hidden></div>`;
 
       playlistPanelEl.hidden = false;
+
+      // Batch digest-all button
+      const digestAllBtn = document.getElementById('playlistDigestAllBtn');
+      digestAllBtn && digestAllBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        startPlaylistDigestAll();
+      });
 
       // Toggle collapse
       const toggleBtn = document.getElementById('playlistToggleBtn');
@@ -7403,13 +7434,137 @@
           return;
         }
         if (!Array.isArray(data.videos) || data.videos.length === 0) return;
-        playlistVideos    = data.videos;
-        activePlaylistIdx = -1;
+        playlistVideos      = data.videos;
+        activePlaylistIdx   = -1;
+        currentPlaylistUrl  = url;
         renderPlaylist(data.playlistTitle || 'Playlist', data.videos);
       } catch (err) {
         /* Silently ignore network errors for playlist (non-critical) */
         console.warn('[echo] loadPlaylist network error:', err);
       }
+    }
+
+    /* ==============================================
+       BATCH PLAYLIST DIGEST — FEATURE 8
+    =============================================== */
+
+    async function startPlaylistDigestAll() {
+      if (!currentPlaylistUrl) {
+        showToast('warning', 'No playlist loaded to digest.');
+        return;
+      }
+      if (playlistJobId) return; // already running
+
+      const lengthOpt = document.querySelector('input[name="digestLength"]:checked')?.value || 'detailed';
+      const formatOpt = document.querySelector('input[name="digestFormat"]:checked')?.value || 'bullets';
+      const langOpt   = (typeof digestLangInput !== 'undefined' && digestLangInput.value.trim()) || 'English';
+
+      const digestAllBtn = document.getElementById('playlistDigestAllBtn');
+      if (digestAllBtn) digestAllBtn.disabled = true;
+
+      try {
+        const res = await fetch('/api/playlist/digest', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            url:    currentPlaylistUrl,
+            length: lengthOpt,
+            format: formatOpt,
+            language: langOpt,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          if (digestAllBtn) digestAllBtn.disabled = false;
+          handleApiError(data, 'Could not start playlist digest.');
+          return;
+        }
+
+        playlistJobId = data.jobId;
+        showToast('info', 'Digesting playlist…', 'This can take a while for large playlists.');
+
+        const progressEl = document.getElementById('playlistDigestProgress');
+        if (progressEl) {
+          progressEl.hidden = false;
+          progressEl.textContent = 'Digesting… starting up';
+        }
+
+        if (playlistPollTimer) clearInterval(playlistPollTimer);
+        playlistPollTimer = setInterval(pollPlaylistJob, 1500);
+      } catch (err) {
+        if (digestAllBtn) digestAllBtn.disabled = false;
+        showToast('error', 'Network error starting playlist digest: ' + err.message);
+      }
+    }
+
+    async function pollPlaylistJob() {
+      if (playlistPollInFlight || !playlistJobId) return;
+      playlistPollInFlight = true;
+
+      try {
+        const res  = await fetch('/api/playlist/digest/status?jobId=' + encodeURIComponent(playlistJobId));
+        const job  = await res.json().catch(() => null);
+        if (!res.ok || !job) {
+          playlistPollInFlight = false;
+          return;
+        }
+
+        const progressEl = document.getElementById('playlistDigestProgress');
+        if (progressEl) {
+          progressEl.hidden = false;
+          progressEl.textContent =
+            `Digesting… ${job.saved} saved · ${job.failed} failed · ${job.skipped} skipped of ${job.total}`;
+        }
+
+        // Best-effort per-item status badges, matched by videoId.
+        if (Array.isArray(job.items)) {
+          const badgeByStatus = { saved: ' ✓', failed: ' ✕', skipped: ' –' };
+          job.items.forEach((item, idx) => {
+            const rowEl = playlistPanelEl && playlistPanelEl.querySelector(`.playlist-item[data-idx="${idx}"]`);
+            if (!rowEl) return;
+            const badge = badgeByStatus[item.status];
+            let badgeEl = rowEl.querySelector('.playlist-item-badge');
+            if (badge) {
+              if (!badgeEl) {
+                badgeEl = document.createElement('span');
+                badgeEl.className = 'playlist-item-badge';
+                rowEl.appendChild(badgeEl);
+              }
+              badgeEl.textContent = badge;
+            } else if (badgeEl) {
+              badgeEl.remove();
+            }
+          });
+        }
+
+        if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') {
+          clearInterval(playlistPollTimer);
+          playlistPollTimer = null;
+          playlistJobId = null;
+          playlistPollInFlight = false;
+
+          const digestAllBtn = document.getElementById('playlistDigestAllBtn');
+          if (digestAllBtn) digestAllBtn.disabled = false;
+
+          if (job.status === 'error' && job.error) {
+            showToast('error', job.error);
+          } else if (job.status === 'cancelled') {
+            showToast('warning', 'Playlist digest cancelled.');
+          } else if (job.failed > 0) {
+            showToast('warning', `Playlist digest finished with ${job.failed} failure${job.failed !== 1 ? 's' : ''}.`,
+              `${job.saved} saved, ${job.skipped} skipped.`);
+          } else {
+            showToast('success', `Playlist digest complete — ${job.saved} saved, ${job.skipped} skipped.`);
+          }
+
+          loadSaved();
+          return;
+        }
+      } catch (err) {
+        console.warn('[echo] pollPlaylistJob network error:', err);
+      }
+
+      playlistPollInFlight = false;
     }
 
     /* ==============================================

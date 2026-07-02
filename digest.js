@@ -62,7 +62,7 @@ function mapUsage(parsed) {
  * @param {object[]} usages
  * @returns {object}
  */
-function mergeUsage(usages) {
+export function mergeUsage(usages) {
   let costUsd = 0;
   let inputTokens = 0;
   let outputTokens = 0;

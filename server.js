@@ -28,6 +28,7 @@ import {
 } from './store.js';
 import { entryToMarkdown } from './markdown.js';
 import { buildClips } from './clips.js';
+import { startPlaylistDigest, getJob, cancelJob } from './playlistJob.js';
 import {
   initEmbeddings,
   isAvailable,
@@ -164,6 +165,38 @@ app.post('/api/playlist', async (req, res) => {
   } catch (err) {
     return sendCaughtError(res, err);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Batch playlist digest
+// ---------------------------------------------------------------------------
+
+app.post('/api/playlist/digest', (req, res) => {
+  const { url, length, format, language, lang, skipExisting } = req.body;
+  if (!url || typeof url !== 'string' || !url.trim()) {
+    return sendError(res, 'INVALID_URL', 'A playlist URL is required.', '', 400);
+  }
+  try {
+    const { jobId } = startPlaylistDigest(url, { length, format, language, lang, skipExisting });
+    return res.status(202).json({ jobId });
+  } catch (err) {
+    return sendCaughtError(res, err);
+  }
+});
+
+app.get('/api/playlist/digest/status', (req, res) => {
+  const { jobId } = req.query;
+  const job = getJob(jobId);
+  if (!job) {
+    return sendError(res, 'INTERNAL', 'Job not found.', '', 404);
+  }
+  return res.json(job);
+});
+
+app.post('/api/playlist/digest/cancel', (req, res) => {
+  const { jobId } = req.body;
+  const ok = cancelJob(jobId);
+  return res.json({ cancelled: ok });
 });
 
 // ---------------------------------------------------------------------------
