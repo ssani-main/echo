@@ -1,0 +1,67 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Echo",
+  "version": "0.1.0",
+  "identifier": "com.echo.reader",
+  "build": {
+    "frontendDist": "dist-shell",
+    "devUrl": "http://localhost:8000"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Echo",
+        "label": "main",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 720,
+        "minHeight": 480,
+        "resizable": true,
+        "fullscreen": false,
+        "url": "loading.html"
+      }
+    ],
+    "security": {
+      "csp": null
+    },
+    "withGlobalTauri": true
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/node"
+    ],
+    "resources": {
+      "../server.js": "server.js",
+      "../digest.js": "digest.js",
+      "../providers.js": "providers.js",
+      "../transcript.js": "transcript.js",
+      "../store.js": "store.js",
+      "../embeddings.js": "embeddings.js",
+      "../clips.js": "clips.js",
+      "../markdown.js": "markdown.js",
+      "../playlistJob.js": "playlistJob.js",
+      "../sanitize.js": "sanitize.js",
+      "../usage.js": "usage.js",
+      "../package.json": "package.json",
+      "../public": "public",
+      "../node_modules": "node_modules"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    },
+    "android": {
+      "debugApplicationIdSuffix": ".debug"
+    }
+  }
+}

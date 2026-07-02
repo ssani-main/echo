@@ -9,7 +9,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname  = dirname(__filename);
 
 const MODEL_NAME  = 'Xenova/all-MiniLM-L6-v2';
-const MODEL_CACHE = join(__dirname, 'data', 'models');
+// Model cache dir is normally relative to this file, but that's read-only
+// once bundled inside a packaged desktop app. ECHO_MODELS_DIR lets the
+// Tauri launcher point this at a writable app-data directory; unset by
+// default so plain `npm start` behavior is unchanged.
+const MODEL_CACHE = process.env.ECHO_MODELS_DIR || join(__dirname, 'data', 'models');
 
 let _pipeline      = null;
 let _available     = false;
