@@ -51,7 +51,12 @@
       --font-mono:  'JetBrains Mono', 'Courier New', monospace;
 
       --radius:   8px;
-      --col-max:  760px;
+      /* Outer page wrapper — wide enough to hold the widest reading
+         column (Wide = 940px) plus breathing room. The top chrome
+         (brand header, tagline, command bar, status, nudge) is pinned
+         to --chrome-max below so it doesn't balloon with the page. */
+      --col-max:    1000px;
+      --chrome-max: 760px;
 
       /* Find-in-transcript highlight tokens */
       --find-hit:        #FEF3C7;
@@ -118,6 +123,32 @@
       margin: 0 auto;
     }
 
+    /* Top chrome — brand header, tagline, command bar, status line and the
+       next-action nudge stay pinned to a fixed comfortable width regardless
+       of how wide the page wrapper or the reading column get. Centered on
+       the same axis as .container so nothing shifts left/right when the
+       Narrow/Medium/Wide reading control changes. */
+    .site-header,
+    .command-bar,
+    #status,
+    .next-action-nudge {
+      max-width: var(--chrome-max);
+      margin-inline: auto;
+    }
+
+    /* Reader column — content header, lens tabs and both reader panes
+       (Transcript + Digest) share --reading-measure and are centered on
+       the same axis, so the toolbars/tabs stay aligned with the text at
+       every width. The Library pane deliberately does NOT get this — it
+       uses the full width of .container so the card grid can breathe. */
+    .content-header,
+    .tab-bar,
+    #paneTranscript,
+    #paneDigest {
+      max-width: var(--reading-measure, 760px);
+      margin-inline: auto;
+    }
+
     /* ==============================================
        4. HEADER / HERO
     =============================================== */
@@ -132,6 +163,68 @@
       display: flex;
       align-items: center;
       gap: 0.55rem;
+      flex-wrap: wrap;
+    }
+
+    /* Top-right header cluster: Library destination + usage chip + theme + shortcuts */
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-left: auto;
+      flex-wrap: wrap;
+    }
+
+    /* Library button — a distinct, tappable destination (not a lens tab) */
+    .library-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.32rem 0.7rem;
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      cursor: pointer;
+      outline: none;
+      white-space: nowrap;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+    }
+
+    .library-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .library-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .library-btn[aria-pressed="true"] {
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .library-btn-icon {
+      flex-shrink: 0;
+    }
+
+    .library-btn-count {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: inherit;
+      opacity: 0.85;
+    }
+
+    @media (max-width: 520px) {
+      .library-btn-label {
+        display: none;
+      }
     }
 
     .wordmark-text {
@@ -208,8 +301,9 @@
     .usage-chip {
       display: none;
       font-family: var(--font-sans);
-      font-size: 0.72rem;
+      font-size: 0.66rem;
       color: var(--muted);
+      opacity: 0.75;
       letter-spacing: 0.01em;
       line-height: 1.5;
     }
@@ -223,58 +317,90 @@
       font-size: 0.7rem;
     }
 
-    /* Now-reading strip */
-    .now-reading {
-      display: flex;
-      flex-direction: column;
-      gap: 0.15rem;
-      padding: 0.55rem 0.8rem;
+    /* Content header — thumbnail + title/meta for the currently-loaded video.
+       Sits above the Transcript/Digest lens tabs; shown only while a video
+       is loaded AND the active pane is a reader lens (not the library). */
+    .content-header {
+      /* Hidden by default — [hidden] attribute alone is overridden by display:flex,
+         so we set display:none here and expose via :not([hidden]) below. */
+      display: none;
+      align-items: center;
+      gap: 0.85rem;
+      padding: 0.7rem 0.8rem;
+      margin-bottom: 1rem;
       background: var(--surface);
       border: 1px solid var(--rule);
       border-radius: var(--radius);
       overflow: hidden;
     }
 
-    .now-reading-label {
-      font-family: var(--font-sans);
-      font-size: 0.65rem;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--muted);
+    .content-header:not([hidden]) {
+      display: flex;
     }
 
-    .now-reading-title {
+    .content-header-thumb {
+      flex-shrink: 0;
+      width: 112px;
+      aspect-ratio: 16 / 9;
+      object-fit: cover;
+      border-radius: var(--radius);
+      border: 1px solid var(--rule);
+      background: var(--paper);
+    }
+
+    .content-header-main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .content-header-title {
       font-family: var(--font-serif);
-      font-size: 0.95rem;
+      font-size: 1.15rem;
       font-weight: 500;
       color: var(--ink);
       line-height: 1.35;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .content-header-meta {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--muted);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
-    .now-reading-url {
-      font-family: var(--font-mono);
-      font-size: 0.68rem;
+    .content-header-url {
       color: var(--muted);
       text-decoration: none;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      display: block;
     }
 
-    .now-reading-url:hover {
+    .content-header-url:hover {
       color: var(--accent);
       text-decoration: underline;
     }
 
-    .now-reading-url:focus-visible {
+    .content-header-url:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 1px;
       border-radius: 2px;
+    }
+
+    @media (max-width: 520px) {
+      .content-header-thumb {
+        width: 84px;
+      }
+
+      .content-header-title {
+        font-size: 1.02rem;
+      }
     }
 
     /* ==============================================
@@ -362,49 +488,72 @@
     }
 
     /* ==============================================
-       7. TAB BAR
+       7. LENS TABS (Transcript | Digest)
+       Underlined lens switch attached to the current video —
+       visually distinct from the Library destination button in the header.
     =============================================== */
     .tab-bar {
-      display: inline-flex;
-      background: var(--surface);
-      border: 1px solid var(--rule);
-      border-radius: 6px;
-      overflow: hidden;
+      /* Hidden by default — [hidden] attribute alone is overridden by display:flex,
+         so we set display:none here and expose via :not([hidden]) below (same
+         pattern used by .content-header). */
+      display: none;
+      align-items: center;
+      gap: 1.4rem;
+      border-bottom: 1px solid var(--rule);
       margin-bottom: 1.25rem;
     }
 
+    .tab-bar:not([hidden]) {
+      display: flex;
+    }
+
     .tab-btn {
+      position: relative;
       display: inline-flex;
       align-items: center;
       gap: 0.35rem;
-      padding: 0.375rem 0.9rem;
+      padding: 0.55rem 0.05rem 0.65rem;
       font-family: var(--font-sans);
-      font-size: 0.775rem;
+      font-size: 0.9rem;
       font-weight: 500;
-      letter-spacing: 0.04em;
       color: var(--muted);
       background: transparent;
       border: none;
-      border-right: 1px solid var(--rule);
       cursor: pointer;
       outline: none;
-      transition: background 0.12s, color 0.12s;
+      transition: color 0.12s;
       /* Prevent button from shrinking text */
       white-space: nowrap;
     }
 
-    .tab-btn:last-child {
-      border-right: none;
+    .tab-btn:hover {
+      color: var(--ink);
     }
 
     .tab-btn[aria-selected="true"] {
-      background: var(--accent-soft);
-      color: var(--accent);
+      color: var(--ink);
+    }
+
+    /* Underline bar sitting on the tab-bar's baseline rule */
+    .tab-btn::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -1px;
+      height: 2px;
+      background: transparent;
+      border-radius: 2px 2px 0 0;
+    }
+
+    .tab-btn[aria-selected="true"]::after {
+      background: var(--accent);
     }
 
     .tab-btn:focus-visible {
       outline: 2px solid var(--accent);
-      outline-offset: -2px;
+      outline-offset: 2px;
+      border-radius: 2px;
     }
 
     /* Ready dot on Digest tab */
@@ -427,11 +576,12 @@
       flex-wrap: wrap;
     }
 
-    /* --- Segmented view toggle --- */
+    /* --- Segmented view toggle — demoted to a ghost control, visually
+       subordinate to the Transcript/Digest lens tabs above it --- */
     .view-toggle {
       display: inline-flex;
-      background: var(--surface);
-      border: 1px solid var(--rule);
+      background: transparent;
+      border: none;
       border-radius: 6px;
       overflow: hidden;
     }
@@ -440,15 +590,16 @@
       position: relative;
       display: flex;
       align-items: center;
-      padding: 0.375rem 0.9rem;
+      padding: 0.3rem 0.65rem;
       font-family: var(--font-sans);
-      font-size: 0.775rem;
+      font-size: 0.72rem;
       font-weight: 500;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.03em;
       color: var(--muted);
+      opacity: 0.75;
       cursor: pointer;
       user-select: none;
-      transition: background 0.12s, color 0.12s;
+      transition: background 0.12s, color 0.12s, opacity 0.12s;
     }
 
     .view-toggle label:not(:last-child) {
@@ -466,14 +617,14 @@
 
     /* Active segment — :has() for modern browsers */
     .view-toggle label:has(input:checked) {
-      background: var(--accent-soft);
-      color: var(--accent);
+      color: var(--ink);
+      opacity: 1;
     }
 
     /* Active segment — JS-added class for full browser coverage */
     .view-toggle label.is-active {
-      background: var(--accent-soft);
-      color: var(--accent);
+      color: var(--ink);
+      opacity: 1;
     }
 
     /* Keyboard focus ring on the label when radio is focused */
@@ -583,6 +734,53 @@
       color: var(--muted);
     }
 
+    #output .empty-state-saved-hint {
+      margin-top: -0.5em;
+      font-size: 0.92rem;
+    }
+
+    #output .empty-state-saved-hint a {
+      color: inherit;
+      text-decoration: underline;
+    }
+
+    /* Next-action nudge (below the status line) */
+    .next-action-nudge {
+      /* Hidden by default — [hidden] attribute alone is overridden by display:flex,
+         so we set display:none here and expose via :not([hidden]) below. */
+      display: none;
+      align-items: center;
+      gap: 0.5em;
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-top: 0.35em;
+    }
+
+    .next-action-nudge:not([hidden]) {
+      display: flex;
+    }
+
+    .next-action-nudge a {
+      color: inherit;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
+    .next-action-nudge button {
+      margin-left: auto;
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.95rem;
+      line-height: 1;
+      padding: 0 0.2em;
+    }
+
+    .next-action-nudge button:hover {
+      color: var(--ink);
+    }
+
     /* Readable / plain mode: flowing paragraphs in serif */
     #output p {
       font-family: var(--font-serif);
@@ -590,7 +788,7 @@
       line-height: 1.72;
       color: var(--ink);
       margin-bottom: 1.1em;
-      max-width: var(--reading-measure, 62rem);
+      max-width: var(--reading-measure, 760px);
     }
 
     #output p:last-child {
@@ -690,59 +888,164 @@
       margin-bottom: 1.1rem;
     }
 
-    /* Markdown output elements inside digest panel */
-    #digestOutput h2 {
+    /* ==============================================
+       11b. AI READING TYPOGRAPHY (shared)
+       Applies to every rendered-markdown "reading surface" in the Digest
+       lens: the Summary digest, Ask answers, and the prose bits of
+       Fact-check/Chapters/Quotes. All of it honors --reading-scale
+       (A-/A+) and --reading-measure (Narrow/Medium/Wide) set by the
+       shared reading controls (see FEATURE A/C, applyReadingStyles()) —
+       one preference drives both the Transcript and Digest lenses.
+    =============================================== */
+    #digestOutput,
+    .qa-answer {
+      font-family: var(--font-serif);
+      line-height: 1.7;
+    }
+
+    /* Margin collapsing so the rendered block doesn't start/end with a gap */
+    #digestOutput > *:first-child,
+    .qa-answer > *:first-child {
+      margin-top: 0;
+    }
+
+    #digestOutput > *:last-child,
+    .qa-answer > *:last-child {
+      margin-bottom: 0;
+    }
+
+    #digestOutput h1, .qa-answer h1 {
       font-family: var(--font-sans);
-      font-size: 0.975rem;
+      font-size: calc(1.35rem * var(--reading-scale, 1));
+      font-weight: 700;
+      color: var(--ink);
+      letter-spacing: -0.01em;
+      line-height: 1.3;
+      max-width: var(--reading-measure, 760px);
+      margin: 1.7rem 0 0.6rem;
+    }
+
+    #digestOutput h2, .qa-answer h2 {
+      font-family: var(--font-sans);
+      font-size: calc(1.1rem * var(--reading-scale, 1));
       font-weight: 700;
       color: var(--accent);
       letter-spacing: -0.01em;
-      margin-top: 1.5rem;
-      margin-bottom: 0.45rem;
+      line-height: 1.35;
+      max-width: var(--reading-measure, 760px);
+      margin: 1.5rem 0 0.5rem;
       padding-bottom: 0.3rem;
       border-bottom: 1px solid var(--rule);
     }
 
-    #digestOutput h2:first-of-type {
-      margin-top: 0;
-    }
-
-    #digestOutput h3 {
+    #digestOutput h3, .qa-answer h3 {
       font-family: var(--font-sans);
-      font-size: 0.875rem;
+      font-size: calc(0.95rem * var(--reading-scale, 1));
       font-weight: 600;
       color: var(--ink);
-      margin-top: 1rem;
-      margin-bottom: 0.35rem;
+      line-height: 1.4;
+      max-width: var(--reading-measure, 760px);
+      margin: 1.2rem 0 0.4rem;
     }
 
-    #digestOutput p {
+    #digestOutput p, .qa-answer p {
       font-family: var(--font-serif);
-      font-size: 1rem;
-      line-height: 1.72;
+      font-size: calc(1rem * var(--reading-scale, 1));
+      line-height: 1.7;
       color: var(--ink);
-      margin-bottom: 0.8rem;
+      max-width: var(--reading-measure, 760px);
+      margin: 0 0 1rem;
     }
 
-    #digestOutput p:last-child {
+    #digestOutput ul, .qa-answer ul,
+    #digestOutput ol, .qa-answer ol {
+      max-width: var(--reading-measure, 760px);
+      padding-left: 1.5rem;
+      margin: 0 0 1rem;
+    }
+
+    #digestOutput ul ul, .qa-answer ul ul,
+    #digestOutput ul ol, .qa-answer ul ol,
+    #digestOutput ol ul, .qa-answer ol ul,
+    #digestOutput ol ol, .qa-answer ol ol {
+      max-width: none;
+      margin: 0.35rem 0 0.35rem;
+    }
+
+    #digestOutput li, .qa-answer li {
+      font-family: var(--font-serif);
+      font-size: calc(1rem * var(--reading-scale, 1));
+      line-height: 1.65;
+      color: var(--ink);
+      margin-bottom: 0.4rem;
+    }
+
+    #digestOutput li:last-child, .qa-answer li:last-child {
       margin-bottom: 0;
     }
 
-    #digestOutput ul {
-      padding-left: 1.5rem;
-      margin-bottom: 0.85rem;
+    #digestOutput strong, .qa-answer strong { font-weight: 600; }
+    #digestOutput em, .qa-answer em { font-style: italic; }
+
+    #digestOutput a, .qa-answer a {
+      color: var(--accent);
+      text-decoration: none;
     }
 
-    #digestOutput li {
-      font-family: var(--font-serif);
-      font-size: 1rem;
-      line-height: 1.7;
+    #digestOutput a:hover, .qa-answer a:hover,
+    #digestOutput a:focus-visible, .qa-answer a:focus-visible {
+      text-decoration: underline;
+    }
+
+    #digestOutput blockquote, .qa-answer blockquote {
+      max-width: var(--reading-measure, 760px);
+      margin: 0 0 1rem;
+      padding: 0.55rem 1rem;
+      border-left: 3px solid var(--accent);
+      background: var(--paper);
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    #digestOutput blockquote p, .qa-answer blockquote p {
+      max-width: none;
+      margin-bottom: 0;
+    }
+
+    #digestOutput code, .qa-answer code {
+      font-family: var(--font-mono);
+      font-size: calc(0.87em * var(--reading-scale, 1));
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 3px;
+      padding: 0.08em 0.35em;
+    }
+
+    #digestOutput pre, .qa-answer pre {
+      max-width: var(--reading-measure, 760px);
+      font-family: var(--font-mono);
+      font-size: calc(0.85rem * var(--reading-scale, 1));
+      line-height: 1.55;
       color: var(--ink);
-      margin-bottom: 0.3rem;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      padding: 0.9rem 1rem;
+      overflow-x: auto;
+      margin: 0 0 1rem;
     }
 
-    #digestOutput strong {
-      font-weight: 600;
+    #digestOutput pre code, .qa-answer pre code {
+      background: none;
+      border: none;
+      padding: 0;
+    }
+
+    #digestOutput hr, .qa-answer hr {
+      max-width: var(--reading-measure, 760px);
+      border: none;
+      border-top: 1px solid var(--rule);
+      margin: 1.4rem 0;
     }
 
     /* Per-digest + session usage stats */
@@ -839,14 +1142,22 @@
     }
 
     /* ==============================================
-       13. SAVED PANE
+       13. LIBRARY PANE — thumbnail grid ("a collection you browse")
     =============================================== */
     .saved-empty-state {
+      grid-column: 1 / -1;
       font-family: var(--font-serif);
       font-size: 1rem;
       font-style: italic;
       color: var(--muted);
       padding: 2rem 0;
+    }
+
+    /* #savedOutput itself is the grid container */
+    #savedOutput {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+      gap: 1rem;
     }
 
     .saved-card {
@@ -855,18 +1166,28 @@
       background: var(--surface);
       border: 1px solid var(--rule);
       border-radius: var(--radius);
-      padding: 0.9rem 1.1rem;
-      margin-bottom: 0.55rem;
+      overflow: hidden;
       cursor: pointer;
       outline: none;
       transition: border-color 0.12s, box-shadow 0.12s;
     }
 
-    /* Inner row: star + main content + delete btn */
-    .saved-card-body {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.75rem;
+    /* Thumbnail — full card width, sits above the card body */
+    .saved-card-thumb-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: var(--paper);
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    /* Library card thumbnail — degrades gracefully via onerror="this.remove()" */
+    .saved-card-thumb {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
     }
 
     .saved-card:hover {
@@ -878,12 +1199,21 @@
       box-shadow: 0 0 0 3px var(--accent-soft);
     }
 
-    .saved-card-main {
+    /* Content column below the thumbnail */
+    .saved-card-body {
       flex: 1;
       min-width: 0;
       display: flex;
       flex-direction: column;
       gap: 0.2rem;
+      padding: 0.8rem 0.9rem 0.9rem;
+    }
+
+    .saved-card-title-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.4rem;
     }
 
     .saved-card-title {
@@ -892,9 +1222,10 @@
       font-weight: 500;
       color: var(--ink);
       line-height: 1.35;
-      white-space: nowrap;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
       overflow: hidden;
-      text-overflow: ellipsis;
     }
 
     .saved-card-url {
@@ -956,6 +1287,7 @@
     .saved-delete-btn {
       flex-shrink: 0;
       align-self: center;
+      margin-left: auto;
       padding: 0.25rem 0.6rem;
       font-family: var(--font-sans);
       font-size: 0.72rem;
@@ -1026,9 +1358,10 @@
       #output,
       #digestOutput,
       #topIndicator,
-      .now-reading,
+      .content-header,
       .tab-bar,
       .saved-card,
+      .library-btn,
       .usage-stats,
       .theme-toggle {
         transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease,
@@ -1067,16 +1400,12 @@
         padding-left: 0.6rem;
       }
 
-      .saved-card {
-        padding: 0.75rem 0.85rem;
+      #savedOutput {
+        grid-template-columns: 1fr;
       }
 
       .saved-card-body {
-        flex-wrap: wrap;
-      }
-
-      .saved-delete-btn {
-        margin-top: 0.25rem;
+        padding: 0.7rem 0.8rem 0.8rem;
       }
     }
 
@@ -1204,6 +1533,23 @@
       color: var(--muted);
       min-width: 4rem;
       white-space: nowrap;
+    }
+
+    /* ==============================================
+       18b. HIDE TRANSCRIPT CONTROLS UNTIL LOADED
+       `.has-transcript` is toggled on <body> from
+       updateNowReading() — the single place that tracks
+       whether a video is currently loaded. AI digest / Save
+       stay visible (disabled) so the empty state still shows
+       what the app can do; everything else that only makes
+       sense once text is on screen is hidden until then.
+    =============================================== */
+    body:not(.has-transcript) .controls-row .view-toggle,
+    body:not(.has-transcript) .controls-row .reading-controls,
+    body:not(.has-transcript) #langPickerWrap,
+    body:not(.has-transcript) #transcriptActionRow,
+    body:not(.has-transcript) #findBar {
+      display: none;
     }
 
     /* ==============================================
@@ -1505,50 +1851,12 @@
       line-height: 1.5;
     }
 
+    /* Typography (font, headings, lists, links, code, etc.) for .qa-answer
+       lives with the shared AI reading typography — see "11b. AI READING
+       TYPOGRAPHY" near #digestOutput above. Only layout stays here. */
     .qa-answer {
       padding: 0.85rem 1.1rem;
     }
-
-    .qa-answer p {
-      font-family: var(--font-serif);
-      font-size: 0.975rem;
-      line-height: 1.7;
-      color: var(--ink);
-      margin-bottom: 0.75rem;
-    }
-
-    .qa-answer p:last-child { margin-bottom: 0; }
-
-    .qa-answer ul {
-      padding-left: 1.4rem;
-      margin-bottom: 0.75rem;
-    }
-
-    .qa-answer li {
-      font-family: var(--font-serif);
-      font-size: 0.975rem;
-      line-height: 1.65;
-      color: var(--ink);
-      margin-bottom: 0.25rem;
-    }
-
-    .qa-answer h2 {
-      font-family: var(--font-sans);
-      font-size: 0.925rem;
-      font-weight: 600;
-      color: var(--ink);
-      margin: 0.9rem 0 0.35rem;
-    }
-
-    .qa-answer h3 {
-      font-family: var(--font-sans);
-      font-size: 0.875rem;
-      font-weight: 600;
-      color: var(--ink);
-      margin: 0.75rem 0 0.3rem;
-    }
-
-    .qa-answer strong { font-weight: 600; }
 
     .qa-usage {
       font-family: var(--font-mono);
@@ -1644,6 +1952,7 @@
       display: flex;
       flex-direction: column;
       gap: 0.7rem;
+      max-width: var(--reading-measure, 760px);
     }
 
     .fc-claim-card {
@@ -1655,7 +1964,7 @@
 
     .fc-claim-text {
       font-family: var(--font-serif);
-      font-size: 0.975rem;
+      font-size: calc(0.975rem * var(--reading-scale, 1));
       font-weight: 500;
       color: var(--ink);
       line-height: 1.5;
@@ -1717,7 +2026,7 @@
 
     .fc-explanation {
       font-family: var(--font-serif);
-      font-size: 0.9rem;
+      font-size: calc(0.9rem * var(--reading-scale, 1));
       color: var(--muted);
       line-height: 1.6;
     }
@@ -1769,6 +2078,7 @@
       display: flex;
       flex-direction: column;
       gap: 0.4rem;
+      max-width: var(--reading-measure, 760px);
     }
 
     .ch-item {
@@ -1794,7 +2104,7 @@
     .ch-title {
       flex: 1;
       font-family: var(--font-serif);
-      font-size: 0.975rem;
+      font-size: calc(0.975rem * var(--reading-scale, 1));
       color: var(--ink);
       line-height: 1.4;
     }
@@ -1901,6 +2211,7 @@
       display: flex;
       flex-direction: column;
       gap: 0.75rem;
+      max-width: var(--reading-measure, 760px);
     }
 
     .qt-card {
@@ -1912,7 +2223,7 @@
 
     .qt-blockquote {
       font-family: var(--font-serif);
-      font-size: 1rem;
+      font-size: calc(1rem * var(--reading-scale, 1));
       line-height: 1.7;
       color: var(--ink);
       border-left: 3px solid var(--accent);
@@ -2233,7 +2544,8 @@
       flex-wrap: wrap;
     }
 
-    .saved-notes-btn {
+    .saved-notes-btn,
+    .saved-export-btn {
       display: inline-flex;
       align-items: center;
       gap: 0.2rem;
@@ -2248,17 +2560,20 @@
       cursor: pointer;
       outline: none;
       white-space: nowrap;
+      text-decoration: none;
       transition: color 0.12s, border-color 0.12s, background 0.12s;
     }
 
     .saved-notes-btn:hover,
-    .saved-notes-btn[aria-expanded="true"] {
+    .saved-notes-btn[aria-expanded="true"],
+    .saved-export-btn:hover {
       color: var(--accent);
       border-color: var(--accent);
       background: var(--accent-soft);
     }
 
-    .saved-notes-btn:focus-visible {
+    .saved-notes-btn:focus-visible,
+    .saved-export-btn:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 1px;
     }
@@ -2519,6 +2834,29 @@
       outline-offset: -2px;
     }
 
+    /* Digest lens toolbar — houses the shared reading controls above the
+       AI sub-panels. Kept slim so it doesn't compete with the sub-nav. */
+    .digest-toolbar {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 0.85rem;
+    }
+
+    .reading-controls-compact {
+      gap: 0.25rem;
+    }
+
+    .reading-controls-compact .reading-scale-btn {
+      width: 25px;
+      height: 25px;
+      font-size: 0.78rem;
+    }
+
+    .reading-controls-compact .reading-measure-seg label {
+      padding: 0.18rem 0.42rem;
+      font-size: 0.66rem;
+    }
+
     /* ==============================================
        34. USER HIGHLIGHTS
     =============================================== */
@@ -2652,11 +2990,17 @@
        37. LANGUAGE PICKER
     =============================================== */
     .lang-picker-wrap {
-      display: flex;
+      /* Hidden by default — [hidden] attribute alone is overridden by display:flex,
+         so we set display:none here and expose via :not([hidden]) below. */
+      display: none;
       align-items: center;
       gap: 0.5rem;
       margin-bottom: 0.65rem;
       flex-wrap: wrap;
+    }
+
+    .lang-picker-wrap:not([hidden]) {
+      display: flex;
     }
 
     .lang-picker-label {
@@ -3098,16 +3442,20 @@
     /* ==============================================
        41. COMPARE MODE (cross-video digest)
     =============================================== */
-    /* Checkbox — rendered on every card, hidden unless compare mode is active */
+    /* Checkbox — rendered on every card, hidden unless compare mode is active.
+       Sits as an overlay on the top-left corner of the card thumbnail. */
     .saved-compare-check {
       display: none;
-      flex-shrink: 0;
-      align-self: flex-start;
-      margin-top: 0.22rem;
+      position: absolute;
+      top: 0.4rem;
+      left: 0.4rem;
+      z-index: 2;
       width: 16px;
       height: 16px;
       accent-color: var(--accent);
       cursor: pointer;
+      background: var(--surface);
+      border-radius: 3px;
     }
 
     #savedOutput.compare-mode .saved-compare-check {
@@ -3326,7 +3674,7 @@
   <!-- TOAST / BANNER CONTAINER (fixed, bottom-right) -->
   <div id="toastContainer" aria-live="assertive" aria-atomic="false" aria-label="Notifications"></div>
 
-  <div class="container">
+  <div class="container" id="pageContainer">
 
     <!-- HEADER / HERO -->
     <header class="site-header">
@@ -3342,34 +3690,46 @@
           </svg>
           <span class="brand-word">Echo</span>
         </span>
-        <button
-          id="themeToggle"
-          class="theme-toggle"
-          aria-label="Switch to dark theme"
-          aria-pressed="false"
-          title="Toggle dark/light theme"
-        ></button>
-        <button
-          id="shortcutsBtn"
-          class="shortcuts-toggle"
-          aria-label="Keyboard shortcuts"
-          title="Keyboard shortcuts (?)"
-        >?</button>
+
+        <!-- TOP-RIGHT HEADER CLUSTER: Library destination + usage chip + theme + shortcuts -->
+        <div class="header-actions">
+          <button
+            id="libraryBtn"
+            class="library-btn"
+            type="button"
+            aria-pressed="false"
+            title="Open your library"
+          >
+            <svg class="library-btn-icon" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true" fill="none">
+              <g stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="14" height="14" rx="2"/>
+                <path d="M8 21h11a2 2 0 0 0 2-2V8"/>
+              </g>
+            </svg>
+            <span class="library-btn-label">Library</span>
+            <span id="libraryCount" class="library-btn-count">0</span>
+          </button>
+          <div
+            id="usageChip"
+            class="usage-chip"
+            title="Total Claude Code usage on this machine today (all projects, not just Echo)."
+          ></div>
+          <button
+            id="themeToggle"
+            class="theme-toggle"
+            aria-label="Switch to dark theme"
+            aria-pressed="false"
+            title="Toggle dark/light theme"
+          ></button>
+          <button
+            id="shortcutsBtn"
+            class="shortcuts-toggle"
+            aria-label="Keyboard shortcuts"
+            title="Keyboard shortcuts (?)"
+          >?</button>
+        </div>
       </div>
       <p class="site-tagline">Paste a YouTube link. Read what was <em>actually</em> said.</p>
-
-      <!-- NOW READING strip — hidden until a video is loaded -->
-      <div id="nowReading" class="now-reading" hidden>
-        <span class="now-reading-label">Now reading</span>
-        <span id="nowReadingTitle" class="now-reading-title"></span>
-        <a id="nowReadingUrl" class="now-reading-url" target="_blank" rel="noopener noreferrer"></a>
-      </div>
-
-      <div
-        id="usageChip"
-        class="usage-chip"
-        title="Your total Claude Code usage today (not the subscription limit %)."
-      ></div>
     </header>
 
     <!-- COMMAND BAR -->
@@ -3387,8 +3747,30 @@
     <!-- STATUS LINE -->
     <div id="status"></div>
 
-    <!-- TAB BAR (3 tabs) -->
-    <div class="tab-bar" role="tablist" aria-label="Content sections">
+    <!-- NEXT-ACTION NUDGE — shown once per session after a transcript loads -->
+    <div id="nextActionNudge" class="next-action-nudge" hidden>
+      <span>Tip: generate an AI digest or ask questions in the Digest tab</span>
+      <a href="#" id="nextActionNudgeLink">&rarr;</a>
+      <button type="button" id="nextActionNudgeDismiss" aria-label="Dismiss tip">&times;</button>
+    </div>
+
+    <!-- CONTENT HEADER — thumbnail + title/meta for the currently-loaded video.
+         Shown only while a video is loaded AND a reader lens (Transcript/Digest)
+         is active; hidden while the Library pane is active. -->
+    <div id="contentHeader" class="content-header" hidden>
+      <img id="contentHeaderThumb" class="content-header-thumb" alt="" loading="lazy" hidden
+           onerror="this.hidden = true; this.removeAttribute('src')">
+      <div class="content-header-main">
+        <div id="contentHeaderTitle" class="content-header-title"></div>
+        <div class="content-header-meta">
+          <a id="contentHeaderUrl" class="content-header-url" target="_blank" rel="noopener noreferrer"></a>
+          <span id="contentHeaderDuration"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- LENS TABS (Transcript | Digest) -->
+    <div class="tab-bar" id="tabBar" role="tablist" aria-label="Content lens" hidden>
       <button
         class="tab-btn"
         id="tabTranscript"
@@ -3405,14 +3787,6 @@
         aria-controls="paneDigest"
         tabindex="-1"
       >Digest <span id="digestDot" class="digest-dot" style="display:none" aria-hidden="true"></span></button>
-      <button
-        class="tab-btn"
-        id="tabSaved"
-        role="tab"
-        aria-selected="false"
-        aria-controls="paneSaved"
-        tabindex="-1"
-      >Saved</button>
     </div>
 
     <!-- TRANSCRIPT PANE -->
@@ -3431,21 +3805,21 @@
         </div>
         <!-- Reading controls: font scale + line width -->
         <div class="reading-controls" role="group" aria-label="Reading display controls">
-          <button class="reading-scale-btn" id="fontDecBtn"
+          <button class="reading-scale-btn" id="fontDecBtn" data-reading-action="dec"
                   aria-label="Decrease font size" title="Smaller text">A−</button>
-          <button class="reading-scale-btn" id="fontIncBtn"
+          <button class="reading-scale-btn" id="fontIncBtn" data-reading-action="inc"
                   aria-label="Increase font size" title="Larger text">A+</button>
           <div class="reading-measure-seg" role="group" aria-label="Line width">
             <label title="Narrow line width">
-              <input type="radio" name="readingMeasure" value="46rem" />
+              <input type="radio" name="readingMeasure" value="620px" />
               Narrow
             </label>
             <label title="Medium line width">
-              <input type="radio" name="readingMeasure" value="62rem" checked />
+              <input type="radio" name="readingMeasure" value="760px" checked />
               Medium
             </label>
             <label title="Wide line width">
-              <input type="radio" name="readingMeasure" value="80rem" />
+              <input type="radio" name="readingMeasure" value="940px" />
               Wide
             </label>
           </div>
@@ -3513,6 +3887,7 @@
       <!-- TRANSCRIPT OUTPUT -->
       <div id="output" class="visible">
         <p class="empty-state">Nothing loaded yet — drop a link above to pull the transcript.</p>
+        <p class="empty-state empty-state-saved-hint" id="emptyStateSavedHint" hidden></p>
       </div>
     </div>
 
@@ -3561,6 +3936,31 @@
           aria-controls="aiPanelQuotes"
           tabindex="-1"
         >Quotes</button>
+      </div>
+
+      <!-- Reading controls (shared with Transcript pane) — same state + localStorage keys,
+           so changing size/width here updates the Transcript controls too and vice versa. -->
+      <div class="digest-toolbar">
+        <div class="reading-controls reading-controls-compact" role="group" aria-label="Reading display controls">
+          <button class="reading-scale-btn" data-reading-action="dec"
+                  aria-label="Decrease font size" title="Smaller text">A−</button>
+          <button class="reading-scale-btn" data-reading-action="inc"
+                  aria-label="Increase font size" title="Larger text">A+</button>
+          <div class="reading-measure-seg" role="group" aria-label="Line width">
+            <label title="Narrow line width">
+              <input type="radio" name="readingMeasure" value="620px" />
+              Narrow
+            </label>
+            <label title="Medium line width">
+              <input type="radio" name="readingMeasure" value="760px" checked />
+              Medium
+            </label>
+            <label title="Wide line width">
+              <input type="radio" name="readingMeasure" value="940px" />
+              Wide
+            </label>
+          </div>
+        </div>
       </div>
 
       <!-- SUMMARY PANEL — existing digest feature + options -->
@@ -3667,8 +4067,8 @@
 
     </div>
 
-    <!-- SAVED PANE -->
-    <div id="paneSaved" role="tabpanel" aria-labelledby="tabSaved" hidden>
+    <!-- LIBRARY PANE -->
+    <div id="paneSaved" role="tabpanel" aria-labelledby="libraryBtn" hidden>
       <!-- Toolbar: search + sort + export -->
       <div class="saved-toolbar">
         <div class="saved-search-wrap">
@@ -3779,15 +4179,15 @@
           </tr>
           <tr>
             <td><kbd>1</kbd></td>
-            <td>Switch to Transcript tab</td>
+            <td>Switch to Transcript lens</td>
           </tr>
           <tr>
             <td><kbd>2</kbd></td>
-            <td>Switch to Digest tab</td>
+            <td>Switch to Digest lens</td>
           </tr>
           <tr>
             <td><kbd>3</kbd></td>
-            <td>Switch to Saved tab</td>
+            <td>Open your Library</td>
           </tr>
           <tr>
             <td><kbd>t</kbd></td>
@@ -3869,10 +4269,14 @@
     let hlPendingText     = '';   // text selected when create-popover is open
     let hlViewActiveId    = null; // id of highlight shown in view-popover
 
+    // Session-restore state (see SESSION RESTORE section near init)
+    let askThread        = [];    // [{q, a}] mirrors qaThread DOM, for session-restore snapshots
+    let sessionRestoring = false; // true while replaying a restored session (suppresses re-writes)
+
     // Reading controls state
     const READING_SCALES = [0.9, 1.0, 1.15, 1.3];
     let readingScaleIdx  = 1;    // default: 1.0
-    let readingMeasure   = '62rem'; // default
+    let readingMeasure   = '760px'; // default
 
     // Per-button copy-flash timer tracking (guards against overlapping timers)
     const copyTimers = new WeakMap();
@@ -3880,6 +4284,7 @@
     /* ==============================================
        ELEMENT REFS
     =============================================== */
+    const pageContainerEl = document.getElementById('pageContainer');
     const urlInput        = document.getElementById('urlInput');
     const fetchBtn        = document.getElementById('fetchBtn');
     const statusEl        = document.getElementById('status');
@@ -3893,13 +4298,15 @@
     const paneTranscript  = document.getElementById('paneTranscript');
     const paneDigest      = document.getElementById('paneDigest');
     const paneSaved       = document.getElementById('paneSaved');
+    const tabBarEl        = document.getElementById('tabBar');
     const tabTranscript   = document.getElementById('tabTranscript');
     const tabDigest       = document.getElementById('tabDigest');
-    const tabSaved        = document.getElementById('tabSaved');
     const digestDot       = document.getElementById('digestDot');
     const digestEmptySt   = document.getElementById('digestEmptyState');
     const usageStatsEl    = document.getElementById('usageStats');
     const usageChipEl     = document.getElementById('usageChip');
+    const libraryBtn         = document.getElementById('libraryBtn');
+    const libraryCountEl     = document.getElementById('libraryCount');
     const savedOutput        = document.getElementById('savedOutput');
     const savedCompareBtn    = document.getElementById('savedCompareBtn');
     const compareBar         = document.getElementById('compareBar');
@@ -3917,9 +4324,11 @@
     const clipsCopyBtn       = document.getElementById('clipsCopyBtn');
     const clipsExportBtn     = document.getElementById('clipsExportBtn');
     const clipsCloseBtn      = document.getElementById('clipsCloseBtn');
-    const nowReadingEl          = document.getElementById('nowReading');
-    const nowReadingTitle       = document.getElementById('nowReadingTitle');
-    const nowReadingUrl         = document.getElementById('nowReadingUrl');
+    const contentHeaderEl       = document.getElementById('contentHeader');
+    const contentHeaderThumb    = document.getElementById('contentHeaderThumb');
+    const contentHeaderTitle    = document.getElementById('contentHeaderTitle');
+    const contentHeaderUrl      = document.getElementById('contentHeaderUrl');
+    const contentHeaderDuration = document.getElementById('contentHeaderDuration');
     const transcriptCopyBtn     = document.getElementById('transcriptCopyBtn');
     const transcriptDownloadBtn = document.getElementById('transcriptDownloadBtn');
     const entryExportBtn        = document.getElementById('entryExportBtn');
@@ -3974,29 +4383,64 @@
 
     /* ==============================================
        TAB SWITCHING
+       Transcript/Digest are lenses on the current video; Saved (the Library)
+       is a destination reached via the header Library button — see
+       `libraryBtnClick()` below. `lastReaderLens` remembers which lens to
+       return to when the Library button is toggled back off.
     =============================================== */
+    let lastReaderLens = 'transcript'; // 'transcript' | 'digest'
+
     function switchTab(name) {
       const names   = ['transcript', 'digest', 'saved'];
-      const tabEls  = [tabTranscript, tabDigest, tabSaved];
+      const tabEls  = [tabTranscript, tabDigest, null];
       const paneEls = [paneTranscript, paneDigest, paneSaved];
 
       names.forEach((n, i) => {
         const active = n === name;
-        tabEls[i].setAttribute('aria-selected', active ? 'true' : 'false');
-        tabEls[i].tabIndex = active ? 0 : -1;
+        if (tabEls[i]) {
+          tabEls[i].setAttribute('aria-selected', active ? 'true' : 'false');
+          tabEls[i].tabIndex = active ? 0 : -1;
+        }
         paneEls[i].hidden  = !active;
       });
 
+      if (name === 'transcript' || name === 'digest') lastReaderLens = name;
       if (name === 'saved') { loadSaved(); checkEmbeddingsStatus(); }
+      if (name === 'digest') hideNextActionNudge();
+      libraryBtn.setAttribute('aria-pressed', name === 'saved' ? 'true' : 'false');
+      updateReaderChromeVisibility();
+      saveSession();
+    }
+
+    /** Toggle the Library destination: open it, or — if already open and a
+     *  video is loaded — return to the last reader lens (transcript/digest). */
+    function libraryBtnClick() {
+      const isLibraryActive = !paneSaved.hidden;
+      if (isLibraryActive && currentMeta) {
+        switchTab(lastReaderLens);
+      } else {
+        switchTab('saved');
+      }
+    }
+
+    /** Show/hide the content header + lens tabs: only while a video is loaded
+     *  AND the active pane is a reader lens (not the Library). */
+    function updateReaderChromeVisibility() {
+      const activePane = !paneTranscript.hidden ? 'transcript'
+                        : !paneDigest.hidden     ? 'digest'
+                        : 'saved';
+      const show = !!currentMeta && activePane !== 'saved';
+      tabBarEl.hidden       = !show;
+      contentHeaderEl.hidden = !show;
     }
 
     tabTranscript.addEventListener('click', () => switchTab('transcript'));
     tabDigest.addEventListener('click',     () => switchTab('digest'));
-    tabSaved.addEventListener('click',      () => switchTab('saved'));
+    libraryBtn.addEventListener('click',    libraryBtnClick);
 
-    // Arrow-key roving focus within the tab bar (3 tabs)
-    const tabBtns  = [tabTranscript, tabDigest, tabSaved];
-    const tabNames = ['transcript', 'digest', 'saved'];
+    // Arrow-key roving focus within the lens tab bar (2 tabs)
+    const tabBtns  = [tabTranscript, tabDigest];
+    const tabNames = ['transcript', 'digest'];
     tabBtns.forEach((btn, i) => {
       btn.addEventListener('keydown', e => {
         let next = null;
@@ -4032,6 +4476,31 @@
       digestStatus.textContent = msg;
       digestStatus.className   = isError ? '' : 'info';
     }
+
+    /* ==============================================
+       NEXT-ACTION NUDGE — shown once per session after a transcript loads
+    =============================================== */
+    const NEXT_ACTION_NUDGE_KEY = 'echo-next-action-nudge-shown';
+    const nextActionNudgeEl     = document.getElementById('nextActionNudge');
+
+    function hideNextActionNudge() {
+      if (nextActionNudgeEl) nextActionNudgeEl.hidden = true;
+    }
+
+    function maybeShowNextActionNudge() {
+      if (!nextActionNudgeEl) return;
+      try {
+        if (sessionStorage.getItem(NEXT_ACTION_NUDGE_KEY)) return;
+      } catch (e) { /* sessionStorage unavailable — fall through and show once anyway */ }
+      nextActionNudgeEl.hidden = false;
+      try { sessionStorage.setItem(NEXT_ACTION_NUDGE_KEY, '1'); } catch (e) { /* ignore */ }
+    }
+
+    document.getElementById('nextActionNudgeLink')?.addEventListener('click', e => {
+      e.preventDefault();
+      switchTab('digest');
+    });
+    document.getElementById('nextActionNudgeDismiss')?.addEventListener('click', hideNextActionNudge);
 
     /* ==============================================
        TOAST / BANNER SYSTEM
@@ -4192,12 +4661,12 @@
         const data = await res.json();
 
         if (!res.ok || !data.available) {
-          usageChipEl.innerHTML = 'Today &middot; <span class="mono">usage n/a</span>';
+          usageChipEl.innerHTML = 'Claude usage today &middot; <span class="mono">usage n/a</span>';
         } else {
           const costStr   = formatCostUsd(data.costUsd) ?? 'n/a';
           const tokenStr  = formatTokens(data.totalTokens);
           usageChipEl.innerHTML =
-            'Today &middot; <span class="mono">' + costStr + '</span>' +
+            'Claude usage today &middot; <span class="mono">' + costStr + '</span>' +
             ' &middot; <span class="mono">' + tokenStr + ' tokens</span>';
         }
         usageChipEl.classList.add('visible');
@@ -4245,6 +4714,17 @@
       const m  = Math.floor(s / 60);
       const ss = String(s % 60).padStart(2, '0');
       return `${m}:${ss}`;
+    }
+
+    /** Rough human-readable duration ("~52m" or "~1:05") from a segment offset in seconds. */
+    function formatDurationHuman(totalSeconds) {
+      if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return '';
+      if (totalSeconds >= 3600) {
+        const h = Math.floor(totalSeconds / 3600);
+        const m = Math.round((totalSeconds % 3600) / 60);
+        return `~${h}:${String(m).padStart(2, '0')}`;
+      }
+      return `~${Math.max(Math.round(totalSeconds / 60), 1)}m`;
     }
 
     function getMode() {
@@ -4389,22 +4869,55 @@
     }
 
     /* ==============================================
-       NOW READING STRIP
+       CONTENT HEADER — thumbnail + title/meta for the currently-loaded video
     =============================================== */
     function updateNowReading() {
+      // Single source of truth for "a transcript is currently loaded" —
+      // drives visibility of the reading controls / find bar / lang picker
+      // via the `has-transcript` CSS gate (see section 18b).
+      document.body.classList.toggle('has-transcript', !!currentMeta);
       if (!currentMeta) {
-        nowReadingEl.hidden = true;
+        contentHeaderThumb.hidden = true;
+        contentHeaderThumb.removeAttribute('src');
+        contentHeaderTitle.textContent    = '';
+        contentHeaderUrl.textContent      = '';
+        contentHeaderUrl.removeAttribute('href');
+        contentHeaderDuration.textContent = '';
+        updateReaderChromeVisibility();
         return;
       }
-      nowReadingTitle.textContent = currentMeta.title || currentMeta.videoId;
+
+      contentHeaderTitle.textContent = currentMeta.title || currentMeta.videoId;
+
       const safeUrl = safeHttpUrl(currentMeta.url);
-      nowReadingUrl.textContent  = currentMeta.url;
+      contentHeaderUrl.textContent = currentMeta.url;
       if (safeUrl) {
-        nowReadingUrl.href = safeUrl;
+        contentHeaderUrl.href = safeUrl;
       } else {
-        nowReadingUrl.removeAttribute('href');
+        contentHeaderUrl.removeAttribute('href');
       }
-      nowReadingEl.hidden         = false;
+
+      // Thumbnail — only fetched when the URL passed the safe-URL check.
+      if (safeUrl && currentMeta.videoId) {
+        contentHeaderThumb.src   = `https://i.ytimg.com/vi/${encodeURIComponent(currentMeta.videoId)}/mqdefault.jpg`;
+        contentHeaderThumb.hidden = false;
+      } else {
+        contentHeaderThumb.hidden = true;
+        contentHeaderThumb.removeAttribute('src');
+      }
+
+      // Duration — reuse the same humanized calc as the status line, derived
+      // from the currently-loaded segments (mirrors lastSegments).
+      const segs = currentSegments || lastSegments;
+      const lastSeg = Array.isArray(segs) && segs.length ? segs[segs.length - 1] : null;
+      const durationStr = lastSeg && typeof lastSeg.offset === 'number'
+        ? formatDurationHuman(lastSeg.offset)
+        : '';
+      contentHeaderDuration.textContent = durationStr
+        ? (contentHeaderUrl.textContent ? ' · ' + durationStr : durationStr)
+        : '';
+
+      updateReaderChromeVisibility();
     }
 
     /* ==============================================
@@ -4682,15 +5195,26 @@
        READING CONTROLS — FEATURE A
     =============================================== */
     function applyReadingStyles() {
-      outputEl.style.setProperty('--reading-scale', READING_SCALES[readingScaleIdx]);
-      outputEl.style.setProperty('--reading-measure', readingMeasure);
+      const scale = READING_SCALES[readingScaleIdx];
+      // Applied on the shared page container (ancestor of #contentHeader,
+      // #tabBar, #paneTranscript and #paneDigest) so --reading-measure
+      // inherits down to every reader-column element — content header,
+      // lens tabs, reader toolbars, transcript output AND the digest pane
+      // (digestOutput, qaThread, fcResults, chResults, qtResults) — keeping
+      // them all aligned to the same reading measure. --reading-scale is
+      // only consumed inside #output/#digestOutput/.qa-answer, but setting
+      // it at the same level is harmless and keeps this one function the
+      // single source of truth — see FEATURE A/C shared-state note.
+      const el = pageContainerEl || document.documentElement;
+      el.style.setProperty('--reading-scale', scale);
+      el.style.setProperty('--reading-measure', readingMeasure);
     }
 
     function syncReadingControls() {
-      const fontDecBtn = document.getElementById('fontDecBtn');
-      const fontIncBtn = document.getElementById('fontIncBtn');
-      if (fontDecBtn) fontDecBtn.disabled = readingScaleIdx <= 0;
-      if (fontIncBtn) fontIncBtn.disabled = readingScaleIdx >= READING_SCALES.length - 1;
+      const decBtns = document.querySelectorAll('[data-reading-action="dec"]');
+      const incBtns = document.querySelectorAll('[data-reading-action="inc"]');
+      decBtns.forEach(btn => { btn.disabled = readingScaleIdx <= 0; });
+      incBtns.forEach(btn => { btn.disabled = readingScaleIdx >= READING_SCALES.length - 1; });
       syncMeasureActive();
     }
 
@@ -4710,7 +5234,7 @@
         const idx = READING_SCALES.indexOf(parseFloat(savedScale));
         if (idx !== -1) readingScaleIdx = idx;
       }
-      if (savedMeasure && ['46rem', '62rem', '80rem'].includes(savedMeasure)) {
+      if (savedMeasure && ['620px', '760px', '940px'].includes(savedMeasure)) {
         readingMeasure = savedMeasure;
         // Sync radio to persisted value
         const inp = document.querySelector(`input[name="readingMeasure"][value="${savedMeasure}"]`);
@@ -4721,23 +5245,27 @@
       syncReadingControls();
     })();
 
-    // Font-size buttons
-    document.getElementById('fontDecBtn')?.addEventListener('click', () => {
-      if (readingScaleIdx > 0) {
-        readingScaleIdx--;
-        localStorage.setItem('echo-reading-scale', READING_SCALES[readingScaleIdx]);
-        applyReadingStyles();
-        syncReadingControls();
-      }
+    // Font-size buttons — wired for every cluster on the page (Transcript + Digest)
+    document.querySelectorAll('[data-reading-action="dec"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (readingScaleIdx > 0) {
+          readingScaleIdx--;
+          localStorage.setItem('echo-reading-scale', READING_SCALES[readingScaleIdx]);
+          applyReadingStyles();
+          syncReadingControls();
+        }
+      });
     });
 
-    document.getElementById('fontIncBtn')?.addEventListener('click', () => {
-      if (readingScaleIdx < READING_SCALES.length - 1) {
-        readingScaleIdx++;
-        localStorage.setItem('echo-reading-scale', READING_SCALES[readingScaleIdx]);
-        applyReadingStyles();
-        syncReadingControls();
-      }
+    document.querySelectorAll('[data-reading-action="inc"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (readingScaleIdx < READING_SCALES.length - 1) {
+          readingScaleIdx++;
+          localStorage.setItem('echo-reading-scale', READING_SCALES[readingScaleIdx]);
+          applyReadingStyles();
+          syncReadingControls();
+        }
+      });
     });
 
     // Measure (line-width) radios
@@ -5016,14 +5544,26 @@
 
     document.getElementById('hlViewClose')?.addEventListener('click', hideHighlightViewPopover);
 
-    /* --- Keyboard: Esc closes any open overlay or popover --- */
+    /* --- Keyboard: Esc closes any open overlay or popover ---
+       Popovers take priority (most transient), then any visible [role="dialog"]
+       modal — using its known close handler where one exists, otherwise just
+       hiding it. This generically covers new overlays (e.g. crossDigestOverlay)
+       without needing a hardcoded id list. */
+    const DIALOG_CLOSE_FNS = {
+      shortcutsOverlay:   closeShortcutsOverlay,
+      clipsOverlay:       closeClipsModal,
+      crossDigestOverlay: closeCrossDigestModal,
+    };
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') {
-        const so = document.getElementById('shortcutsOverlay');
-        if (so && !so.hidden)        { so.hidden = true; return; }
-        if (clipsOverlay && !clipsOverlay.hidden) { closeClipsModal(); return; }
-        if (!hlCreatePopover.hidden) { hideHighlightCreatePopover(); return; }
-        if (!hlViewPopover.hidden)   { hideHighlightViewPopover();   return; }
+      if (e.key !== 'Escape') return;
+
+      if (!hlCreatePopover.hidden) { hideHighlightCreatePopover(); return; }
+      if (!hlViewPopover.hidden)   { hideHighlightViewPopover();   return; }
+
+      const openDialog = document.querySelector('[role="dialog"]:not([hidden])');
+      if (openDialog) {
+        const closeFn = DIALOG_CLOSE_FNS[openDialog.id];
+        if (closeFn) closeFn(); else openDialog.hidden = true;
       }
     });
 
@@ -5112,6 +5652,7 @@
         const hl = await res.json();
         currentHighlights.push(hl);
         reApplyOverlays();
+        saveSession();
       } catch (err) {
         console.error('[echo] saveHighlight network error:', err);
         setStatus('Network error saving highlight: ' + err.message, true);
@@ -5137,6 +5678,7 @@
 
         currentHighlights = currentHighlights.filter(h => String(h.id) !== String(hlId));
         reApplyOverlays();
+        saveSession();
       } catch (err) {
         console.error('[echo] removeHighlight network error:', err);
         setStatus('Network error removing highlight: ' + err.message, true);
@@ -5167,6 +5709,8 @@
       currentDigest     = null;
       currentSegments   = null;
       currentHighlights = [];
+      askThread         = [];
+      clearSession(); // new fetch in flight — drop any stale prior-video snapshot
       updateNowReading();
       syncDigestExportRow();
       resetFind();
@@ -5252,11 +5796,27 @@
         currentSegments = data.segments;
         currentMeta     = { videoId: data.videoId, url: data.url, title: data.title };
         currentDigest   = null;
+        // The server reports which caption track was actually loaded (not
+        // just the language that was requested) — the picker uses this to
+        // pre-select the right option instead of falling back to whatever
+        // sorts first alphabetically. See loadLanguageTracks() below.
+        currentLangCode = data.langCode || null;
         updateNowReading();
         syncDigestExportRow();
 
-        setStatus(`Loaded ${data.segments.length} segments for video ${data.videoId}.`);
+        {
+          const lastSeg      = data.segments[data.segments.length - 1];
+          const durationStr  = lastSeg && typeof lastSeg.offset === 'number'
+            ? formatDurationHuman(lastSeg.offset)
+            : '';
+          setStatus(
+            `Transcript loaded — ${data.segments.length} segments` +
+            (durationStr ? ` · ${durationStr}` : '')
+          );
+        }
         renderSegments(lastSegments);
+        maybeShowNextActionNudge();
+        saveSession();
 
         // Async: if this video is already saved, load its highlights
         (function loadHighlightsIfSaved(videoId) {
@@ -5268,6 +5828,7 @@
                 if (Array.isArray(entry.highlights) && entry.highlights.length > 0) {
                   currentHighlights = entry.highlights;
                   reApplyOverlays();
+                  saveSession();
                 }
               }
             })
@@ -5299,14 +5860,34 @@
       }
     }
 
+    /** Returns true if `str` looks like a pasteable YouTube reference (URL or bare 11-char id). */
+    function looksLikeYoutubeRef(str) {
+      const s = (str || '').trim();
+      if (!s) return false;
+      if (/^[\w-]{11}$/.test(s)) return true;
+      return /(?:youtube\.com|youtu\.be)\//i.test(s);
+    }
+
     fetchBtn.addEventListener('click', fetchTranscript);
     urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') fetchTranscript(); });
+
+    // Paste → auto-fetch: if what just landed in the box is recognisably a
+    // YouTube URL or bare video id, kick off the fetch immediately instead of
+    // waiting for the user to also hit Enter / click Fetch.
+    urlInput.addEventListener('paste', () => {
+      setTimeout(() => {
+        if (fetchBtn.disabled) return; // a fetch is already in flight
+        if (looksLikeYoutubeRef(urlInput.value)) fetchTranscript();
+      }, 0);
+    });
+
     radios.forEach(r => r.addEventListener('change', () => {
       syncToggleActive();
       if (lastSegments) {
         renderSegments(lastSegments);
         reApplyOverlays();
       }
+      saveSession();
     }));
 
     /* ==============================================
@@ -5327,18 +5908,50 @@
           .replace(/"/g, '&quot;');
       }
 
-      // 2. Apply inline transforms (bold) to an already-escaped string.
+      // 2. Apply inline transforms (code, links, bold, italic) to an
+      //    already-escaped string.
       function inlineMarkdown(s) {
+        // Inline code spans first — protect their contents from every other
+        // inline transform below by swapping them out for a placeholder.
+        const codeSpans = [];
+        s = s.replace(/`([^`]+)`/g, (m, code) => {
+          codeSpans.push(code);
+          return ` CODE${codeSpans.length - 1} `;
+        });
+
+        // Links: [text](url) — only accept safe http(s) URLs, else drop the
+        // link and keep the plain text (reuses the same allow-list used
+        // everywhere else in the app).
+        s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, url) => {
+          const href = safeHttpUrl(url);
+          return href
+            ? `<a href="${href}" target="_blank" rel="noopener noreferrer">${text}</a>`
+            : text;
+        });
+
         // **bold** or __bold__
-        return s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                .replace(/__(.+?)__/g, '<strong>$1</strong>');
+        s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+             .replace(/__(.+?)__/g, '<strong>$1</strong>');
+
+        // *italic* or _italic_ (single markers; bold markers already consumed)
+        s = s.replace(/(^|[^*])\*([^*\s][^*]*?)\*(?!\*)/g, '$1<em>$2</em>')
+             .replace(/(^|[^_])_([^_\s][^_]*?)_(?!_)/g, '$1<em>$2</em>');
+
+        // Restore protected code spans
+        s = s.replace(/ CODE(\d+) /g, (m, i) => `<code>${codeSpans[Number(i)]}</code>`);
+
+        return s;
       }
 
       // 3. Split into lines, process block-level elements.
       const lines = esc(md).split('\n');
       const html  = [];
-      let listOpen   = false;
-      let paraBuffer = [];
+      let paraBuffer   = [];
+      let quoteBuffer  = [];
+      let inBlockquote = false;
+      let inCodeBlock  = false;
+      let codeBuffer   = [];
+      const listStack  = []; // [{ indent, type: 'ul'|'ol' }] — supports nested lists
 
       function flushPara() {
         if (paraBuffer.length === 0) return;
@@ -5347,59 +5960,136 @@
         paraBuffer = [];
       }
 
-      function closeList() {
-        if (listOpen) { html.push('</ul>'); listOpen = false; }
+      function flushQuote() {
+        if (!inBlockquote) return;
+        const content = quoteBuffer.join(' ').trim();
+        if (content) html.push(`<blockquote><p>${inlineMarkdown(content)}</p></blockquote>`);
+        quoteBuffer  = [];
+        inBlockquote = false;
+      }
+
+      function closeLists(toIndent = -1) {
+        while (listStack.length && listStack[listStack.length - 1].indent > toIndent) {
+          const top = listStack.pop();
+          html.push(`</${top.type}>`);
+        }
+      }
+
+      // Opens/closes nested <ul>/<ol> levels as needed for the given indent
+      // + list type, then leaves the item's <li> to be pushed by the caller.
+      // No explicit </li> is emitted — browsers auto-close the previous <li>
+      // when the next <li> (or a nested <ul>/<ol>) starts, which is exactly
+      // what lets a deeper-indented list nest inside the prior item.
+      function openListLevel(indent, type) {
+        while (
+          listStack.length &&
+          (listStack[listStack.length - 1].indent > indent ||
+            (listStack[listStack.length - 1].indent === indent &&
+              listStack[listStack.length - 1].type !== type))
+        ) {
+          const top = listStack.pop();
+          html.push(`</${top.type}>`);
+        }
+        if (!listStack.length || listStack[listStack.length - 1].indent < indent) {
+          html.push(`<${type}>`);
+          listStack.push({ indent, type });
+        }
       }
 
       for (const rawLine of lines) {
         const line = rawLine.trimEnd();
 
-        // Blank line — flush paragraph / close list
-        if (!line.trim()) {
-          flushPara();
-          closeList();
+        // Fenced code block toggle (```)
+        const fenceMatch = line.trim().match(/^```/);
+        if (fenceMatch) {
+          if (!inCodeBlock) {
+            flushPara(); flushQuote(); closeLists();
+            inCodeBlock = true;
+            codeBuffer  = [];
+          } else {
+            html.push(`<pre><code>${codeBuffer.join('\n')}</code></pre>`);
+            inCodeBlock = false;
+          }
           continue;
+        }
+        if (inCodeBlock) { codeBuffer.push(rawLine); continue; }
+
+        // Blank line — flush paragraph / blockquote / close lists
+        if (!line.trim()) {
+          flushPara(); flushQuote(); closeLists();
+          continue;
+        }
+
+        // Horizontal rule: a line of 3+ -, * or _ (optionally spaced)
+        if (/^(-\s*){3,}$|^(\*\s*){3,}$|^(_\s*){3,}$/.test(line.trim())) {
+          flushPara(); flushQuote(); closeLists();
+          html.push('<hr>');
+          continue;
+        }
+
+        // Blockquote: "> text" (already HTML-escaped, so ">" is "&gt;")
+        const quoteMatch = line.match(/^&gt;\s?(.*)$/);
+        if (quoteMatch) {
+          flushPara(); closeLists();
+          inBlockquote = true;
+          quoteBuffer.push(quoteMatch[1]);
+          continue;
+        } else if (inBlockquote) {
+          flushQuote();
         }
 
         // ### heading (must check before ##)
         if (line.startsWith('### ')) {
-          flushPara(); closeList();
+          flushPara(); flushQuote(); closeLists();
           html.push(`<h3>${inlineMarkdown(line.slice(4).trim())}</h3>`);
           continue;
         }
 
         // ## heading
         if (line.startsWith('## ')) {
-          flushPara(); closeList();
+          flushPara(); flushQuote(); closeLists();
           html.push(`<h2>${inlineMarkdown(line.slice(3).trim())}</h2>`);
           continue;
         }
 
-        // # heading (h1 — render as h2 for safety)
+        // # heading (top-level h1)
         if (line.startsWith('# ')) {
-          flushPara(); closeList();
-          html.push(`<h2>${inlineMarkdown(line.slice(2).trim())}</h2>`);
+          flushPara(); flushQuote(); closeLists();
+          html.push(`<h1>${inlineMarkdown(line.slice(2).trim())}</h1>`);
           continue;
         }
 
-        // Bullet list item: "- " or "* " at the start (possibly indented)
-        const bulletMatch = line.match(/^(\s*[-*])\s+(.+)$/);
+        // Ordered list item: "1. " or "1) " (possibly indented, for nesting)
+        const orderedMatch = rawLine.match(/^(\s*)\d+[.)]\s+(.+)$/);
+        if (orderedMatch) {
+          flushPara(); flushQuote();
+          openListLevel(orderedMatch[1].length, 'ol');
+          html.push(`<li>${inlineMarkdown(orderedMatch[2])}</li>`);
+          continue;
+        }
+
+        // Bullet list item: "- " or "* " (possibly indented, for nesting)
+        const bulletMatch = rawLine.match(/^(\s*)[-*]\s+(.+)$/);
         if (bulletMatch) {
-          flushPara();
-          if (!listOpen) { html.push('<ul>'); listOpen = true; }
+          flushPara(); flushQuote();
+          openListLevel(bulletMatch[1].length, 'ul');
           html.push(`<li>${inlineMarkdown(bulletMatch[2])}</li>`);
           continue;
         }
 
         // Regular text line — accumulate into paragraph buffer
-        // (close any open list first since a non-bullet line ends the list)
-        closeList();
+        // (close any open list first since a non-list line ends the list)
+        closeLists();
         paraBuffer.push(line.trim());
       }
 
       // Flush anything remaining
+      if (inCodeBlock && codeBuffer.length) {
+        html.push(`<pre><code>${codeBuffer.join('\n')}</code></pre>`);
+      }
       flushPara();
-      closeList();
+      flushQuote();
+      closeLists();
 
       return html.join('\n');
     }
@@ -5457,6 +6147,12 @@
     =============================================== */
     async function runDigest() {
       if (!lastSegments || lastSegments.length === 0) return;
+
+      // If a digest is already displayed, confirm before spending another AI call.
+      if (currentDigest) {
+        const proceed = confirm('Replace the current digest? This runs a new AI call.');
+        if (!proceed) return;
+      }
 
       // Read options live from the Summary panel controls
       const lengthOpt = document.querySelector('input[name="digestLength"]:checked')?.value || 'detailed';
@@ -5522,6 +6218,7 @@
 
         // Stay on Digest tab / Summary sub-panel
         switchTab('digest');
+        saveSession();
 
       } catch (err) {
         console.error('[echo] runDigest network error:', err);
@@ -5599,6 +6296,7 @@
           '<div class="qa-answer">'   + renderMarkdown(data.answer) + '</div>' +
           usageHtml;
         qaThread.appendChild(card);
+        askThread.push({ q: question, a: data.answer });
 
         // Clear input, reveal Clear button, scroll new card into view
         askInputEl.value   = '';
@@ -5607,6 +6305,7 @@
         card.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' });
 
         setTimeout(loadUsageChip, 2000);
+        saveSession();
 
       } catch (err) {
         console.error('[echo] submitAsk network error:', err);
@@ -5630,11 +6329,13 @@
 
     askClearBtn.addEventListener('click', () => {
       qaThread.innerHTML          = '';
+      askThread                   = [];
       askClearRow.hidden          = true;
       askInlineStatus.textContent = '';
       askInlineStatus.className   = 'ai-inline-status';
       askInputEl.value            = '';
       askInputEl.focus();
+      saveSession();
     });
 
     /* ==============================================
@@ -6007,25 +6708,50 @@
     });
 
     /* ==============================================
-       SAVED LIBRARY — LOAD & RENDER
+       LIBRARY — LOAD & RENDER
     =============================================== */
+    /** Keep the transcript-tab empty state's "open one from your Library" hint in sync with savedList. */
+    function updateEmptyStateSavedHint() {
+      const hintEl = document.getElementById('emptyStateSavedHint');
+      if (!hintEl) return;
+      const n = savedList.length;
+      if (n === 0) {
+        hintEl.hidden = true;
+        hintEl.innerHTML = '';
+        return;
+      }
+      hintEl.innerHTML = `Or open one from your Library <a href="#" id="emptyStateSavedLink">&rarr;</a>`;
+      hintEl.hidden = false;
+      document.getElementById('emptyStateSavedLink')?.addEventListener('click', e => {
+        e.preventDefault();
+        libraryBtnClick();
+      });
+    }
+
+    /** Keep the header Library button's count badge in sync with savedList. */
+    function updateLibraryCount() {
+      if (libraryCountEl) libraryCountEl.textContent = String(savedList.length);
+    }
+
     async function loadSaved() {
       try {
         const res = await fetch('/api/saved');
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           savedOutput.innerHTML =
-            '<p class="saved-empty-state">Could not load saved videos.</p>';
+            '<p class="saved-empty-state">Could not load your library.</p>';
           handleApiError(errData, 'Could not load saved library.');
           return;
         }
         const data = await res.json();
         savedList = Array.isArray(data) ? data : [];
         renderSavedFiltered();
+        updateEmptyStateSavedHint();
+        updateLibraryCount();
       } catch (err) {
         console.error('[echo] loadSaved network error:', err);
         savedOutput.innerHTML =
-          '<p class="saved-empty-state">Network error — could not load saved videos.</p>';
+          '<p class="saved-empty-state">Network error — could not load your library.</p>';
         showToast('error', 'Network error loading library: ' + err.message);
       }
     }
@@ -6084,7 +6810,7 @@
             : `${items.length} result${items.length === 1 ? '' : 's'}`;
         } else {
           countEl.textContent = savedList.length > 0
-            ? `${savedList.length} saved video${savedList.length === 1 ? '' : 's'}`
+            ? `${savedList.length} in your library`
             : '';
         }
       }
@@ -6183,36 +6909,49 @@
                   aria-label="Select ${escapeAttr(title)} for comparison"
                   ${selectedVideoIds.has(entry.videoId) ? 'checked' : ''}>`;
 
+        // Thumbnail — only fetched for entries whose URL passed the safe-URL
+        // check (unsafe/striped entries get no remote fetch). A failed image
+        // load removes itself so the card degrades to the no-thumbnail layout.
+        const safeUrl  = safeHttpUrl(entry.url);
+        const thumbHtml = safeUrl
+          ? `<img class="saved-card-thumb"
+                  src="https://i.ytimg.com/vi/${encodeURIComponent(entry.videoId)}/mqdefault.jpg"
+                  alt="" loading="lazy"
+                  onerror="this.remove()">`
+          : '';
+
         return `<div class="saved-card${selectedVideoIds.has(entry.videoId) ? ' compare-selected' : ''}"
                      data-videoid="${escapeAttr(entry.videoId)}"
                      tabindex="0"
                      role="button"
                      aria-label="Open ${escapeAttr(title)}">
-          <div class="saved-card-body">
+          <div class="saved-card-thumb-wrap">
+            ${thumbHtml}
             ${compareCheck}
-            ${starBtn}
-            <div class="saved-card-main">
+          </div>
+          <div class="saved-card-body">
+            <div class="saved-card-title-row">
               <div class="saved-card-title">${escapeHtml(title)}</div>
-              ${(() => {
-                const safeUrl = safeHttpUrl(entry.url);
-                return safeUrl
-                  ? `<a class="saved-card-url"
-                       href="${escapeAttr(safeUrl)}"
-                       target="_blank"
-                       rel="noopener noreferrer">${escapeHtml(entry.url)}</a>`
-                  : `<span class="saved-card-url">${escapeHtml(entry.url)}</span>`;
-              })()}
-              <div class="saved-card-meta">
-                ${dateStr ? `<span class="saved-meta-item">${escapeHtml(dateStr)}</span>` : ''}
-                ${sep}${badge}
-              </div>
-              ${entry.snippet ? `<p class="saved-snippet">${escapeHtml(entry.snippet)}</p>` : ''}
-              ${tagsRow}
-              <div class="saved-card-actions">${notesBtn}${exportBtn}</div>
+              ${starBtn}
             </div>
-            <button class="saved-delete-btn"
-                    data-videoid="${escapeAttr(entry.videoId)}"
-                    aria-label="Delete ${escapeAttr(title)}">✕ Delete</button>
+            ${safeUrl
+              ? `<a class="saved-card-url"
+                     href="${escapeAttr(safeUrl)}"
+                     target="_blank"
+                     rel="noopener noreferrer">${escapeHtml(entry.url)}</a>`
+              : `<span class="saved-card-url">${escapeHtml(entry.url)}</span>`}
+            <div class="saved-card-meta">
+              ${dateStr ? `<span class="saved-meta-item">${escapeHtml(dateStr)}</span>` : ''}
+              ${sep}${badge}
+            </div>
+            ${entry.snippet ? `<p class="saved-snippet">${escapeHtml(entry.snippet)}</p>` : ''}
+            ${tagsRow}
+            <div class="saved-card-actions">
+              ${notesBtn}${exportBtn}
+              <button class="saved-delete-btn"
+                      data-videoid="${escapeAttr(entry.videoId)}"
+                      aria-label="Delete ${escapeAttr(title)}">✕ Delete</button>
+            </div>
           </div>
           <div class="saved-notes-panel" id="notes-panel-${escapeAttr(entry.videoId)}"></div>
         </div>`;
@@ -6948,6 +7687,19 @@
         urlInput.value = entry.url;
         updateNowReading();
 
+        // Saved entries don't record which caption track was used, so we
+        // can't reliably pre-select the right language option (showing the
+        // wrong one — e.g. the alphabetically-first "Abkhazian (auto)" — is
+        // worse than showing nothing). Hide the picker until a live fetch
+        // repopulates it with real tracks for this video.
+        currentLangCode = null;
+        if (langPickerWrap) langPickerWrap.hidden = true;
+        if (langSelect)     langSelect.innerHTML  = '';
+        if (langPickerStatus) {
+          langPickerStatus.textContent = '';
+          langPickerStatus.className   = 'lang-picker-status';
+        }
+
         // Full digest-pane reset
         digestOutput.classList.remove('visible');
         digestOutput.innerHTML   = '';
@@ -6960,6 +7712,7 @@
         setTopIndicator('idle');
         // Reset Ask and Fact-check panels
         qaThread.innerHTML           = '';
+        askThread                    = [];
         askClearRow.hidden           = true;
         askInlineStatus.textContent  = '';
         askInlineStatus.className    = 'ai-inline-status';
@@ -7008,6 +7761,7 @@
 
         // Land on Transcript tab
         switchTab('transcript');
+        saveSession();
 
       } catch (err) {
         console.error('[echo] openSavedEntry network error:', err);
@@ -7230,6 +7984,22 @@
           if (seen.has(t.code)) continue;
           seen.add(t.code);
           if (t.auto) auto.push(t); else manual.push(t);
+        }
+        const deduped = manual.concat(auto);
+
+        // If the server couldn't tell us which track was actually loaded
+        // (currentLangCode is null — e.g. a fetch quirk), fall back rather
+        // than letting the <select> default to whichever option sorts first
+        // alphabetically:
+        //   - exactly one track available → that must be the loaded one
+        //   - more than one → we can't honestly know which, so hide the
+        //     picker instead of showing a misleading selection
+        if (!currentLangCode) {
+          if (deduped.length === 1) {
+            currentLangCode = deduped[0].code;
+          } else {
+            return; // keep picker hidden — see langPickerWrap.hidden = true above
+          }
         }
 
         const makeOpt = t => {
@@ -7625,15 +8395,16 @@
       // Skip modifier combos
       if (e.ctrlKey || e.metaKey || e.altKey) return;
 
-      // '?' opens overlay regardless of typing (it only fires with Shift on US keyboards)
+      // All shortcuts (including '?') skip when typing in a form field —
+      // otherwise pasting a YouTube URL containing '?' into #urlInput would
+      // pop the shortcuts overlay and swallow the character.
+      if (isTypingContext(e)) return;
+
       if (e.key === '?') {
         e.preventDefault();
         openShortcutsOverlay();
         return;
       }
-
-      // All remaining shortcuts: skip when typing in a form field
-      if (isTypingContext(e)) return;
 
       if (e.key === '/') {
         e.preventDefault();
@@ -7644,7 +8415,7 @@
 
       if (e.key === '1') { e.preventDefault(); switchTab('transcript'); return; }
       if (e.key === '2') { e.preventDefault(); switchTab('digest');     return; }
-      if (e.key === '3') { e.preventDefault(); switchTab('saved');      return; }
+      if (e.key === '3') { e.preventDefault(); libraryBtnClick();      return; }
 
       if (e.key === 't') {
         e.preventDefault();
@@ -7653,6 +8424,7 @@
       }
     });
 
+    /** Returns true if a transcript fetch was kicked off. */
     function autoLoadFromQuery() {
       try {
         const params = new URLSearchParams(location.search);
@@ -7664,7 +8436,7 @@
         } else if (url) {
           target = url;   // decoded automatically by URLSearchParams
         }
-        if (!target) return;
+        if (!target) return false;
         if (typeof urlInput !== 'undefined' && urlInput) urlInput.value = target;
         // Clean the query string so a refresh doesn't re-trigger and the bar looks tidy
         if (window.history && history.replaceState) {
@@ -7672,7 +8444,165 @@
         }
         // Kick off the normal transcript fetch
         fetchTranscript();
-      } catch (e) { /* non-fatal: ignore malformed query */ }
+        return true;
+      } catch (e) { /* non-fatal: ignore malformed query */ return false; }
+    }
+
+    /** True if a ?v= or ?url= query param is present (explicit navigation). */
+    function hasQueryTarget() {
+      try {
+        const params = new URLSearchParams(location.search);
+        return !!(params.get('v') || params.get('url'));
+      } catch (e) { return false; }
+    }
+
+    /* ==============================================
+       SESSION RESTORE — snapshot the working session to
+       sessionStorage so refreshing the page doesn't lose the
+       loaded transcript / digest / Ask thread / highlights.
+    =============================================== */
+    const SESSION_KEY = 'echo-session-v1';
+
+    /** Build a plain-object snapshot of the current working session, or null if nothing loaded. */
+    function buildSessionSnapshot() {
+      if (!currentMeta) return null;
+      return {
+        videoId:  currentMeta.videoId,
+        url:      currentMeta.url,
+        title:    currentMeta.title,
+        segments: currentSegments || lastSegments || null,
+        digest:   currentDigest,
+        digestUsageLine: (usageStatsEl && usageStatsEl.classList.contains('visible'))
+          ? usageStatsEl.innerHTML
+          : '',
+        askThread:  askThread,
+        highlights: currentHighlights,
+        savedFlag:  Array.isArray(savedList) && savedList.some(e => e.videoId === currentMeta.videoId),
+        viewMode:   getMode(),
+        activeTab:  !paneDigest.hidden ? 'digest'
+                  : !paneSaved.hidden  ? 'saved'
+                  : 'transcript',
+      };
+    }
+
+    /**
+     * Persist the current session snapshot to sessionStorage.
+     * On write failure (e.g. QuotaExceededError from an hour-long transcript's
+     * segments array), retries without `segments` and flags `segmentsDropped`
+     * so restore can fall back to a "press Get transcript" prompt instead of
+     * guessing at content.
+     */
+    function saveSession() {
+      if (sessionRestoring) return; // never overwrite mid-restore
+      let snap;
+      try {
+        snap = buildSessionSnapshot();
+        if (!snap) { sessionStorage.removeItem(SESSION_KEY); return; }
+        sessionStorage.setItem(SESSION_KEY, JSON.stringify(snap));
+      } catch (e) {
+        try {
+          if (!snap) snap = buildSessionSnapshot();
+          if (snap) {
+            snap.segments        = null;
+            snap.segmentsDropped = true;
+            sessionStorage.setItem(SESSION_KEY, JSON.stringify(snap));
+          }
+        } catch (e2) { /* sessionStorage unavailable entirely — give up silently */ }
+      }
+    }
+
+    /** Clear any stored session snapshot (used when an explicit navigation should win). */
+    function clearSession() {
+      try { sessionStorage.removeItem(SESSION_KEY); } catch (e) { /* ignore */ }
+    }
+
+    /**
+     * Restore a previously-snapshotted session on boot, with no network call.
+     * Returns true if a session was restored.
+     */
+    function restoreSession() {
+      let raw;
+      try { raw = sessionStorage.getItem(SESSION_KEY); } catch (e) { return false; }
+      if (!raw) return false;
+
+      let snap;
+      try { snap = JSON.parse(raw); } catch (e) { clearSession(); return false; }
+      if (!snap || typeof snap !== 'object' || !snap.videoId || !snap.url) { clearSession(); return false; }
+
+      sessionRestoring = true;
+      try {
+        if (snap.segmentsDropped || !Array.isArray(snap.segments) || snap.segments.length === 0) {
+          // Segments were dropped (quota) or never captured — ask the user to
+          // re-fetch rather than guessing at transcript content.
+          urlInput.value = snap.url;
+          setStatus('Session restored — press Get transcript to reload the transcript.');
+          return true;
+        }
+
+        // Rebuild the same state the fetch-success path sets, purely from the snapshot.
+        lastSegments      = snap.segments;
+        currentSegments   = snap.segments;
+        currentMeta       = { videoId: snap.videoId, url: snap.url, title: snap.title };
+        currentDigest     = snap.digest || null;
+        currentHighlights = Array.isArray(snap.highlights) ? snap.highlights : [];
+
+        urlInput.value = snap.url;
+
+        if (snap.viewMode) {
+          radios.forEach(r => { r.checked = (r.value === snap.viewMode); });
+          syncToggleActive();
+        }
+
+        renderSegments(lastSegments);
+        reApplyOverlays();
+        updateNowReading();
+        syncDigestExportRow();
+
+        digestBtn.disabled              = false;
+        saveBtn.disabled                = false;
+        transcriptCopyBtn.disabled      = false;
+        transcriptDownloadBtn.disabled  = false;
+        entryExportBtn.disabled         = !snap.savedFlag;
+        syncDigestRegenBtn();
+
+        // Restore digest pane
+        if (snap.digest) {
+          digestOutput.innerHTML =
+            '<div class="digest-eyebrow">AI Digest</div>' +
+            renderMarkdown(snap.digest);
+          digestOutput.classList.add('visible');
+          digestEmptySt.classList.add('is-hidden');
+          digestDot.style.display = '';
+          setDigestStatus('Digest ready.', false);
+          if (snap.digestUsageLine) {
+            usageStatsEl.innerHTML = snap.digestUsageLine;
+            usageStatsEl.classList.add('visible');
+          }
+        }
+
+        // Restore Ask thread
+        askThread = Array.isArray(snap.askThread) ? snap.askThread : [];
+        if (askThread.length > 0) {
+          qaThread.innerHTML = '';
+          askThread.forEach(msg => {
+            const card = document.createElement('div');
+            card.className = 'qa-card';
+            card.innerHTML =
+              '<div class="qa-question">' + escapeHtml(msg.q) + '</div>' +
+              '<div class="qa-answer">'   + renderMarkdown(msg.a) + '</div>';
+            qaThread.appendChild(card);
+          });
+          askClearRow.hidden = false;
+        }
+
+        // Restore active tab — does not trigger the next-action nudge or any AI call.
+        switchTab(snap.activeTab === 'digest' || snap.activeTab === 'saved' ? snap.activeTab : 'transcript');
+
+        setStatus(`Session restored — ${lastSegments.length} segment${lastSegments.length === 1 ? '' : 's'}.`);
+        return true;
+      } finally {
+        sessionRestoring = false;
+      }
     }
 
     /* ==============================================
@@ -7680,7 +8610,18 @@
     =============================================== */
     loadUsageChip();
     loadSaved();
-    autoLoadFromQuery();
+    let _restored = false;
+    if (hasQueryTarget()) {
+      // Explicit navigation (?v=/?url=) always wins over a restored session.
+      clearSession();
+    } else {
+      _restored = restoreSession();
+    }
+    const _autoLoaded = autoLoadFromQuery();
+    // Autofocus the URL input for a fast paste-and-go flow — but not when we're
+    // about to auto-fetch from a query param, or when a session was just restored
+    // (focus would be a distraction in either case).
+    if (!_autoLoaded && !_restored) urlInput.focus();
   </script>
 </body>
 </html>

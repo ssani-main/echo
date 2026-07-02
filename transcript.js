@@ -81,6 +81,13 @@ async function fetchViaPackage(videoId, lang) {
     ? await YoutubeTranscript.fetchTranscript(videoId, { lang })
     : await YoutubeTranscript.fetchTranscript(videoId);
 
+  // The youtube-transcript package stamps every segment with the actual
+  // caption track language code it resolved to (falls back to the first
+  // available track's code when no `lang` was requested) — capture that so
+  // callers can know which track was really loaded, not just which one was
+  // asked for.
+  const langUsed = (segs[0] && segs[0].lang) || lang || null;
+
   // Step 1: normalise each segment to raw form so we can inspect offsets before committing.
   const raw = segs.map((seg) => ({
     text: decodeEntities(seg.text || ''),
@@ -113,10 +120,14 @@ async function fetchViaPackage(videoId, lang) {
   const divisor = isMilliseconds ? 1000 : 1;
 
   // Step 3: apply the divisor uniformly to every segment.
-  return raw.map(({ text, rawOffset }) => ({
+  const result = raw.map(({ text, rawOffset }) => ({
     text,
     offset: rawOffset / divisor,
   }));
+  // Attach as a non-enumerable extra property so array consumers (length,
+  // iteration, JSON via res.json(segments) elsewhere) are unaffected.
+  Object.defineProperty(result, 'langUsed', { value: langUsed, enumerable: false });
+  return result;
 }
 
 /**
@@ -164,6 +175,8 @@ async function fetchViaYtDlp(videoId, lang) {
     });
   }
 
+  // Explicit --sub-langs request, so we know exactly which track was pulled.
+  Object.defineProperty(segments, 'langUsed', { value: effectiveLang, enumerable: false });
   return segments;
 }
 

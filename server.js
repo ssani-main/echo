@@ -127,7 +127,11 @@ app.post('/api/transcript', async (req, res) => {
   try {
     const segments = await fetchTranscript(videoId, { lang });
     const title = await getVideoTitle(videoId);
-    return res.json({ videoId, url: req.body.url, title, segments });
+    // `langUsed` is stamped onto the segments array by fetchTranscript() and
+    // reflects the caption track actually loaded (not just what was asked
+    // for) — the language picker uses this to pre-select the right option.
+    const langCode = segments.langUsed || lang || null;
+    return res.json({ videoId, url: req.body.url, title, segments, langCode });
   } catch (err) {
     return sendCaughtError(res, err);
   }
