@@ -42,15 +42,18 @@ You've been there: you find a great video, but you'd rather *read* it than sit t
 | | Feature | Notes |
 |---|---|---|
 | 📥 | **Transcript fetching** | Works with `watch?v=`, `youtu.be/`, `/shorts/`, `/embed/`, or a bare video ID; pick your caption language from available tracks |
-| 🧹 | **Readable mode** | Glues captions into proper sentences & paragraphs; adjust font size (A−/A+) and column width (Narrow/Medium/Wide); find-in-transcript with live match counter and Prev/Next navigation; highlight passages, attach notes, and copy/download as Markdown — all persists across sessions |
+| 📋 | **Paste-to-fetch** | Paste a YouTube link into the input field and it auto-loads the transcript—no click needed |
+| 🧹 | **Readable mode** | Glues captions into proper sentences & paragraphs; find-in-transcript with live match counter and Prev/Next navigation; highlight passages, attach notes, and copy/download as Markdown — all persists across sessions |
+| 🎛️ | **Shared reading controls** | Font size (A−/A+) and column width (Narrow/Medium/Wide: ~620 / 760 / 940 px) apply to both Transcript and Digest lenses, share one preference, and scale the reading column responsively. Digest AI output is typeset as a readable article |
 | ⏱️ | **Timecoded mode** | Subtitle-editor style with monospace timecode gutter; every timestamp deep-links YouTube (`&t=<sec>s`); same highlight & note features as Readable mode |
+| 💾 | **Session restore** | Refreshing the page restores the current transcript, digest, Ask thread, highlights, view mode, lens, and Library state via sessionStorage—no re-fetch |
 | 🤖 | **AI Workspace** | Five-tab AI assistant grounded in your transcript: **Summary** (short/detailed, bullets/prose, pick output language), **Ask** (chat thread, answers sourced only from the transcript), **Fact-check** (claims assessed with confidence), **Chapters** (AI-generated outline with timecoded jumps), **Quotes** (key excerpts with timestamps) — all without web search |
-| 📑 | **Tabbed UI** | Three panes (Transcript · Digest/AI Workspace · Saved); AI Workspace has its own sub-nav to jump between tools |
+| 📑 | **Reader & Library** | Transcript and Digest are underlined lens tabs—two views of the current video. Saved videos open from a **Library** button in the header (with count). AI Workspace has its own sub-nav to jump between tools |
 | 🟢 | **Live status indicator** | Fixed pill shows "AI is working…" → "Ready ✓" as it processes; click to jump to the Digest pane |
 | 📊 | **Usage readouts** | Today's total Claude Code cost + tokens (via **ccusage**), plus per-digest stats and session totals |
 | ⭐ | **Library & organization** | Click ★ to save videos with transcripts; search, sort (Recently saved / Title A–Z / Favorites first), tag with chips, add per-video notes, and mark favorites; export your whole library as a ZIP of Markdown files or a JSON backup |
 | 📺 | **Playlist mode** | Paste a playlist URL (`list=`) to browse and load any video's transcript |
-| ⌨️ | **Keyboard shortcuts** | Press `?` for the overlay; `/` focus find, `1`/`2`/`3` switch tabs, `t` toggle dark mode, `Esc` close — all paused while typing |
+| ⌨️ | **Keyboard shortcuts** | Press `?` for the overlay; `/` focus find, `1`/`2` switch Transcript & Digest lenses, `3` open Library, `t` toggle dark mode, `Esc` close — all paused while typing |
 | 🎨 | **Dark mode & fonts** | Crisp dark theme, Inter for reading, JetBrains Mono for code; loading skeletons respect reduced-motion |
 | 🛟 | **Automatic fallback** | If the transcript library hiccups, `yt-dlp` steps in |
 | 🏠 | **Fully local** | Your own machine, your own browser — nothing leaves the room |
@@ -69,7 +72,7 @@ The prompts live in [`digest.js`](./digest.js) — tweak them if you'd rather ha
 
 ### Usage tracking
 
-Echo tracks Claude Code usage from the CLI's JSON output. A **"Today" chip** in the header displays your total Claude Code usage for the current calendar day (cost + tokens), fetched on demand via the optional **ccusage** tool.
+Echo tracks Claude Code usage from the CLI's JSON output. A **"Claude usage today" chip** in the header displays your total Claude Code usage for the current calendar day (cost + tokens), fetched on demand via the optional **ccusage** tool.
 
 > **Note:** these are actual cost and token figures from Claude Code, **not** the Claude web app's daily usage percentage — that percentage isn't available via any API. The usage readouts show real billing data.
 
@@ -101,9 +104,9 @@ Then open **http://localhost:8000** 🎉
 2. **Read** — toggle between Readable and Timecoded views. Adjust font size (A−/A+) and column width (Narrow/Medium/Wide). Use `/` to search, Prev/Next to navigate, or highlight text and add notes (all saved automatically).
 3. **Copy or download** the transcript or digest as Markdown using the download button.
 4. **AI Workspace** — click any of the five tabs (Summary · Ask · Fact-check · Chapters · Quotes). A fixed status pill shows "AI is working…" and jumps to the Digest pane when ready. _(takes ~10–30s while Claude reads the whole thing)._
-5. **Save** — click **★** to store the video in your library; search/sort/tag/note it in the **Saved** tab. Export your whole library as a ZIP of Markdown files or JSON backup.
+5. **Save** — click **★** to store the video in your library; access saved videos via the **Library** button in the header (keyboard: `3`). Search, sort, tag, and add notes. Export your whole library as a ZIP of Markdown files or JSON backup.
 6. **Playlist mode** — paste a `list=` URL to browse and load videos from a playlist.
-7. **Keyboard help** — press `?` for shortcuts. The **"Today"** chip shows your total Claude Code usage for the day (cost + tokens).
+7. **Keyboard help** — press `?` for shortcuts. The **"Claude usage today"** chip shows your total Claude Code usage for the day (cost + tokens).
 
 ## 🧩 Project structure
 
@@ -155,7 +158,7 @@ echo/
 - The **AI Workspace** tools need Claude Code installed and logged in — without it, transcript reading, search, and library features work just fine.
 - Your **saved library** (`data/library.json`) is **gitignored** — it never leaves your machine and doesn't get pushed to any repo.
 - **Fact-check** is grounded in Claude's training knowledge; it has **no live web access**, so verify important claims via other sources.
-- The **usage readouts** show real Claude Code costs and tokens; the **"Today" chip** is cached ~60s server-side.
+- The **usage readouts** show real Claude Code costs and tokens; the **"Claude usage today" chip** is cached ~60s server-side.
 - Library **export to ZIP** loads JSZip from a CDN; if the CDN is unavailable, the app falls back to a single JSON backup file.
 
 ## 🔖 Send to Echo (bookmarklet)
