@@ -3233,6 +3233,74 @@
     }
 
     #crossDigestContent strong { font-weight: 600; }
+
+    /* Clips modal — reuses .cross-digest-modal/-header/-title/-btn-row; only
+       the row/group layout inside #clipsContent needs scoped rules. */
+    .clips-empty {
+      font-family: var(--font-serif);
+      font-size: 1rem;
+      color: var(--ink-muted, var(--ink));
+      opacity: 0.72;
+      padding: 0.5rem 0 0.25rem;
+    }
+
+    .clips-video-group + .clips-video-group { margin-top: 1.4rem; }
+
+    .clips-video-title {
+      display: block;
+      font-family: var(--font-sans);
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+      padding-bottom: 0.3rem;
+      border-bottom: 1px solid var(--rule);
+      text-decoration: none;
+    }
+
+    .clips-video-title:hover { text-decoration: underline; }
+
+    .clips-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.6rem;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .clips-row:last-child { border-bottom: none; }
+
+    .clips-row-time {
+      flex-shrink: 0;
+      font-family: var(--font-sans);
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--accent);
+      text-decoration: none;
+      white-space: nowrap;
+      padding-top: 0.1rem;
+    }
+
+    .clips-row-time:hover { text-decoration: underline; }
+
+    .clips-row-body { flex: 1; min-width: 0; }
+
+    .clips-row-text {
+      font-family: var(--font-serif);
+      font-size: 0.95rem;
+      line-height: 1.5;
+      color: var(--ink);
+    }
+
+    .clips-row-note {
+      font-family: var(--font-sans);
+      font-size: 0.78rem;
+      color: var(--ink);
+      opacity: 0.65;
+      margin-top: 0.15rem;
+    }
+
+    .clips-row-copy { flex-shrink: 0; }
   </style>
 </head>
 <body>
@@ -3609,6 +3677,11 @@
           aria-label="Export saved library as a ZIP of Markdown files"
         >Export library</button>
         <button
+          id="savedClipsBtn"
+          class="mini-btn"
+          aria-label="View all highlight clips as YouTube deep-links"
+        >Clips</button>
+        <button
           id="savedCompareBtn"
           class="mini-btn"
           aria-label="Toggle compare mode to select videos for cross-digest"
@@ -3648,6 +3721,22 @@
         </div>
       </div>
       <div id="crossDigestContent"></div>
+    </div>
+  </div>
+
+  <!-- CLIPS OVERLAY (highlight clip reel — YouTube deep-links) -->
+  <div id="clipsOverlay" role="dialog" aria-modal="true" aria-label="Highlight clips" hidden>
+    <div class="cross-digest-backdrop" id="clipsBackdrop"></div>
+    <div class="cross-digest-modal">
+      <div class="cross-digest-header">
+        <span class="cross-digest-title">Highlight clips</span>
+        <div class="cross-digest-btn-row">
+          <button class="mini-btn" id="clipsCopyBtn" aria-label="Copy all clips to clipboard">Copy all</button>
+          <button class="mini-btn" id="clipsExportBtn" aria-label="Export clips as Markdown file">Export .md</button>
+          <button class="mini-btn" id="clipsCloseBtn" aria-label="Close clips panel">✕</button>
+        </div>
+      </div>
+      <div id="clipsContent"></div>
     </div>
   </div>
 
@@ -3751,6 +3840,9 @@
     const selectedVideoIds   = new Set();       // videoIds checked in compare mode
     let crossDigestMarkdown  = '';              // most recently received cross-digest markdown
 
+    // Clips modal state
+    let currentClips = [];                      // most recently fetched /api/clips result
+
     // Find-in-transcript state
     let findQuery         = '';
     let findMatches       = [];   // Array of <mark> DOM nodes
@@ -3804,6 +3896,12 @@
     const crossDigestCopyBtn    = document.getElementById('crossDigestCopyBtn');
     const crossDigestDownloadBtn = document.getElementById('crossDigestDownloadBtn');
     const crossDigestCloseBtn   = document.getElementById('crossDigestCloseBtn');
+    const savedClipsBtn      = document.getElementById('savedClipsBtn');
+    const clipsOverlay       = document.getElementById('clipsOverlay');
+    const clipsContent       = document.getElementById('clipsContent');
+    const clipsCopyBtn       = document.getElementById('clipsCopyBtn');
+    const clipsExportBtn     = document.getElementById('clipsExportBtn');
+    const clipsCloseBtn      = document.getElementById('clipsCloseBtn');
     const nowReadingEl          = document.getElementById('nowReading');
     const nowReadingTitle       = document.getElementById('nowReadingTitle');
     const nowReadingUrl         = document.getElementById('nowReadingUrl');
@@ -4894,6 +4992,7 @@
       if (e.key === 'Escape') {
         const so = document.getElementById('shortcutsOverlay');
         if (so && !so.hidden)        { so.hidden = true; return; }
+        if (clipsOverlay && !clipsOverlay.hidden) { closeClipsModal(); return; }
         if (!hlCreatePopover.hidden) { hideHighlightCreatePopover(); return; }
         if (!hlViewPopover.hidden)   { hideHighlightViewPopover();   return; }
       }
@@ -6288,6 +6387,147 @@
     crossDigestDownloadBtn?.addEventListener('click', () => {
       if (!crossDigestMarkdown) return;
       downloadMd('echo-cross-digest', crossDigestMarkdown);
+    });
+
+    /* ==============================================
+       CLIPS MODAL (highlight clip reel)
+    =============================================== */
+
+    /** Fetch /api/clips (optionally scoped to one video) and render the modal. */
+    async function openClipsModal(videoId) {
+      if (!clipsOverlay || !clipsContent) return;
+
+      try {
+        const url = videoId ? `/api/clips?videoId=${encodeURIComponent(videoId)}` : '/api/clips';
+        const res  = await fetch(url);
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          handleApiError(data, 'Could not load clips.');
+          return;
+        }
+
+        currentClips = Array.isArray(data.clips) ? data.clips : [];
+        renderClipsModal();
+        clipsOverlay.hidden = false;
+        clipsCloseBtn?.focus();
+      } catch (err) {
+        console.error('[echo] openClipsModal network error:', err);
+        showToast('error', 'Network error while loading clips: ' + err.message);
+      }
+    }
+
+    /** Render currentClips into #clipsContent, grouped by video in first-seen order. */
+    function renderClipsModal() {
+      if (!clipsContent) return;
+
+      if (currentClips.length === 0) {
+        clipsContent.innerHTML =
+          '<div class="clips-empty">No highlights yet — highlight text in a transcript to build clips.</div>';
+        return;
+      }
+
+      const groups = [];
+      const groupByVideo = new Map();
+      for (const clip of currentClips) {
+        let group = groupByVideo.get(clip.videoId);
+        if (!group) {
+          group = { videoId: clip.videoId, title: clip.title, videoUrl: clip.videoUrl, clips: [] };
+          groupByVideo.set(clip.videoId, group);
+          groups.push(group);
+        }
+        group.clips.push(clip);
+      }
+
+      const html = groups.map(group => {
+        const rows = group.clips.map(clip => {
+          const timeLabel = clip.timeLabel || '▶';
+          const noteHtml  = clip.note
+            ? `<div class="clips-row-note">${escapeHtml(clip.note)}</div>`
+            : '';
+          const mdLine    = clipToMarkdownLine(clip);
+          return (
+            `<div class="clips-row">` +
+              `<a class="clips-row-time" href="${escapeAttr(clip.deepLink)}" target="_blank" rel="noopener noreferrer" ` +
+                 `aria-label="Open clip at ${escapeAttr(timeLabel)}">${escapeHtml(timeLabel)}</a>` +
+              `<div class="clips-row-body">` +
+                `<div class="clips-row-text">${escapeHtml(clip.text)}</div>` +
+                noteHtml +
+              `</div>` +
+              `<button class="mini-btn clips-row-copy" data-clip-copy="${escapeAttr(mdLine)}" aria-label="Copy this clip">Copy</button>` +
+            `</div>`
+          );
+        }).join('');
+
+        return (
+          `<div class="clips-video-group">` +
+            `<a class="clips-video-title" href="${escapeAttr(group.videoUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(group.title)}</a>` +
+            rows +
+          `</div>`
+        );
+      }).join('');
+
+      clipsContent.innerHTML = html;
+
+      clipsContent.querySelectorAll('[data-clip-copy]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          copyToClipboard(btn, btn.getAttribute('data-clip-copy'), 'Copy');
+        });
+      });
+    }
+
+    /** Build a single markdown line for one clip: - [time](link) "text"— note */
+    function clipToMarkdownLine(clip) {
+      const timeLabel = clip.timeLabel || '▶';
+      let line = `- [${timeLabel}](${clip.deepLink}) "${clip.text}"`;
+      if (clip.note) line += `— ${clip.note}`;
+      return line;
+    }
+
+    /** Build a full markdown document of currentClips, grouped by video. */
+    function clipsToMarkdown(clips) {
+      let md = '# Highlight clips — Echo\n\n';
+
+      const groups = [];
+      const groupByVideo = new Map();
+      for (const clip of clips) {
+        let group = groupByVideo.get(clip.videoId);
+        if (!group) {
+          group = { videoId: clip.videoId, title: clip.title, videoUrl: clip.videoUrl, clips: [] };
+          groupByVideo.set(clip.videoId, group);
+          groups.push(group);
+        }
+        group.clips.push(clip);
+      }
+
+      for (const group of groups) {
+        md += `## ${group.title}\n${group.videoUrl}\n\n`;
+        for (const clip of group.clips) {
+          md += clipToMarkdownLine(clip) + '\n';
+        }
+        md += '\n';
+      }
+
+      return md.trim() + '\n';
+    }
+
+    function closeClipsModal() {
+      if (clipsOverlay) clipsOverlay.hidden = true;
+    }
+
+    savedClipsBtn?.addEventListener('click', () => openClipsModal());
+    clipsCloseBtn?.addEventListener('click', closeClipsModal);
+    document.getElementById('clipsBackdrop')?.addEventListener('click', closeClipsModal);
+
+    clipsCopyBtn?.addEventListener('click', () => {
+      if (currentClips.length === 0) return;
+      copyToClipboard(clipsCopyBtn, clipsToMarkdown(currentClips), 'Copy all');
+    });
+
+    clipsExportBtn?.addEventListener('click', () => {
+      if (currentClips.length === 0) return;
+      downloadMd('echo-clips', clipsToMarkdown(currentClips));
+      showToast('success', 'Exported clips');
     });
 
     /* ==============================================

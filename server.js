@@ -27,6 +27,7 @@ import {
   allEmbeddings,
 } from './store.js';
 import { entryToMarkdown } from './markdown.js';
+import { buildClips } from './clips.js';
 import {
   initEmbeddings,
   isAvailable,
@@ -421,6 +422,28 @@ app.get('/api/saved/:videoId/export.md', async (req, res) => {
     res.set('Content-Type', 'text/markdown; charset=utf-8');
     res.set('Content-Disposition', `attachment; filename="${slug}.md"`);
     res.send(md);
+  } catch (err) {
+    sendCaughtError(res, err);
+  }
+});
+
+app.get('/api/clips', async (req, res) => {
+  try {
+    const { videoId } = req.query;
+    let entries;
+
+    if (videoId) {
+      const entry = await getEntry(videoId);
+      if (!entry) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
+      entries = [entry];
+    } else {
+      const meta = await listEntries();
+      entries = (await Promise.all(meta.map((m) => getEntry(m.videoId)))).filter(Boolean);
+    }
+
+    const clips = buildClips(entries);
+    const videoCount = new Set(clips.map((c) => c.videoId)).size;
+    res.json({ clips, count: clips.length, videoCount });
   } catch (err) {
     sendCaughtError(res, err);
   }
