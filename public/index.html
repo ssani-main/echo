@@ -4066,12 +4066,16 @@
           <span class="digest-opt-label">Format</span>
           <div class="digest-seg" role="group" aria-label="Digest format">
             <label>
-              <input type="radio" name="digestFormat" value="bullets" checked />
-              Bullets
+              <input type="radio" name="digestFormat" value="digest" checked />
+              Digest
             </label>
             <label>
-              <input type="radio" name="digestFormat" value="prose" />
-              Prose
+              <input type="radio" name="digestFormat" value="article" />
+              Read it
+            </label>
+            <label>
+              <input type="radio" name="digestFormat" value="bullets" />
+              Gist
             </label>
           </div>
           <label class="digest-opt-label" for="digestLangInput">Language</label>
@@ -6783,7 +6787,7 @@
 
       // Read options live from the Summary panel controls
       const lengthOpt = document.querySelector('input[name="digestLength"]:checked')?.value || 'detailed';
-      const formatOpt = document.querySelector('input[name="digestFormat"]:checked')?.value || 'bullets';
+      const formatOpt = document.querySelector('input[name="digestFormat"]:checked')?.value || 'digest';
       const langOpt   = digestLangInput.value.trim() || 'English';
 
       digestBtn.disabled      = true;
@@ -8847,7 +8851,7 @@
       if (playlistJobId) return; // already running
 
       const lengthOpt = document.querySelector('input[name="digestLength"]:checked')?.value || 'detailed';
-      const formatOpt = document.querySelector('input[name="digestFormat"]:checked')?.value || 'bullets';
+      const formatOpt = document.querySelector('input[name="digestFormat"]:checked')?.value || 'digest';
       const langOpt   = (typeof digestLangInput !== 'undefined' && digestLangInput.value.trim()) || 'English';
 
       const digestAllBtn = document.getElementById('playlistDigestAllBtn');

@@ -807,7 +807,7 @@ async function askRetrievalLite(textChunks, question, opts = {}) {
  * is independently summarised then reduced into the final digest.
  *
  * @param {string} transcriptText
- * @param {{ length?: 'short'|'detailed', format?: 'prose'|'bullets', language?: string }} [opts]
+ * @param {{ length?: 'short'|'detailed', format?: 'prose'|'bullets'|'article'|'digest', language?: string }} [opts]
  * @returns {Promise<{ digest: string, usage: object }>}
  */
 export async function generateDigest(transcriptText, opts = {}) {
@@ -817,13 +817,73 @@ export async function generateDigest(transcriptText, opts = {}) {
 
   const {
     length = 'detailed',
-    format = 'bullets',
+    format = 'digest',
     language = 'English',
   } = opts;
 
   let structureInstructions;
 
-  if (length === 'short') {
+  if (format === 'article') {
+    // Article mode ignores `length` — it is always a full-fidelity rewrite of
+    // the video (read INSTEAD of watching), never a compressed summary.
+    structureInstructions =
+      'Rewrite this video transcript into a clean, readable article that a person can read INSTEAD of watching the video. ' +
+      'This is NOT a summary — do not compress, shorten, or drop content. Your job is to preserve everything the speaker ' +
+      'actually said and make it pleasant to read.\n\n' +
+      'Rules:\n' +
+      '- Keep ALL substantive points, examples, anecdotes, numbers, names, and details. Nothing important should be lost. ' +
+      'The reader should get the full experience of the video, not the gist.\n' +
+      '- Remove only the noise of speech: filler words (um, uh, like, you know), false starts, verbatim repetition, ' +
+      'off-topic tangents, and channel padding like "smash subscribe" or "link in the description".\n' +
+      '- Turn rambling spoken sentences into clear, flowing written prose. Preserve the speaker\'s first-person voice, ' +
+      'personality, and point of view — this is their account, not a neutral report.\n' +
+      '- Organize the piece with short, descriptive "##" section headings that follow the natural flow of the video, ' +
+      'so it is easy to navigate.\n' +
+      '- Be faithful: do not invent facts, opinions, or details that are not in the transcript.\n' +
+      '- Do not add a preamble, title, meta-commentary, or a concluding "in summary" section. Start directly with the ' +
+      'article body.\n' +
+      `- Write the article in ${language}.\n` +
+      '- Preserve the full richness and depth of the content — this should read like a well-edited long-form essay of ' +
+      'comparable depth to the video, NOT a short recap.';
+  } else if (format === 'digest') {
+    // Digest mode ignores `length` — it is a self-contained, synthesized
+    // digest of the video's real substance, not a compressed summary.
+    structureInstructions =
+      'You are writing a digest of a YouTube video for a smart, busy reader who wants the real value of the video ' +
+      'without watching it — and who is trusting you to give them something CLEARER and BETTER ORGANIZED than the ' +
+      'creator managed. Most videos bury a few genuinely good ideas inside rambling, repetition, weak structure, and ' +
+      'poor delivery. Your job is to extract the real substance and present it better than the speaker did.\n\n' +
+      'This is NOT a generic summary and NOT a flat list of bullet points. Write it like a sharp, knowledgeable person ' +
+      'explaining the video\'s ideas to an intelligent friend who asked "so what was actually good about it?"\n\n' +
+      'How to write it:\n' +
+      '- Open with a single short paragraph (2-3 sentences) that states the real bottom line — the core claim, the ' +
+      'actual answer, or the single most valuable thing the video delivers. Do NOT open with "This video discusses..." ' +
+      'or "The creator talks about...". State the point itself, and make it land.\n' +
+      '- Then present the substance as clear, flowing prose, organized by IDEA and by IMPORTANCE — not in the order ' +
+      'the speaker happened to say things. Group related points together. Lead with what matters most. Use short, ' +
+      'descriptive "##" headings only where they genuinely help the reader navigate distinct themes.\n\n' +
+      'Rules for quality:\n' +
+      '- Synthesize, do not transcribe. Untangle rambling into a clear line of reasoning. If the speaker made a good ' +
+      'point badly, make it well.\n' +
+      '- KEEP the concrete specifics — numbers, names, prices, dates, examples, and vivid details. These are what make ' +
+      'a digest substantive instead of vague. Never flatten a specific like "a kebab went from 3.5 to 9 euros" into ' +
+      '"prices have risen." Preserve the memorable, concrete details. But never manufacture a specific that was not ' +
+      'clearly stated: if an exact name, number, place, or figure is not actually in the transcript, describe it ' +
+      'generally rather than guessing — a vague-but-true detail is always better than a precise-but-invented one.\n' +
+      '- Be strictly faithful. Never invent facts, opinions, examples, or conclusions that are not in the transcript. ' +
+      'Improving the delivery must NEVER mean changing or adding to the substance.\n' +
+      '- Preserve the speaker\'s actual stance and nuance. If their real answer was "it depends" or they were ' +
+      'uncertain, keep that honesty — do not flatten it into false confidence.\n' +
+      '- Cut ruthlessly: filler, throat-clearing, self-promotion, sponsor reads, repetition, and anything that does ' +
+      'not earn its place.\n' +
+      '- Be as long as the substance genuinely requires and no longer — dense with value, never padded to seem ' +
+      'thorough. A great short digest beats a bloated one.\n' +
+      '- Do not add a preamble, a title, meta-commentary, or an "in conclusion" wrap-up. Start with the bottom line ' +
+      'and stop when the substance is done.\n' +
+      `- Write the entire digest in ${language}.\n\n` +
+      'The bar for your output: the reader should finish it and feel they got MORE out of it than they would have ' +
+      'from watching — clearer, faster, sharper, and better organized than the original creator managed.';
+  } else if (length === 'short') {
     if (format === 'prose') {
       structureInstructions =
         'Produce a short TL;DR: 2-3 sentences summarising the video, followed by a brief prose paragraph ' +
@@ -871,14 +931,19 @@ export async function generateDigest(transcriptText, opts = {}) {
     }
   }
 
-  // --- Fast path (unchanged) ---
+  // --- Fast path ---
+  // Article and digest modes use their own self-contained instructions
+  // (already include the language directive) instead of the generic
+  // summary-oriented prefix below.
   const prompt =
-    'You are given the raw auto-generated transcript of a YouTube video. ' +
-    'It may be in any language. ' +
-    `Write your entire response in ${language}. ` +
-    structureInstructions +
-    '\n\nHere is the transcript:\n\n' +
-    transcriptText;
+    format === 'article' || format === 'digest'
+      ? `Write your entire response in ${language}, regardless of what language the transcript is in.\n\n${structureInstructions}\n\nHere is the transcript:\n\n${transcriptText}`
+      : 'You are given the raw auto-generated transcript of a YouTube video. ' +
+        'It may be in any language. ' +
+        `Write your entire response in ${language}. ` +
+        structureInstructions +
+        '\n\nHere is the transcript:\n\n' +
+        transcriptText;
 
   const { result, usage } = await callProvider(prompt, opts);
   return { digest: result, usage };
