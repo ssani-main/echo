@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { getProvider } from './providers.js';
 
 // ---------------------------------------------------------------------------
 // Shared constants
@@ -130,7 +131,7 @@ function parseJsonLoose(str) {
  * @param {{ timeoutMs?: number }} [opts]
  * @returns {Promise<{ result: string, usage: object }>}
  */
-async function runClaude(prompt, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+export async function runClaude(prompt, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   const { exe, args } = buildSpawnTarget();
 
   return new Promise((resolve, reject) => {
@@ -237,6 +238,19 @@ async function runClaude(prompt, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
       }
     });
   });
+}
+
+/**
+ * Routes a prompt through the configured summarization provider (see
+ * providers.js). Defaults to the Claude CLI unless opts explicitly select
+ * the API provider (opts.apiKey, or ECHO_PROVIDER=api) — see getProvider().
+ *
+ * @param {string} prompt
+ * @param {object} [opts]
+ * @returns {Promise<{ result: string, usage: object }>}
+ */
+async function callProvider(prompt, opts = {}) {
+  return getProvider(opts).call(prompt, opts);
 }
 
 // ---------------------------------------------------------------------------
@@ -354,9 +368,10 @@ function scoreChunkRelevance(chunkContent, question) {
  * @param {string[]} chunks
  * @param {string} structureInstructions
  * @param {string} language
+ * @param {object} [opts]
  * @returns {Promise<{ digest: string, usage: object }>}
  */
-async function digestMapReduce(chunks, structureInstructions, language) {
+async function digestMapReduce(chunks, structureInstructions, language, opts = {}) {
   const usages = [];
   const chunkSummaries = [];
   const total = chunks.length;
@@ -373,7 +388,7 @@ async function digestMapReduce(chunks, structureInstructions, language) {
       `TRANSCRIPT (chunk ${i + 1} of ${total}):\n\n` +
       chunks[i];
 
-    const { result, usage } = await runClaude(mapPrompt);
+    const { result, usage } = await callProvider(mapPrompt, opts);
     usages.push(usage);
 
     if (!result || !result.trim()) {
@@ -397,7 +412,7 @@ async function digestMapReduce(chunks, structureInstructions, language) {
     '\n\nCHUNK SUMMARIES (in chronological order):\n\n' +
     combined;
 
-  const { result: digest, usage: reduceUsage } = await runClaude(reducePrompt);
+  const { result: digest, usage: reduceUsage } = await callProvider(reducePrompt, opts);
   usages.push(reduceUsage);
 
   if (!digest || !digest.trim()) {
@@ -417,9 +432,10 @@ async function digestMapReduce(chunks, structureInstructions, language) {
  *         chapters that start within 60 s of each other, then trim to 4–12.
  *
  * @param {Array<Array<{ text: string, offset: number }>>} segmentChunks
+ * @param {object} [opts]
  * @returns {Promise<{ chapters: Array<{ title: string, startSec: number }>, usage: object }>}
  */
-async function chaptersMapReduce(segmentChunks) {
+async function chaptersMapReduce(segmentChunks, opts = {}) {
   const usages = [];
   const allCandidates = [];
   const total = segmentChunks.length;
@@ -440,7 +456,7 @@ async function chaptersMapReduce(segmentChunks) {
       `TIMECODED TRANSCRIPT (portion ${i + 1} of ${total}):\n\n` +
       timecoded;
 
-    const { result, usage } = await runClaude(mapPrompt);
+    const { result, usage } = await callProvider(mapPrompt, opts);
     usages.push(usage);
 
     let parsed;
@@ -494,9 +510,10 @@ async function chaptersMapReduce(segmentChunks) {
  * Reduce: Claude call to select the top 5–10 across all candidates.
  *
  * @param {Array<Array<{ text: string, offset: number }>>} segmentChunks
+ * @param {object} [opts]
  * @returns {Promise<{ quotes: Array<{ text: string, startSec: number }>, usage: object }>}
  */
-async function quotesMapReduce(segmentChunks) {
+async function quotesMapReduce(segmentChunks, opts = {}) {
   const usages = [];
   const allCandidates = [];
   const total = segmentChunks.length;
@@ -517,7 +534,7 @@ async function quotesMapReduce(segmentChunks) {
       `TIMECODED TRANSCRIPT (portion ${i + 1} of ${total}):\n\n` +
       timecoded;
 
-    const { result, usage } = await runClaude(mapPrompt);
+    const { result, usage } = await callProvider(mapPrompt, opts);
     usages.push(usage);
 
     let parsed;
@@ -561,7 +578,7 @@ async function quotesMapReduce(segmentChunks) {
     'CANDIDATE QUOTES:\n\n' +
     candidateJson;
 
-  const { result: reduceResult, usage: reduceUsage } = await runClaude(reducePrompt);
+  const { result: reduceResult, usage: reduceUsage } = await callProvider(reducePrompt, opts);
   usages.push(reduceUsage);
 
   let parsed;
@@ -595,9 +612,10 @@ async function quotesMapReduce(segmentChunks) {
  * Reduce: Claude call to merge and deduplicate claims across all chunks.
  *
  * @param {string[]} textChunks
+ * @param {object} [opts]
  * @returns {Promise<{ claims: Array<{ claim: string, assessment: string, confidence: string, explanation: string }>, usage: object }>}
  */
-async function factCheckMapReduce(textChunks) {
+async function factCheckMapReduce(textChunks, opts = {}) {
   const usages = [];
   const allClaims = [];
   const total = textChunks.length;
@@ -622,7 +640,7 @@ async function factCheckMapReduce(textChunks) {
       `TRANSCRIPT (portion ${i + 1} of ${total}):\n\n` +
       textChunks[i];
 
-    const { result, usage } = await runClaude(mapPrompt);
+    const { result, usage } = await callProvider(mapPrompt, opts);
     usages.push(usage);
 
     let parsed;
@@ -677,7 +695,7 @@ async function factCheckMapReduce(textChunks) {
     'CANDIDATE CLAIMS:\n\n' +
     candidateJson;
 
-  const { result: reduceResult, usage: reduceUsage } = await runClaude(reducePrompt);
+  const { result: reduceResult, usage: reduceUsage } = await callProvider(reducePrompt, opts);
   usages.push(reduceUsage);
 
   let parsed;
@@ -722,9 +740,10 @@ async function factCheckMapReduce(textChunks) {
  *
  * @param {string[]} textChunks
  * @param {string} question
+ * @param {object} [opts]
  * @returns {Promise<{ answer: string, usage: object }>}
  */
-async function askRetrievalLite(textChunks, question) {
+async function askRetrievalLite(textChunks, question, opts = {}) {
   // Score each chunk and sort descending by relevance.
   const scored = textChunks.map((chunk, idx) => ({
     idx,
@@ -772,7 +791,7 @@ async function askRetrievalLite(textChunks, question) {
     'TRANSCRIPT:\n\n' +
     combinedText;
 
-  const { result: answer, usage } = await runClaude(prompt);
+  const { result: answer, usage } = await callProvider(prompt, opts);
   return { answer, usage };
 }
 
@@ -848,7 +867,7 @@ export async function generateDigest(transcriptText, opts = {}) {
     const chunks = chunkText(transcriptText);
     // Single chunk means budget math already handles it — fall through to fast path.
     if (chunks.length > 1) {
-      return digestMapReduce(chunks, structureInstructions, language);
+      return digestMapReduce(chunks, structureInstructions, language, opts);
     }
   }
 
@@ -861,7 +880,7 @@ export async function generateDigest(transcriptText, opts = {}) {
     '\n\nHere is the transcript:\n\n' +
     transcriptText;
 
-  const { result, usage } = await runClaude(prompt);
+  const { result, usage } = await callProvider(prompt, opts);
   return { digest: result, usage };
 }
 
@@ -876,9 +895,10 @@ export async function generateDigest(transcriptText, opts = {}) {
  *
  * @param {string} transcriptText
  * @param {string} question
+ * @param {object} [opts]
  * @returns {Promise<{ answer: string, usage: object }>}
  */
-export async function askVideoQuestion(transcriptText, question) {
+export async function askVideoQuestion(transcriptText, question, opts = {}) {
   if (!transcriptText || !transcriptText.trim()) {
     throw new Error('No transcript text provided.');
   }
@@ -890,7 +910,7 @@ export async function askVideoQuestion(transcriptText, question) {
   if (transcriptText.length > LONG_PATH_THRESHOLD_CHARS) {
     const chunks = chunkText(transcriptText);
     if (chunks.length > 1) {
-      return askRetrievalLite(chunks, question);
+      return askRetrievalLite(chunks, question, opts);
     }
   }
 
@@ -905,7 +925,7 @@ export async function askVideoQuestion(transcriptText, question) {
     'TRANSCRIPT:\n\n' +
     transcriptText;
 
-  const { result, usage } = await runClaude(prompt);
+  const { result, usage } = await callProvider(prompt, opts);
   return { answer: result, usage };
 }
 
@@ -917,9 +937,10 @@ export async function askVideoQuestion(transcriptText, question) {
  * and trimmed in code.
  *
  * @param {Array<{ text: string, offset: number }>} segments  offset in seconds
+ * @param {object} [opts]
  * @returns {Promise<{ chapters: Array<{ title: string, startSec: number }>, usage: object }>}
  */
-export async function extractChapters(segments) {
+export async function extractChapters(segments, opts = {}) {
   if (!Array.isArray(segments) || segments.length === 0) {
     throw new Error('segments must be a non-empty array of { text, offset }.');
   }
@@ -933,7 +954,7 @@ export async function extractChapters(segments) {
   if (timecoded.length > LONG_PATH_THRESHOLD_CHARS) {
     const segChunks = chunkSegments(segments);
     if (segChunks.length > 1) {
-      return chaptersMapReduce(segChunks);
+      return chaptersMapReduce(segChunks, opts);
     }
   }
 
@@ -948,7 +969,7 @@ export async function extractChapters(segments) {
     'TIMECODED TRANSCRIPT:\n\n' +
     timecoded;
 
-  const { result, usage } = await runClaude(prompt);
+  const { result, usage } = await callProvider(prompt, opts);
 
   let parsed;
   try {
@@ -981,9 +1002,10 @@ export async function extractChapters(segments) {
  * the whole video.
  *
  * @param {Array<{ text: string, offset: number }>} segments  offset in seconds
+ * @param {object} [opts]
  * @returns {Promise<{ quotes: Array<{ text: string, startSec: number }>, usage: object }>}
  */
-export async function extractQuotes(segments) {
+export async function extractQuotes(segments, opts = {}) {
   if (!Array.isArray(segments) || segments.length === 0) {
     throw new Error('segments must be a non-empty array of { text, offset }.');
   }
@@ -996,7 +1018,7 @@ export async function extractQuotes(segments) {
   if (timecoded.length > LONG_PATH_THRESHOLD_CHARS) {
     const segChunks = chunkSegments(segments);
     if (segChunks.length > 1) {
-      return quotesMapReduce(segChunks);
+      return quotesMapReduce(segChunks, opts);
     }
   }
 
@@ -1010,7 +1032,7 @@ export async function extractQuotes(segments) {
     'TIMECODED TRANSCRIPT:\n\n' +
     timecoded;
 
-  const { result, usage } = await runClaude(prompt);
+  const { result, usage } = await callProvider(prompt, opts);
 
   let parsed;
   try {
@@ -1123,7 +1145,7 @@ export async function generateCrossDigest(entries, options = {}) {
     'VIDEO MATERIAL (one section per video):\n\n' +
     combined;
 
-  const { result, usage } = await runClaude(prompt);
+  const { result, usage } = await callProvider(prompt, options);
 
   if (!result || !result.trim()) {
     throw new Error('generateCrossDigest: Claude returned an empty result.');
@@ -1133,7 +1155,7 @@ export async function generateCrossDigest(entries, options = {}) {
   return { digest: result, usage: mergeUsage([usage]) };
 }
 
-export async function factCheck(transcriptText) {
+export async function factCheck(transcriptText, opts = {}) {
   if (!transcriptText || !transcriptText.trim()) {
     throw new Error('No transcript text provided.');
   }
@@ -1147,7 +1169,7 @@ export async function factCheck(transcriptText) {
   if (transcriptText.length > LONG_PATH_THRESHOLD_CHARS) {
     const chunks = chunkText(transcriptText);
     if (chunks.length > 1) {
-      const { claims, usage } = await factCheckMapReduce(chunks);
+      const { claims, usage } = await factCheckMapReduce(chunks, opts);
       return { claims, caveat, usage };
     }
   }
@@ -1169,7 +1191,7 @@ export async function factCheck(transcriptText) {
     'TRANSCRIPT:\n\n' +
     transcriptText;
 
-  const { result, usage } = await runClaude(prompt);
+  const { result, usage } = await callProvider(prompt, opts);
 
   let parsed;
   try {
