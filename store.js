@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = dirname(__filename);
 
-const DATA_DIR    = join(__dirname, 'data');
-const DB_FILE     = join(DATA_DIR, 'library.db');
+const DB_FILE     = process.env.ECHO_DB_PATH || join(__dirname, 'data', 'library.db');
+const DATA_DIR    = dirname(DB_FILE);
 const LEGACY_JSON = join(DATA_DIR, 'library.json');
 
 // Ensure the data directory exists before opening the DB file.
@@ -203,6 +203,7 @@ function syncFts(videoId) {
 // ---------------------------------------------------------------------------
 
 (function migrate() {
+  if (process.env.ECHO_DB_PATH) return;
   const count = db.prepare('SELECT COUNT(*) as n FROM videos').get().n;
   if (count > 0) return; // Already populated — nothing to migrate
   if (!existsSync(LEGACY_JSON)) return;

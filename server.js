@@ -1,6 +1,6 @@
 import express from 'express';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
 import {
   extractVideoId,
   extractPlaylistId,
@@ -54,7 +54,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-const PORT = 8000;
+const PORT = process.env.PORT ? Number(process.env.PORT) : 8000;
 
 app.use(express.json({ limit: '5mb' }));
 app.use(express.static(join(__dirname, 'public')));
@@ -737,6 +737,11 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Listening on http://localhost:${PORT}`);
-});
+const isDirectRun = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isDirectRun) {
+  app.listen(PORT, () => {
+    console.log(`Listening on http://localhost:${PORT}`);
+  });
+}
+
+export { app };
