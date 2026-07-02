@@ -26,6 +26,7 @@ import {
   setEmbedding,
   allEmbeddings,
 } from './store.js';
+import { entryToMarkdown } from './markdown.js';
 import {
   initEmbeddings,
   isAvailable,
@@ -401,6 +402,25 @@ app.get('/api/saved/:videoId', async (req, res) => {
     const e = await getEntry(req.params.videoId);
     if (!e) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
     res.json(e);
+  } catch (err) {
+    sendCaughtError(res, err);
+  }
+});
+
+app.get('/api/saved/:videoId/export.md', async (req, res) => {
+  try {
+    const entry = await getEntry(req.params.videoId);
+    if (!entry) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
+
+    const transcriptParam = req.query.transcript;
+    const includeTranscript = !(transcriptParam === '0' || transcriptParam === 'false');
+
+    const md = entryToMarkdown(entry, { includeTranscript });
+    const slug = (entry.title || 'echo-entry').replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'echo-entry';
+
+    res.set('Content-Type', 'text/markdown; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="${slug}.md"`);
+    res.send(md);
   } catch (err) {
     sendCaughtError(res, err);
   }

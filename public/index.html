@@ -3388,6 +3388,8 @@
                 aria-label="Copy transcript to clipboard" disabled>Copy</button>
         <button class="mini-btn" id="transcriptDownloadBtn"
                 aria-label="Download transcript as a Markdown file" disabled>Download .md</button>
+        <button class="mini-btn" id="entryExportBtn"
+                aria-label="Export saved entry as a Markdown file" disabled>Export .md</button>
       </div>
 
       <!-- FIND BAR -->
@@ -3807,6 +3809,7 @@
     const nowReadingUrl         = document.getElementById('nowReadingUrl');
     const transcriptCopyBtn     = document.getElementById('transcriptCopyBtn');
     const transcriptDownloadBtn = document.getElementById('transcriptDownloadBtn');
+    const entryExportBtn        = document.getElementById('entryExportBtn');
     const digestExportRow       = document.getElementById('digestExportRow');
     const digestCopyBtn         = document.getElementById('digestCopyBtn');
     const digestDownloadBtn     = document.getElementById('digestDownloadBtn');
@@ -4314,6 +4317,26 @@
       URL.revokeObjectURL(url);
     }
 
+    /**
+     * Fetch a saved entry's Markdown export from the server and trigger a
+     * browser download. Reuses the toast + error-envelope conventions.
+     */
+    async function exportEntryMd(videoId, title) {
+      try {
+        const res = await fetch(`/api/saved/${encodeURIComponent(videoId)}/export.md`);
+        if (!res.ok) {
+          const d = await res.json().catch(() => null);
+          if (d) return handleApiError(d);
+          return showToast('error', 'Export failed');
+        }
+        const text = await res.text();
+        downloadMd(slugify(title || 'echo-entry') || 'echo-entry', text);
+        showToast('success', 'Exported Markdown');
+      } catch (e) {
+        showToast('error', 'Export failed', String(e && e.message || e));
+      }
+    }
+
     /** Show or hide the digest export row based on whether a digest exists. */
     function syncDigestExportRow() {
       digestExportRow.hidden = !currentDigest;
@@ -4354,6 +4377,11 @@
       const md        = `# ${title}\n\nSource: ${sourceUrl}\n\n${body}`;
       const slug      = slugify(title) || 'echo-transcript';
       downloadMd(slug, md);
+    });
+
+    entryExportBtn.addEventListener('click', () => {
+      if (!currentMeta?.videoId) return;
+      exportEntryMd(currentMeta.videoId, currentMeta.title);
     });
 
     /* --- Digest copy / download --- */
@@ -5016,6 +5044,7 @@
       resetFind();
       transcriptCopyBtn.disabled     = true;
       transcriptDownloadBtn.disabled = true;
+      entryExportBtn.disabled        = true;
 
       // Reset digest / AI workspace completely on a new fetch
       digestBtn.disabled      = true;
@@ -5106,9 +5135,12 @@
           fetch(`/api/saved/${encodeURIComponent(videoId)}`)
             .then(r => r.ok ? r.json() : null)
             .then(entry => {
-              if (entry && Array.isArray(entry.highlights) && entry.highlights.length > 0) {
-                currentHighlights = entry.highlights;
-                reApplyOverlays();
+              if (entry) {
+                if (currentMeta && currentMeta.videoId === videoId) entryExportBtn.disabled = false;
+                if (Array.isArray(entry.highlights) && entry.highlights.length > 0) {
+                  currentHighlights = entry.highlights;
+                  reApplyOverlays();
+                }
               }
             })
             .catch(() => {});
@@ -5835,6 +5867,7 @@
         }
 
         saveBtn.textContent = 'Saved ✓';
+        entryExportBtn.disabled = false;
         setTimeout(() => { saveBtn.textContent = origLabel; saveBtn.disabled = false; }, 2000);
         loadSaved(); // keep the Saved list fresh in the background
       } catch (err) {
@@ -6007,6 +6040,13 @@
                    aria-label="Toggle notes for ${escapeAttr(title)}"
                    aria-expanded="false">${escapeHtml(notesLabel)}</button>`;
 
+        // Export-to-Markdown button
+        const exportBtn  =
+          `<button class="saved-export-btn"
+                   data-videoid="${escapeAttr(entry.videoId)}"
+                   data-title="${escapeAttr(title)}"
+                   aria-label="Export ${escapeAttr(title)} as Markdown">⬇ .md</button>`;
+
         // Compare-mode checkbox — hidden via CSS until compareMode is active
         const compareCheck =
           `<input type="checkbox"
@@ -6035,7 +6075,7 @@
               </div>
               ${entry.snippet ? `<p class="saved-snippet">${escapeHtml(entry.snippet)}</p>` : ''}
               ${tagsRow}
-              <div class="saved-card-actions">${notesBtn}</div>
+              <div class="saved-card-actions">${notesBtn}${exportBtn}</div>
             </div>
             <button class="saved-delete-btn"
                     data-videoid="${escapeAttr(entry.videoId)}"
@@ -6057,6 +6097,7 @@
           if (e.target.closest('.saved-notes-btn'))     return;
           if (e.target.closest('.saved-notes-panel'))   return;
           if (e.target.closest('.saved-compare-check')) return;
+          if (e.target.closest('.saved-export-btn'))    return;
           openSavedEntry(card.dataset.videoid);
         });
         card.addEventListener('keydown', e => {
@@ -6080,6 +6121,14 @@
         btn.addEventListener('click', e => {
           e.stopPropagation();
           toggleSavedFavorite(btn.dataset.videoid);
+        });
+      });
+
+      // Export-to-Markdown buttons
+      savedOutput.querySelectorAll('.saved-export-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          exportEntryMd(btn.dataset.videoid, btn.dataset.title);
         });
       });
 
@@ -6676,6 +6725,7 @@
         saveBtn.disabled                = false;
         transcriptCopyBtn.disabled      = false;
         transcriptDownloadBtn.disabled  = false;
+        entryExportBtn.disabled         = false;
         syncDigestExportRow();
         syncDigestRegenBtn(); // update label + enable state
 
