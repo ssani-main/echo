@@ -1,6 +1,7 @@
 import express from 'express';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
+import { readFileSync } from 'fs';
 import {
   extractVideoId,
   extractPlaylistId,
@@ -53,10 +54,55 @@ import { getTodayUsage } from './usage.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// ---------------------------------------------------------------------------
+// Mode flag — 'local' (default: npm start, Tauri desktop) vs 'web' (hosted).
+// Every web-only branch below is gated on `isWeb` so local/desktop behavior
+// stays byte-for-byte identical to today.
+// ---------------------------------------------------------------------------
+const ECHO_MODE = process.env.ECHO_MODE === 'web' ? 'web' : 'local';
+const isWeb = ECHO_MODE === 'web';
+
 const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8000;
 
+if (isWeb) {
+  // Running behind a reverse proxy in web mode — needed for correct req.ip
+  // (used by the rate limiter) and secure-cookie detection.
+  app.set('trust proxy', 1);
+}
+
 app.use(express.json({ limit: '5mb' }));
+
+// ---------------------------------------------------------------------------
+// Step 1 — inject window.__ECHO__ into index.html
+// ---------------------------------------------------------------------------
+// index.html is read ONCE at startup and the injected HTML is cached in
+// memory, rather than re-reading + re-injecting on every request. Trade-off:
+// editing public/index.html during local development requires a server
+// restart to pick up changes (it did not before this change).
+//
+// `embeddings` flag: initEmbeddings() runs in the background (see below) and
+// isAvailable() is essentially always false at this synchronous startup
+// point, even when the model will successfully load moments later. Reporting
+// that here would be misleading, so in local mode we default `embeddings` to
+// `true` and let the client's existing GET /api/search/status call determine
+// the real state at runtime. In web mode, server-side embeddings are not
+// offered at all, so it is always `false`.
+function buildInjectedHtml(rawHtml, mode) {
+  const isWebMode = mode === 'web';
+  const injected = { mode, embeddings: isWebMode ? false : true };
+  const script = `<script>window.__ECHO__=${JSON.stringify(injected)}</script>\n</head>`;
+  return rawHtml.replace('</head>', script);
+}
+
+const INDEX_HTML_PATH = join(__dirname, 'public', 'index.html');
+const CACHED_INDEX_HTML = buildInjectedHtml(readFileSync(INDEX_HTML_PATH, 'utf8'), ECHO_MODE);
+
+app.get('/', (_req, res) => {
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(CACHED_INDEX_HTML);
+});
+
 app.use(express.static(join(__dirname, 'public')));
 
 // ---------------------------------------------------------------------------
@@ -71,7 +117,11 @@ const ECHO_ERROR_STATUS = {
   CLAUDE_NOT_AUTHED:      503,
   CLAUDE_FAILED:          502,
   YTDLP_MISSING:          503,
+  RATE_LIMITED:           429,
   INTERNAL:               500,
+  API_NOT_AUTHED:         401,
+  API_RATE_LIMITED:       429,
+  API_FAILED:             502,
 };
 
 /**
@@ -108,10 +158,117 @@ function sendCaughtError(res, err) {
 }
 
 // ---------------------------------------------------------------------------
+// Step 2 — BYOK (bring-your-own-key) header threading
+// ---------------------------------------------------------------------------
+// Only honored in web mode. In local mode this always returns undefined, so
+// getProvider() falls through to the default ClaudeCliProvider — unchanged.
+
+function readApiKey(req) {
+  const k = req.get('X-Echo-Api-Key');
+  return (isWeb && k && k.trim()) ? k.trim() : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Step 6 — abuse / cost guards (web-gated no-ops in local mode)
+// ---------------------------------------------------------------------------
+
+// Max transcript length (characters) accepted in web mode before rejecting.
+const ECHO_MAX_TRANSCRIPT_CHARS = process.env.ECHO_MAX_TRANSCRIPT_CHARS
+  ? Number(process.env.ECHO_MAX_TRANSCRIPT_CHARS)
+  : 200_000;
+
+// Max text/segments payload size (characters) accepted by AI endpoints in web mode.
+const ECHO_MAX_AI_PAYLOAD_CHARS = process.env.ECHO_MAX_AI_PAYLOAD_CHARS
+  ? Number(process.env.ECHO_MAX_AI_PAYLOAD_CHARS)
+  : 200_000;
+
+/**
+ * Pure sliding-window rate-limit check. Records a hit for `key` in `store`
+ * (a Map<string, number[]> of hit timestamps) and reports whether that key
+ * has exceeded `maxPerWindow` hits within the trailing `windowMs`.
+ *
+ * Mutates `store` in place: prunes timestamps older than the window, then
+ * appends the current hit (`now`) — even when the limit is exceeded, so
+ * callers can decide whether to still count rejected attempts (they do here,
+ * which keeps a sustained-abuse client rate-limited rather than resetting).
+ *
+ * @param {string} key
+ * @param {number} maxPerWindow
+ * @param {number} windowMs
+ * @param {Map<string, number[]>} store
+ * @param {number} [now]
+ * @returns {boolean} true if this hit exceeds the limit
+ */
+function rateLimitHit(key, maxPerWindow, windowMs, store, now = Date.now()) {
+  const cutoff = now - windowMs;
+  const existing = store.get(key) || [];
+  const recent = existing.filter((ts) => ts > cutoff);
+  recent.push(now);
+  store.set(key, recent);
+  return recent.length > maxPerWindow;
+}
+
+/**
+ * Express middleware factory — NO-OP unless running in web mode. Keys by
+ * req.ip, enforces `max` requests per `windowMs` per IP, and responds with
+ * the structured error envelope at 429 when exceeded.
+ *
+ * @param {number} max
+ * @param {number} windowMs
+ * @returns {import('express').RequestHandler}
+ */
+function webLimit(max, windowMs) {
+  const store = new Map();
+  return (req, res, next) => {
+    if (!isWeb) return next();
+    const key = req.ip || 'unknown';
+    if (rateLimitHit(key, max, windowMs, store)) {
+      return sendError(
+        res,
+        'RATE_LIMITED',
+        'Too many requests — please slow down.',
+        `Limit is ${max} requests per ${Math.round(windowMs / 1000)}s. Try again shortly.`
+      );
+    }
+    next();
+  };
+}
+
+/**
+ * Guards AI endpoints in web mode against oversize payloads before they ever
+ * reach digest.js. NO-OP in local mode (returns false). `text` and/or
+ * `segments` may be passed; whichever is present is measured.
+ *
+ * @param {import('express').Response} res
+ * @param {{ text?: string, segments?: Array<{text?:string}> }} payload
+ * @returns {boolean} true if the response was already sent (caller must return)
+ */
+function rejectOversizeAiPayload(res, { text, segments } = {}) {
+  if (!isWeb) return false;
+
+  const textChars = typeof text === 'string' ? text.length : 0;
+  const segChars = Array.isArray(segments)
+    ? segments.reduce((sum, s) => sum + String(s?.text || '').length, 0)
+    : 0;
+  const totalChars = textChars + segChars;
+
+  if (totalChars > ECHO_MAX_AI_PAYLOAD_CHARS) {
+    sendError(
+      res,
+      'TRANSCRIPT_UNAVAILABLE',
+      `Payload is too large (${totalChars} characters, limit is ${ECHO_MAX_AI_PAYLOAD_CHARS}).`,
+      'This hosted instance caps AI request size. Try a shorter transcript, or run Echo locally for unlimited length.'
+    );
+    return true;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Transcript
 // ---------------------------------------------------------------------------
 
-app.post('/api/transcript', async (req, res) => {
+app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
   const { url, lang } = req.body;
 
   const videoId = extractVideoId(url);
@@ -131,6 +288,19 @@ app.post('/api/transcript', async (req, res) => {
     // reflects the caption track actually loaded (not just what was asked
     // for) — the language picker uses this to pre-select the right option.
     const langCode = segments.langUsed || lang || null;
+
+    if (isWeb) {
+      const totalChars = segments.reduce((sum, s) => sum + String(s.text || '').length, 0);
+      if (totalChars > ECHO_MAX_TRANSCRIPT_CHARS) {
+        return sendError(
+          res,
+          'TRANSCRIPT_UNAVAILABLE',
+          `Transcript is too long (${totalChars} characters, limit is ${ECHO_MAX_TRANSCRIPT_CHARS}).`,
+          'This hosted instance caps transcript length. Try a shorter video, or run Echo locally for unlimited length.'
+        );
+      }
+    }
+
     return res.json({ videoId, url: req.body.url, title, segments, langCode });
   } catch (err) {
     return sendCaughtError(res, err);
@@ -141,7 +311,7 @@ app.post('/api/transcript', async (req, res) => {
 // Languages
 // ---------------------------------------------------------------------------
 
-app.get('/api/languages', async (req, res) => {
+app.get('/api/languages', webLimit(20, 60_000), async (req, res) => {
   const { videoId } = req.query;
   if (!videoId) {
     return sendError(res, 'INTERNAL', 'videoId query parameter is required.', '', 400);
@@ -158,7 +328,7 @@ app.get('/api/languages', async (req, res) => {
 // Playlist
 // ---------------------------------------------------------------------------
 
-app.post('/api/playlist', async (req, res) => {
+app.post('/api/playlist', webLimit(20, 60_000), async (req, res) => {
   const { url } = req.body;
   if (!url) {
     return sendError(res, 'INTERNAL', 'url is required.', '', 400);
@@ -176,6 +346,19 @@ app.post('/api/playlist', async (req, res) => {
 // ---------------------------------------------------------------------------
 
 app.post('/api/playlist/digest', (req, res) => {
+  // Batch playlist digest is the heaviest endpoint (many long-running Claude
+  // calls per request) — too expensive to expose to anonymous web traffic.
+  // Disabled entirely in web mode; unchanged in local/desktop mode.
+  if (isWeb) {
+    return sendError(
+      res,
+      'INTERNAL',
+      'Batch playlist digest is not available on this hosted instance.',
+      'Run Echo locally or via the desktop app to use batch playlist digests.',
+      503
+    );
+  }
+
   const { url, length, format, language, lang, skipExisting } = req.body;
   if (!url || typeof url !== 'string' || !url.trim()) {
     return sendError(res, 'INVALID_URL', 'A playlist URL is required.', '', 400);
@@ -220,8 +403,10 @@ app.post('/api/digest', async (req, res) => {
     );
   }
 
+  if (rejectOversizeAiPayload(res, { text })) return;
+
   try {
-    const result = await generateDigest(text, { length, format, language });
+    const result = await generateDigest(text, { length, format, language, apiKey: readApiKey(req) });
     return res.json(result);
   } catch (err) {
     return sendCaughtError(res, err);
@@ -240,8 +425,9 @@ app.post('/api/chat', async (req, res) => {
   if (!question || !question.trim()) {
     return sendError(res, 'INTERNAL', 'question is required.', '', 400);
   }
+  if (rejectOversizeAiPayload(res, { text })) return;
   try {
-    const result = await askVideoQuestion(text, question);
+    const result = await askVideoQuestion(text, question, { apiKey: readApiKey(req) });
     return res.json(result);
   } catch (err) {
     return sendCaughtError(res, err);
@@ -257,8 +443,9 @@ app.post('/api/chapters', async (req, res) => {
   if (!Array.isArray(segments) || segments.length === 0) {
     return sendError(res, 'INTERNAL', 'segments must be a non-empty array.', '', 400);
   }
+  if (rejectOversizeAiPayload(res, { segments })) return;
   try {
-    const result = await extractChapters(segments);
+    const result = await extractChapters(segments, { apiKey: readApiKey(req) });
     return res.json(result);
   } catch (err) {
     return sendCaughtError(res, err);
@@ -274,8 +461,9 @@ app.post('/api/quotes', async (req, res) => {
   if (!Array.isArray(segments) || segments.length === 0) {
     return sendError(res, 'INTERNAL', 'segments must be a non-empty array.', '', 400);
   }
+  if (rejectOversizeAiPayload(res, { segments })) return;
   try {
-    const result = await extractQuotes(segments);
+    const result = await extractQuotes(segments, { apiKey: readApiKey(req) });
     return res.json(result);
   } catch (err) {
     return sendCaughtError(res, err);
@@ -291,8 +479,9 @@ app.post('/api/factcheck', async (req, res) => {
   if (!text || !text.trim()) {
     return sendError(res, 'INTERNAL', 'text is required.', '', 400);
   }
+  if (rejectOversizeAiPayload(res, { text })) return;
   try {
-    const result = await factCheck(text);
+    const result = await factCheck(text, { apiKey: readApiKey(req) });
     return res.json(result);
   } catch (err) {
     return sendCaughtError(res, err);
@@ -516,34 +705,55 @@ app.delete('/api/saved/:videoId', async (req, res) => {
 app.post('/api/cross-digest', async (req, res) => {
   const { videoIds, options } = req.body;
 
-  if (!Array.isArray(videoIds) || videoIds.length < 2) {
-    return sendError(
-      res,
-      'INTERNAL',
-      'At least 2 video IDs are required for a cross-digest.',
-      'Select 2 or more saved videos to compare.',
-      400
-    );
-  }
+  // Web mode: the browser holds the library client-side (no server store of
+  // record), so the caller may pass full entry objects directly in the body.
+  // Local mode ignores req.body.entries entirely and always resolves via the
+  // server-side store — behavior here is unchanged from before this feature.
+  const useInlineEntries = isWeb && Array.isArray(req.body.entries) && req.body.entries.length > 0;
 
-  // Resolve all entries up front — fail fast if any ID is missing from the library.
-  const entries = [];
-  for (const videoId of videoIds) {
-    const entry = await getEntry(String(videoId));
-    if (!entry) {
+  let entries;
+
+  if (useInlineEntries) {
+    entries = req.body.entries;
+    if (entries.length < 2) {
       return sendError(
         res,
         'INTERNAL',
-        `Video "${videoId}" was not found in your library.`,
-        'All selected videos must be saved in your library before running a cross-digest.',
+        'At least 2 entries are required for a cross-digest.',
+        'Select 2 or more saved videos to compare.',
         400
       );
     }
-    entries.push(entry);
+  } else {
+    if (!Array.isArray(videoIds) || videoIds.length < 2) {
+      return sendError(
+        res,
+        'INTERNAL',
+        'At least 2 video IDs are required for a cross-digest.',
+        'Select 2 or more saved videos to compare.',
+        400
+      );
+    }
+
+    // Resolve all entries up front — fail fast if any ID is missing from the library.
+    entries = [];
+    for (const videoId of videoIds) {
+      const entry = await getEntry(String(videoId));
+      if (!entry) {
+        return sendError(
+          res,
+          'INTERNAL',
+          `Video "${videoId}" was not found in your library.`,
+          'All selected videos must be saved in your library before running a cross-digest.',
+          400
+        );
+      }
+      entries.push(entry);
+    }
   }
 
   try {
-    const { digest, usage } = await generateCrossDigest(entries, options || {});
+    const { digest, usage } = await generateCrossDigest(entries, { ...(options || {}), apiKey: readApiKey(req) });
     return res.json({ digest, stats: usage });
   } catch (err) {
     return sendCaughtError(res, err);
@@ -748,4 +958,4 @@ if (isDirectRun) {
   });
 }
 
-export { app };
+export { app, rateLimitHit, buildInjectedHtml, ECHO_MODE, isWeb, ECHO_ERROR_STATUS };

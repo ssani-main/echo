@@ -3343,6 +3343,84 @@
     }
 
     /* ==============================================
+       39b. SETTINGS MODAL (web mode BYOK) — reuses
+       .shortcuts-backdrop / .shortcuts-modal / .mini-btn
+       for visual consistency with the shortcuts overlay.
+    =============================================== */
+    .settings-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      background: transparent;
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      color: var(--muted);
+      cursor: pointer;
+      outline: none;
+      transition: color 0.12s, border-color 0.12s;
+    }
+
+    .settings-toggle:hover {
+      color: var(--ink);
+      border-color: var(--accent);
+    }
+
+    .settings-toggle:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    #settingsOverlay {
+      position: fixed;
+      inset: 0;
+      z-index: 19000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #settingsOverlay[hidden] {
+      display: none;
+    }
+
+    #apiKeyInput {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.4rem 0.65rem;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      outline: none;
+      margin: 0.35rem 0 0.7rem;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    #apiKeyInput:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .settings-note {
+      font-family: var(--font-serif);
+      font-size: 0.78rem;
+      line-height: 1.5;
+      color: var(--muted);
+      margin: 0 0 1rem;
+    }
+
+    .settings-actions {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: flex-end;
+    }
+
+    /* ==============================================
        40. TOAST / BANNER SYSTEM
     =============================================== */
     #toastContainer {
@@ -3721,6 +3799,13 @@
             aria-pressed="false"
             title="Toggle dark/light theme"
           ></button>
+          <button
+            id="settingsBtn"
+            class="settings-toggle"
+            aria-label="Settings"
+            title="Settings — add your Anthropic API key"
+            hidden
+          >⚙</button>
           <button
             id="shortcutsBtn"
             class="shortcuts-toggle"
@@ -4198,6 +4283,33 @@
     </div>
   </div>
 
+  <!-- SETTINGS MODAL (web mode only — BYOK Anthropic API key) -->
+  <div id="settingsOverlay" role="dialog" aria-modal="true" aria-label="Echo settings" hidden>
+    <div class="shortcuts-backdrop" id="settingsBackdrop"></div>
+    <div class="shortcuts-modal">
+      <div class="shortcuts-modal-header">
+        <span class="shortcuts-modal-title">Settings</span>
+        <button class="shortcuts-close-btn" id="settingsClose" aria-label="Close settings">✕</button>
+      </div>
+      <label class="digest-opt-label" for="apiKeyInput">Anthropic API key</label>
+      <input
+        id="apiKeyInput"
+        type="password"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="sk-ant-…"
+      />
+      <p class="settings-note">
+        Your key is stored locally in this browser and sent only to Anthropic through this app —
+        never to any other server.
+      </p>
+      <div class="settings-actions">
+        <button class="mini-btn" id="settingsClearKeyBtn">Clear</button>
+        <button class="mini-btn" id="settingsSaveKeyBtn">Save</button>
+      </div>
+    </div>
+  </div>
+
   <!-- HIGHLIGHT CREATION POPOVER (shown on text selection) -->
   <div id="hlCreatePopover" class="hl-popover" role="dialog"
        aria-label="Highlight selected text" aria-modal="false" hidden>
@@ -4227,6 +4339,526 @@
   </div>
 
   <script>
+    /* ==============================================
+       WEB MODE FLAG — injected by the server as
+       window.__ECHO__ = { mode, embeddings }. Falls back
+       to local-mode defaults when unset (e.g. tests).
+    =============================================== */
+    const ECHO = window.__ECHO__ || { mode: 'local', embeddings: true };
+
+    /* ==============================================
+       LIBRARY STORAGE ADAPTER
+       ServerLibrary makes the exact same /api/saved and
+       /api/search HTTP calls that were previously inlined
+       at each call site. This is a pure extract-and-route
+       refactor — behavior is byte-for-byte identical to
+       before. (A client-side IndexedDbLibrary backend for
+       web mode is added in a later step.)
+    =============================================== */
+    const ServerLibrary = {
+      /** GET /api/saved -> meta[] */
+      listEntries() {
+        return fetch('/api/saved');
+      },
+
+      /** GET /api/saved/:id -> entry|null (raw Response, caller inspects .status/.ok) */
+      getEntry(videoId) {
+        return fetch(`/api/saved/${encodeURIComponent(videoId)}`);
+      },
+
+      /** POST /api/saved -> saved meta/entry (raw Response) */
+      saveEntry(payload) {
+        return fetch('/api/saved', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(payload),
+        });
+      },
+
+      /** DELETE /api/saved/:id (raw Response) */
+      deleteEntry(videoId) {
+        return fetch(`/api/saved/${encodeURIComponent(videoId)}`, {
+          method: 'DELETE',
+        });
+      },
+
+      /** PATCH /api/saved/:id/tags -> entry (raw Response) */
+      setTags(videoId, tags) {
+        return fetch(`/api/saved/${encodeURIComponent(videoId)}/tags`, {
+          method:  'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ tags }),
+        });
+      },
+
+      /** PATCH /api/saved/:id/favorite -> entry (raw Response) */
+      setFavorite(videoId, fav) {
+        return fetch(`/api/saved/${encodeURIComponent(videoId)}/favorite`, {
+          method:  'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ favorite: fav }),
+        });
+      },
+
+      /** POST /api/saved/:id/notes -> note (raw Response) */
+      addNote(videoId, text) {
+        return fetch(`/api/saved/${encodeURIComponent(videoId)}/notes`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ text }),
+        });
+      },
+
+      /** DELETE /api/saved/:id/notes/:noteId (raw Response) */
+      deleteNote(videoId, noteId) {
+        return fetch(
+          `/api/saved/${encodeURIComponent(videoId)}/notes/${encodeURIComponent(noteId)}`,
+          { method: 'DELETE' }
+        );
+      },
+
+      /** POST /api/saved/:id/highlights -> highlight (raw Response) */
+      addHighlight(videoId, { text, note } = {}) {
+        const body = { text };
+        if (note) body.note = note;
+        return fetch(`/api/saved/${encodeURIComponent(videoId)}/highlights`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify(body),
+        });
+      },
+
+      /** DELETE /api/saved/:id/highlights/:hid (raw Response) */
+      deleteHighlight(videoId, hlId) {
+        return fetch(
+          `/api/saved/${encodeURIComponent(videoId)}/highlights/${encodeURIComponent(hlId)}`,
+          { method: 'DELETE' }
+        );
+      },
+
+      /** GET /api/saved/export -> {entries:[...]} (raw Response) */
+      exportAll() {
+        return fetch('/api/saved/export');
+      },
+
+      /** GET /api/saved/:id/export.md -> markdown text (raw Response) */
+      entryMarkdown(videoId) {
+        return fetch(`/api/saved/${encodeURIComponent(videoId)}/export.md`);
+      },
+
+      /** GET /api/search?q=&limit=50 -> {results, mode} (raw Response) */
+      searchLibrary(q) {
+        return fetch(`/api/search?q=${encodeURIComponent(q)}&limit=50`);
+      },
+    };
+
+    /* ==============================================
+       ENTRY -> MARKDOWN (CLIENT-SIDE)
+       Shared by exportSavedLibrary()'s zip builder and
+       IndexedDbLibrary.entryMarkdown() (web mode has no
+       server-side store of record, so Markdown must be
+       assembled in the browser). Deliberately mirrors the
+       server's markdown.js entryToMarkdown() at a lighter
+       weight (no highlight timestamp deep-linking) — this
+       matches the template that was previously inlined in
+       exportSavedLibrary() before this extraction.
+    =============================================== */
+    function entryToMarkdownClient(entry, opts = {}) {
+      const includeTranscript = opts.includeTranscript !== false;
+      const e = entry || {};
+      const safeSrc = safeHttpUrl(e.url);
+      let md = `# ${e.title || e.videoId}\n\n${safeSrc ? `Source: ${safeSrc}\n\n` : ''}`;
+
+      if (e.digest) {
+        md += `## AI digest\n\n${e.digest}\n\n`;
+      }
+
+      if (includeTranscript && Array.isArray(e.segments) && e.segments.length > 0) {
+        const paras = reflowToParagraphs(e.segments);
+        md += paras.join('\n\n');
+      }
+
+      if (Array.isArray(e.notes) && e.notes.length > 0) {
+        md += '\n\n## Notes\n\n';
+        e.notes.forEach(n => { md += `- ${n.text}\n`; });
+      }
+
+      if (Array.isArray(e.highlights) && e.highlights.length > 0) {
+        md += '\n\n## Highlights\n\n';
+        e.highlights.forEach(h => {
+          let line = `- "${h.text}"`;
+          if (h.note) line += ` — ${h.note}`;
+          md += line + '\n';
+        });
+      }
+
+      return md;
+    }
+
+    /* ==============================================
+       INDEXEDDB LIBRARY (web mode)
+       Client-side storage backend used when ECHO.mode ===
+       'web' (no server-side store of record — every browser
+       tab/profile has its own local library). Exposes the
+       exact same method set as ServerLibrary so all ~16
+       existing call sites work unchanged; every method
+       returns a real Response object (via the Response
+       constructor) so callers can keep using res.ok /
+       res.status / res.json() / res.text() as before.
+
+       Schema: a single object store "videos" (keyPath
+       videoId, index on savedAt) holding the FULL entry
+       object { videoId, url, title, savedAt, updatedAt,
+       segments, digest, favorite, tags, notes, highlights }
+       — this matches the shape store.getEntry() returns on
+       the server, so listEntries()/getEntry() render
+       identically in both modes. (A normalized 4-store form
+       mirroring store.js's SQLite tables was considered but
+       rejected: it would require multi-store transactions
+       for every write with no benefit at this data scale.)
+    =============================================== */
+    const ECHO_DB_NAME    = 'echo';
+    const ECHO_DB_VERSION = 1;
+    let _echoDbPromise = null;
+
+    /** Open (or reuse) the shared IndexedDB connection, creating the schema on first run. */
+    function idbOpen() {
+      if (_echoDbPromise) return _echoDbPromise;
+      _echoDbPromise = new Promise((resolve, reject) => {
+        const req = indexedDB.open(ECHO_DB_NAME, ECHO_DB_VERSION);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains('videos')) {
+            const store = db.createObjectStore('videos', { keyPath: 'videoId' });
+            store.createIndex('savedAt', 'savedAt');
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror   = () => reject(req.error);
+      });
+      return _echoDbPromise;
+    }
+
+    /** Wrap a single IDBRequest in a Promise. */
+    function idbReq(request) {
+      return new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror   = () => reject(request.error);
+      });
+    }
+
+    async function idbGetEntry(videoId) {
+      const db = await idbOpen();
+      return idbReq(db.transaction('videos', 'readonly').objectStore('videos').get(videoId));
+    }
+
+    async function idbGetAllEntries() {
+      const db = await idbOpen();
+      return idbReq(db.transaction('videos', 'readonly').objectStore('videos').getAll());
+    }
+
+    /** Put (insert or overwrite) a full entry record; resolves once the write transaction commits. */
+    function idbPutEntry(entry) {
+      return idbOpen().then((db) => new Promise((resolve, reject) => {
+        const tx = db.transaction('videos', 'readwrite');
+        tx.objectStore('videos').put(entry);
+        tx.oncomplete = () => resolve();
+        tx.onerror    = () => reject(tx.error);
+      }));
+    }
+
+    /** Delete an entry record by videoId; resolves once the write transaction commits. */
+    function idbDeleteEntryRow(videoId) {
+      return idbOpen().then((db) => new Promise((resolve, reject) => {
+        const tx = db.transaction('videos', 'readwrite');
+        tx.objectStore('videos').delete(videoId);
+        tx.oncomplete = () => resolve();
+        tx.onerror    = () => reject(tx.error);
+      }));
+    }
+
+    let _idbIdCounter = 0;
+    /** Same "<timestamp>-<counter>" scheme as store.js's generateId(). */
+    function idbGenerateId() {
+      _idbIdCounter += 1;
+      return `${Date.now()}-${_idbIdCounter}`;
+    }
+
+    /** Mirrors store.js's tag sanitize logic: trim, dedup, drop empties, cap at 20. */
+    function idbSanitizeTags(tags) {
+      return Array.isArray(tags)
+        ? [...new Set(tags.map((t) => String(t).trim()).filter(Boolean))].slice(0, 20)
+        : [];
+    }
+
+    /** Mirrors store.js's sanitizeHighlight(): requires non-empty text, assigns id/createdAt if missing. */
+    function idbSanitizeHighlight(raw) {
+      const text = String(raw?.text ?? '').trim();
+      if (!text) return null;
+      const h = {
+        id:        raw.id ?? idbGenerateId(),
+        text,
+        createdAt: raw.createdAt ?? new Date().toISOString(),
+      };
+      if (raw.note  != null) h.note  = String(raw.note);
+      if (raw.color != null) h.color = String(raw.color);
+      return h;
+    }
+
+    /** Mirrors store.js's toMeta(): the metadata-only shape returned by listEntries(). */
+    function idbToMeta(entry) {
+      return {
+        videoId:        entry.videoId,
+        url:            entry.url,
+        title:          entry.title,
+        savedAt:        entry.savedAt,
+        hasDigest:      !!entry.digest,
+        segmentCount:   entry.segments?.length || 0,
+        tags:           Array.isArray(entry.tags)       ? entry.tags        : [],
+        favorite:       typeof entry.favorite === 'boolean' ? entry.favorite : false,
+        noteCount:      Array.isArray(entry.notes)      ? entry.notes.length      : 0,
+        highlightCount: Array.isArray(entry.highlights) ? entry.highlights.length : 0,
+      };
+    }
+
+    /** Build a JSON Response matching the server's { error: { code, message, hint } } envelope. */
+    function idbJson(data, status = 200) {
+      return new Response(JSON.stringify(data), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    function idbErr(message, status, code = 'INTERNAL', hint = '') {
+      return idbJson({ error: { code, message, hint } }, status);
+    }
+    /** Catch-all for unexpected IndexedDB failures — mirrors server's sendCaughtError(). */
+    function idbCaughtError(err) {
+      console.error('[echo] IndexedDbLibrary error:', err);
+      return idbErr('An unexpected error occurred.', 500);
+    }
+
+    const IndexedDbLibrary = {
+      /** -> meta[], 200 */
+      async listEntries() {
+        try {
+          const all = await idbGetAllEntries();
+          all.sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
+          return idbJson(all.map(idbToMeta), 200);
+        } catch (err) { return idbCaughtError(err); }
+      },
+
+      /** -> full entry, 200 | 404 */
+      async getEntry(videoId) {
+        try {
+          const entry = await idbGetEntry(videoId);
+          if (!entry) return idbErr('Not found.', 404);
+          return idbJson(entry, 200);
+        } catch (err) { return idbCaughtError(err); }
+      },
+
+      /**
+       * Upsert an entry by videoId, preserving digest/tags/favorite/notes/
+       * highlights when the payload omits them — same semantics as
+       * store.js's saveEntry(). -> saved meta, 200 | 400
+       */
+      async saveEntry(payload) {
+        try {
+          const { url, videoId, title, segments, digest, tags, favorite, notes, highlights } = payload || {};
+          if (!videoId || !Array.isArray(segments) || segments.length === 0) {
+            return idbErr('videoId and segments are required.', 400);
+          }
+          const now = new Date().toISOString();
+          const existing = await idbGetEntry(videoId);
+
+          const sanitizedNotes = Array.isArray(notes)
+            ? notes.filter((n) => n && n.id && n.text)
+            : null;
+          const sanitizedHighlights = Array.isArray(highlights)
+            ? highlights.map(idbSanitizeHighlight).filter(Boolean)
+            : null;
+
+          let entry;
+          if (!existing) {
+            entry = {
+              videoId,
+              url:        url || '',
+              title:      title || null,
+              savedAt:    now,
+              updatedAt:  now,
+              segments:   segments || [],
+              digest:     digest || null,
+              favorite:   typeof favorite === 'boolean' ? favorite : false,
+              tags:       idbSanitizeTags(tags),
+              notes:      sanitizedNotes || [],
+              highlights: sanitizedHighlights || [],
+            };
+          } else {
+            entry = {
+              ...existing,
+              url:        url != null ? url : existing.url,
+              title:      title || null,
+              updatedAt:  now,
+              segments:   segments || existing.segments,
+              digest:     digest ? digest : existing.digest,
+              favorite:   typeof favorite === 'boolean' ? favorite : existing.favorite,
+              tags:       Array.isArray(tags) ? idbSanitizeTags(tags) : existing.tags,
+              notes:      sanitizedNotes !== null ? sanitizedNotes : existing.notes,
+              highlights: sanitizedHighlights !== null ? sanitizedHighlights : existing.highlights,
+            };
+          }
+
+          await idbPutEntry(entry);
+          return idbJson(idbToMeta(entry), 200);
+        } catch (err) { return idbCaughtError(err); }
+      },
+
+      /** -> { ok:true }, 200 | 404 */
+      async deleteEntry(videoId) {
+        try {
+          const existing = await idbGetEntry(videoId);
+          if (!existing) return idbErr('Not found.', 404);
+          await idbDeleteEntryRow(videoId);
+          return idbJson({ ok: true }, 200);
+        } catch (err) { return idbCaughtError(err); }
+      },
+
+      /** -> full entry, 200 | 404 */
+      async setTags(videoId, tags) {
+        try {
+          const existing = await idbGetEntry(videoId);
+          if (!existing) return idbErr('Not found.', 404);
+          const entry = { ...existing, tags: idbSanitizeTags(tags), updatedAt: new Date().toISOString() };
+          await idbPutEntry(entry);
+          return idbJson(entry, 200);
+        } catch (err) { return idbCaughtError(err); }
+      },
+
+      /** -> full entry, 200 | 404 */
+      async setFavorite(videoId, fav) {
+        try {
+          const existing = await idbGetEntry(videoId);
+          if (!existing) return idbErr('Not found.', 404);
+          const entry = { ...existing, favorite: Boolean(fav), updatedAt: new Date().toISOString() };
+          await idbPutEntry(entry);
+          return idbJson(entry, 200);
+        } catch (err) { return idbCaughtError(err); }
+      },
+
+      /** -> created note, 201 | 404 */
+      async addNote(videoId, text) {
+        try {
+          const existing = await idbGetEntry(videoId);
+          if (!existing) return idbErr('Not found.', 404);
+          const note = { id: idbGenerateId(), text: String(text ?? '').trim(), createdAt: new Date().toISOString() };
+          const entry = {
+            ...existing,
+            notes:     [...(existing.notes || []), note],
+            updatedAt: new Date().toISOString(),
+          };
+          await idbPutEntry(entry);
+          return idbJson(note, 201);
+        } catch (err) { return idbCaughtError(err); }
+      },
+
+      /** -> { ok:true }, 200 | 404 (entry not found or note not found) */
+      async deleteNote(videoId, noteId) {
+        try {
+          const existing = await idbGetEntry(videoId);
+          if (!existing) return idbErr('Entry not found.', 404);
+          const notes = existing.notes || [];
+          if (!notes.some((n) => n.id === noteId)) return idbErr('Note not found.', 404);
+          const entry = {
+            ...existing,
+            notes:     notes.filter((n) => n.id !== noteId),
+            updatedAt: new Date().toISOString(),
+          };
+          await idbPutEntry(entry);
+          return idbJson({ ok: true }, 200);
+        } catch (err) { return idbCaughtError(err); }
+      },
+
+      /** -> created highlight, 201 | 400 (empty text) | 404 */
+      async addHighlight(videoId, { text, note, color } = {}) {
+        try {
+          const highlight = idbSanitizeHighlight({ text, note, color });
+          if (!highlight) return idbErr('highlight.text is required and must be a non-empty string', 400);
+          const existing = await idbGetEntry(videoId);
+          if (!existing) return idbErr('Not found.', 404);
+          const entry = {
+            ...existing,
+            highlights: [...(existing.highlights || []), highlight],
+            updatedAt:  new Date().toISOString(),
+          };
+          await idbPutEntry(entry);
+          return idbJson(highlight, 201);
+        } catch (err) { return idbCaughtError(err); }
+      },
+
+      /** -> { ok:true }, 200 | 404 */
+      async deleteHighlight(videoId, hlId) {
+        try {
+          const existing = await idbGetEntry(videoId);
+          if (!existing) return idbErr('Not found.', 404);
+          const highlights = existing.highlights || [];
+          if (!highlights.some((h) => h.id === hlId)) return idbErr('Not found.', 404);
+          const entry = {
+            ...existing,
+            highlights: highlights.filter((h) => h.id !== hlId),
+            updatedAt:  new Date().toISOString(),
+          };
+          await idbPutEntry(entry);
+          return idbJson({ ok: true }, 200);
+        } catch (err) { return idbCaughtError(err); }
+      },
+
+      /** -> { entries:[...] }, 200 — consumed unchanged by exportSavedLibrary()'s zip builder */
+      async exportAll() {
+        try {
+          const all = await idbGetAllEntries();
+          return idbJson({ entries: all }, 200);
+        } catch (err) { return idbCaughtError(err); }
+      },
+
+      /** -> markdown text/plain Response, 200 | 404. Built client-side via entryToMarkdownClient(). */
+      async entryMarkdown(videoId, opts = {}) {
+        try {
+          const entry = await idbGetEntry(videoId);
+          if (!entry) return idbErr('Not found.', 404);
+          const md = entryToMarkdownClient(entry, opts);
+          return new Response(md, { status: 200, headers: { 'content-type': 'text/markdown; charset=utf-8' } });
+        } catch (err) { return idbCaughtError(err); }
+      },
+
+      /**
+       * Simple client-side keyword filter (web mode has no server-side FTS5
+       * index). Not used by any current call site in web mode — the web
+       * search UI filters the already-loaded savedList client-side — but is
+       * implemented for parity/completeness with ServerLibrary's method set.
+       * -> { results, mode }, 200
+       */
+      async searchLibrary(q, limit = 50) {
+        try {
+          const query = String(q || '').trim().toLowerCase();
+          if (!query) return idbJson({ results: [], mode: 'keyword' }, 200);
+          const all = await idbGetAllEntries();
+          const results = all
+            .filter((e) => {
+              const hay = [e.title, e.digest, ...(Array.isArray(e.segments) ? e.segments.map((s) => s.text) : [])]
+                .filter(Boolean)
+                .join(' ')
+                .toLowerCase();
+              return hay.includes(query);
+            })
+            .slice(0, Number(limit) || 50);
+          return idbJson({ results, mode: 'keyword' }, 200);
+        } catch (err) { return idbCaughtError(err); }
+      },
+    };
+
+    // Local mode uses the server-backed adapter; web mode uses the
+    // client-side IndexedDB-backed adapter (no server-side store of record).
+    const Library = (ECHO.mode === 'web') ? IndexedDbLibrary : ServerLibrary;
+
     /* ==============================================
        STATE
     =============================================== */
@@ -4656,6 +5288,13 @@
        USAGE CHIP (header — today's totals)
     =============================================== */
     async function loadUsageChip() {
+      if (ECHO.mode === 'web') {
+        // Usage chip would leak the HOST server's Claude spend to BYOK
+        // visitors — hide it and skip the fetch entirely in web mode.
+        usageChipEl.hidden = true;
+        usageChipEl.classList.remove('visible');
+        return;
+      }
       try {
         const res  = await fetch('/api/usage');
         const data = await res.json();
@@ -4963,7 +5602,7 @@
      */
     async function exportEntryMd(videoId, title) {
       try {
-        const res = await fetch(`/api/saved/${encodeURIComponent(videoId)}/export.md`);
+        const res = await Library.entryMarkdown(videoId);
         if (!res.ok) {
           const d = await res.json().catch(() => null);
           if (d) return handleApiError(d);
@@ -5553,6 +6192,7 @@
       shortcutsOverlay:   closeShortcutsOverlay,
       clipsOverlay:       closeClipsModal,
       crossDigestOverlay: closeCrossDigestModal,
+      settingsOverlay:    closeSettingsModal,
     };
     document.addEventListener('keydown', e => {
       if (e.key !== 'Escape') return;
@@ -5586,16 +6226,12 @@
       if (savedList.some(e => e.videoId === currentMeta.videoId)) return true;
 
       try {
-        const res = await fetch('/api/saved', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({
-            url:      currentMeta.url,
-            videoId:  currentMeta.videoId,
-            title:    currentMeta.title,
-            segments: lastSegments,
-            digest:   currentDigest,
-          }),
+        const res = await Library.saveEntry({
+          url:      currentMeta.url,
+          videoId:  currentMeta.videoId,
+          title:    currentMeta.title,
+          segments: lastSegments,
+          digest:   currentDigest,
         });
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
@@ -5629,14 +6265,7 @@
       }
 
       try {
-        const body = { text: text.trim() };
-        if (note) body.note = note;
-
-        const res = await fetch(`/api/saved/${encodeURIComponent(videoId)}/highlights`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify(body),
-        });
+        const res = await Library.addHighlight(videoId, { text: text.trim(), note });
 
         if (res.status === 404) {
           setStatus('Highlight failed — video not in library.', true);
@@ -5666,10 +6295,7 @@
       const videoId = currentMeta.videoId;
 
       try {
-        const res = await fetch(
-          `/api/saved/${encodeURIComponent(videoId)}/highlights/${encodeURIComponent(hlId)}`,
-          { method: 'DELETE' }
-        );
+        const res = await Library.deleteHighlight(videoId, hlId);
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           handleApiError(errData, 'Could not remove highlight.');
@@ -5820,7 +6446,7 @@
 
         // Async: if this video is already saved, load its highlights
         (function loadHighlightsIfSaved(videoId) {
-          fetch(`/api/saved/${encodeURIComponent(videoId)}`)
+          Library.getEntry(videoId)
             .then(r => r.ok ? r.json() : null)
             .then(entry => {
               if (entry) {
@@ -6147,6 +6773,7 @@
     =============================================== */
     async function runDigest() {
       if (!lastSegments || lastSegments.length === 0) return;
+      if (!requireApiKey()) return;
 
       // If a digest is already displayed, confirm before spending another AI call.
       if (currentDigest) {
@@ -6176,11 +6803,7 @@
       const plainText = getTranscriptText();
 
       try {
-        const res  = await fetch('/api/digest', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ text: plainText, length: lengthOpt, format: formatOpt, language: langOpt }),
-        });
+        const res  = await aiFetch('/api/digest', { text: plainText, length: lengthOpt, format: formatOpt, language: langOpt });
         const data = await res.json();
 
         if (!res.ok) {
@@ -6246,6 +6869,7 @@
     async function submitAsk() {
       const question = askInputEl.value.trim();
       if (!question) return;
+      if (!requireApiKey()) return;
 
       const text = getTranscriptText();
       if (!text) {
@@ -6260,11 +6884,7 @@
 
       const t0 = Date.now();
       try {
-        const res  = await fetch('/api/chat', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ text, question }),
-        });
+        const res  = await aiFetch('/api/chat', { text, question });
         const data = await res.json();
         const elapsed = Date.now() - t0;
 
@@ -6348,6 +6968,7 @@
         fcInlineStatus.className   = 'ai-inline-status error';
         return;
       }
+      if (!requireApiKey()) return;
 
       factCheckBtn.disabled      = true;
       fcInlineStatus.textContent = 'Checking facts — this may take a moment…';
@@ -6355,11 +6976,7 @@
       fcResults.innerHTML        = '';
 
       try {
-        const res  = await fetch('/api/factcheck', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ text }),
-        });
+        const res  = await aiFetch('/api/factcheck', { text });
         const data = await res.json();
 
         if (!res.ok) {
@@ -6482,6 +7099,7 @@
         chInlineStatus.className   = 'ai-inline-status error';
         return;
       }
+      if (!requireApiKey()) return;
 
       chaptersBtn.disabled       = true;
       chInlineStatus.textContent = 'Generating chapters — this may take a moment…';
@@ -6489,11 +7107,7 @@
       chResults.innerHTML        = '';
 
       try {
-        const res  = await fetch('/api/chapters', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ segments: currentSegments }),
-        });
+        const res  = await aiFetch('/api/chapters', { segments: currentSegments });
         const data = await res.json();
 
         if (!res.ok) {
@@ -6579,6 +7193,7 @@
         qtInlineStatus.className   = 'ai-inline-status error';
         return;
       }
+      if (!requireApiKey()) return;
 
       quotesBtn.disabled         = true;
       qtInlineStatus.textContent = 'Pulling key quotes — this may take a moment…';
@@ -6586,11 +7201,7 @@
       qtResults.innerHTML        = '';
 
       try {
-        const res  = await fetch('/api/quotes', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ segments: currentSegments }),
-        });
+        const res  = await aiFetch('/api/quotes', { segments: currentSegments });
         const data = await res.json();
 
         if (!res.ok) {
@@ -6675,16 +7286,12 @@
       saveBtn.disabled   = true;
 
       try {
-        const res = await fetch('/api/saved', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({
-            url:      currentMeta.url,
-            videoId:  currentMeta.videoId,
-            title:    currentMeta.title,
-            segments: lastSegments,
-            digest:   currentDigest,
-          }),
+        const res = await Library.saveEntry({
+          url:      currentMeta.url,
+          videoId:  currentMeta.videoId,
+          title:    currentMeta.title,
+          segments: lastSegments,
+          digest:   currentDigest,
         });
 
         if (!res.ok) {
@@ -6735,7 +7342,7 @@
 
     async function loadSaved() {
       try {
-        const res = await fetch('/api/saved');
+        const res = await Library.listEntries();
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           savedOutput.innerHTML =
@@ -6764,7 +7371,7 @@
       if (savedApiResults !== null) {
         const { results, mode } = savedApiResults;
         if (countEl) {
-          const modeTag = mode === 'hybrid'
+          const modeTag = (mode === 'hybrid' && ECHO.mode === 'local' && ECHO.embeddings)
             ? '<span class="search-mode-tag" aria-label="Semantic search active">semantic</span>'
             : '';
           countEl.innerHTML = results.length === 0
@@ -7104,16 +7711,29 @@
     async function runCrossDigest() {
       const ids = [...selectedVideoIds];
       if (ids.length < 2) return;
+      if (!requireApiKey()) return;
 
       setTopIndicator('digesting');
       if (crossDigestRunBtn) crossDigestRunBtn.disabled = true;
 
       try {
-        const res = await fetch('/api/cross-digest', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ videoIds: ids }),
-        });
+        let body;
+        if (ECHO.mode === 'web') {
+          // Web mode has no server-side store of record — resolve the full
+          // entry objects from IndexedDB client-side and send them inline
+          // so the server's cross-digest route (isWeb + req.body.entries
+          // branch) can build the digest without a DB lookup.
+          const entries = [];
+          for (const id of ids) {
+            const r = await Library.getEntry(id);
+            if (r.ok) entries.push(await r.json());
+          }
+          body = { entries };
+        } else {
+          body = { videoIds: ids };
+        }
+
+        const res = await aiFetch('/api/cross-digest', body);
 
         const data = await res.json().catch(() => ({}));
 
@@ -7311,11 +7931,7 @@
       if (!entry) return;
       const newFav = !entry.favorite;
       try {
-        const res = await fetch(`/api/saved/${encodeURIComponent(videoId)}/favorite`, {
-          method:  'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ favorite: newFav }),
-        });
+        const res = await Library.setFavorite(videoId, newFav);
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           handleApiError(errData, 'Could not update favorite.');
@@ -7336,11 +7952,7 @@
       const entry = savedList.find(e => e.videoId === videoId);
       if (!entry) return;
       try {
-        const res = await fetch(`/api/saved/${encodeURIComponent(videoId)}/tags`, {
-          method:  'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ tags: newTags }),
-        });
+        const res = await Library.setTags(videoId, newTags);
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           handleApiError(errData, 'Could not save tags.');
@@ -7421,7 +8033,7 @@
       if (!savedNotesCache.has(videoId)) {
         panel.innerHTML = '<div class="saved-notes-loading">Loading notes…</div>';
         try {
-          const res = await fetch(`/api/saved/${encodeURIComponent(videoId)}`);
+          const res = await Library.getEntry(videoId);
           if (!res.ok) {
             const errData = await res.json().catch(() => ({}));
             panel.innerHTML = '<div class="saved-notes-loading">Could not load notes.</div>';
@@ -7510,11 +8122,7 @@
       if (!text) return;
       submitBtn.disabled = true;
       try {
-        const res = await fetch(`/api/saved/${encodeURIComponent(videoId)}/notes`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ text }),
-        });
+        const res = await Library.addNote(videoId, text);
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           handleApiError(errData, 'Could not save note.');
@@ -7547,10 +8155,7 @@
 
     async function deleteSavedNote(videoId, noteId, notesBtn, panel) {
       try {
-        const res = await fetch(
-          `/api/saved/${encodeURIComponent(videoId)}/notes/${encodeURIComponent(noteId)}`,
-          { method: 'DELETE' }
-        );
+        const res = await Library.deleteNote(videoId, noteId);
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           handleApiError(errData, 'Could not delete note.');
@@ -7589,7 +8194,7 @@
       statusMsg.className     = 'saved-status-msg';
 
       try {
-        const res = await fetch('/api/saved/export');
+        const res = await Library.exportAll();
         if (!res.ok) throw new Error(`Server error (${res.status})`);
         const data    = await res.json();
         const entries = Array.isArray(data.entries) ? data.entries : [];
@@ -7599,23 +8204,7 @@
 
           for (const entry of entries) {
             const slug = slugify(entry.title || entry.videoId) || entry.videoId;
-            const safeSrc = safeHttpUrl(entry.url);
-            let md = `# ${entry.title || entry.videoId}\n\n${safeSrc ? `Source: ${safeSrc}\n\n` : ''}`;
-
-            if (entry.digest) {
-              md += `## AI digest\n\n${entry.digest}\n\n`;
-            }
-
-            if (Array.isArray(entry.segments) && entry.segments.length > 0) {
-              const paras = reflowToParagraphs(entry.segments);
-              md += paras.join('\n\n');
-            }
-
-            if (Array.isArray(entry.notes) && entry.notes.length > 0) {
-              md += '\n\n## Notes\n\n';
-              entry.notes.forEach(n => { md += `- ${n.text}\n`; });
-            }
-
+            const md = entryToMarkdownClient(entry);
             zip.file(`${slug}.md`, md);
           }
 
@@ -7664,7 +8253,7 @@
     =============================================== */
     async function openSavedEntry(videoId) {
       try {
-        const res = await fetch(`/api/saved/${encodeURIComponent(videoId)}`);
+        const res = await Library.getEntry(videoId);
         if (res.status === 404) {
           showToast('warning', 'This saved entry was not found — it may have been deleted.');
           loadSaved();
@@ -7775,9 +8364,7 @@
     async function deleteSavedEntry(videoId) {
       if (!confirm('Delete this saved video? This cannot be undone.')) return;
       try {
-        const res = await fetch(`/api/saved/${encodeURIComponent(videoId)}`, {
-          method: 'DELETE',
-        });
+        const res = await Library.deleteEntry(videoId);
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           handleApiError(errData, 'Failed to delete saved video.');
@@ -7847,8 +8434,16 @@
           renderSavedFiltered();
           return;
         }
+        // Web mode has no per-user server-side embeddings/search index —
+        // always fall back to the existing client-side text filter.
+        if (ECHO.mode === 'web') {
+          savedApiResults  = null;
+          savedSearchQuery = q;
+          renderSavedFiltered();
+          return;
+        }
         // Use API for all non-empty queries
-        fetch(`/api/search?q=${encodeURIComponent(q)}&limit=50`)
+        Library.searchLibrary(q)
           .then(r => r.json())
           .then(data => {
             if (data.error) {
@@ -7901,6 +8496,9 @@
 
       if (reindexBtn) {
         reindexBtn.addEventListener('click', async () => {
+          // Web mode has no per-user embeddings/reindex — defensive no-op
+          // (the button is also kept hidden in web mode; see checkEmbeddingsStatus).
+          if (ECHO.mode === 'web') return;
           reindexBtn.disabled = true;
           reindexBtn.textContent = 'Indexing…';
           try {
@@ -7926,6 +8524,9 @@
      * if embeddings are available on this server.
      */
     async function checkEmbeddingsStatus() {
+      // Web mode has no per-user embeddings; keep the reindex button hidden
+      // and never hit /api/search/status.
+      if (ECHO.mode === 'web') return;
       if (embeddingsChecked) return;
       embeddingsChecked = true;
       try {
@@ -8379,6 +8980,106 @@
     document.getElementById('shortcutsBtn')?.addEventListener('click', openShortcutsOverlay);
     document.getElementById('shortcutsClose')?.addEventListener('click', closeShortcutsOverlay);
     document.getElementById('shortcutsBackdrop')?.addEventListener('click', closeShortcutsOverlay);
+
+    /* ==============================================
+       WEB MODE — BYOK SETTINGS MODAL
+       Only relevant when ECHO.mode === 'web'. Stores the
+       user's Anthropic API key in localStorage and sends
+       it via the X-Echo-Api-Key header on AI requests.
+    =============================================== */
+    const API_KEY_STORAGE_KEY = 'echo-anthropic-key';
+
+    function getApiKey() {
+      try { return localStorage.getItem(API_KEY_STORAGE_KEY) || ''; }
+      catch { return ''; }
+    }
+
+    function setApiKey(v) {
+      try { localStorage.setItem(API_KEY_STORAGE_KEY, (v || '').trim()); }
+      catch { /* localStorage unavailable — non-fatal */ }
+    }
+
+    function clearApiKey() {
+      try { localStorage.removeItem(API_KEY_STORAGE_KEY); }
+      catch { /* localStorage unavailable — non-fatal */ }
+    }
+
+    const settingsOverlayEl = document.getElementById('settingsOverlay');
+    const apiKeyInputEl     = document.getElementById('apiKeyInput');
+
+    function openSettingsModal() {
+      if (!settingsOverlayEl) return;
+      // Belt-and-suspenders: hide any open popovers before showing modal
+      if (!hlCreatePopover.hidden) hideHighlightCreatePopover();
+      if (!hlViewPopover.hidden)   hideHighlightViewPopover();
+      if (apiKeyInputEl) apiKeyInputEl.value = getApiKey();
+      settingsOverlayEl.hidden = false;
+      apiKeyInputEl?.focus();
+    }
+
+    function closeSettingsModal() {
+      if (!settingsOverlayEl) return;
+      settingsOverlayEl.hidden = true;
+    }
+
+    document.getElementById('settingsBtn')?.addEventListener('click', openSettingsModal);
+    document.getElementById('settingsClose')?.addEventListener('click', closeSettingsModal);
+    document.getElementById('settingsBackdrop')?.addEventListener('click', closeSettingsModal);
+
+    document.getElementById('settingsSaveKeyBtn')?.addEventListener('click', () => {
+      const v = apiKeyInputEl?.value || '';
+      setApiKey(v);
+      showToast('success', v.trim() ? 'API key saved.' : 'API key cleared.');
+      closeSettingsModal();
+    });
+
+    document.getElementById('settingsClearKeyBtn')?.addEventListener('click', () => {
+      clearApiKey();
+      if (apiKeyInputEl) apiKeyInputEl.value = '';
+      showToast('info', 'API key cleared.');
+    });
+
+    // Reveal the settings entry point only in web mode; local mode is unaffected.
+    if (ECHO.mode === 'web') {
+      const settingsBtnEl = document.getElementById('settingsBtn');
+      if (settingsBtnEl) settingsBtnEl.hidden = false;
+    }
+
+    /**
+     * POST helper for AI endpoints. In web mode, attaches the user's
+     * BYOK Anthropic API key (if set) as the X-Echo-Api-Key header so
+     * the server can use it instead of a server-side key. In local
+     * mode this behaves exactly like a plain fetch (no extra header).
+     *
+     * @param {string} url
+     * @param {object} body - request body, will be JSON.stringify'd
+     * @returns {Promise<Response>}
+     */
+    function aiFetch(url, body) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (ECHO.mode === 'web') {
+        const k = getApiKey();
+        if (k) headers['X-Echo-Api-Key'] = k;
+      }
+      return fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+    }
+
+    /**
+     * Guard called at the top of every AI-triggering handler. In web
+     * mode, if no API key is stored yet, opens the settings modal,
+     * shows a toast, and returns false so the caller can bail out
+     * before doing any work. In local mode this always returns true.
+     *
+     * @returns {boolean}
+     */
+    function requireApiKey() {
+      if (ECHO.mode === 'web' && !getApiKey()) {
+        openSettingsModal();
+        showToast('info', 'Add your Anthropic API key to use AI features.');
+        return false;
+      }
+      return true;
+    }
 
     /** Returns true if the keyboard event originates from a form-entry context. */
     function isTypingContext(e) {
