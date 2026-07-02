@@ -79,7 +79,7 @@ Both previously-open gaps were resolved on 2026-07-02:
 
 ### Still open
 - The playlist **"Digest all" happy path has still not been run end-to-end** (it spawns a real `claude` call per video; only the UI/panel and job lifecycle/error paths are exercised). Worth one real manual run.
-- Branch is committed but **NOT pushed**. Delete this file once `feat/sqlite-and-features` is merged/pushed.
+- All work — the 10 items + the URL-protocol security fix — is committed AND pushed to `origin/main` (tip `63bad71`). This handoff doc is now **obsolete** and can be deleted; it is kept only for historical reference.
 
 ## How to run
 - `node server.js` -> http://localhost:8000  (needs Node >= 22.5)
@@ -90,4 +90,4 @@ Both previously-open gaps were resolved on 2026-07-02:
 
 ---
 
-**Delete this file after merging `feat/sqlite-and-features` to `main`.**
+**All work is merged into `main` and pushed to `origin/main` (`63bad71`). This file is safe to delete.**
