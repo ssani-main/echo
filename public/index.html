@@ -7109,7 +7109,7 @@
       startDigestTimer(isLargeTranscript);
 
       try {
-        const res  = await aiFetch('/api/digest', { text: plainText, length: lengthOpt, format: formatOpt, language: langOpt });
+        const res  = await aiFetch('/api/digest', { text: plainText, length: lengthOpt, format: formatOpt, language: langOpt, title: (currentMeta && currentMeta.title) || '' });
         const data = await res.json();
 
         if (!res.ok) {

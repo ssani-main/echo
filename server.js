@@ -545,7 +545,7 @@ app.post('/api/playlist/digest/cancel', (req, res) => {
 // ---------------------------------------------------------------------------
 
 app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
-  const { text, length, format, language } = req.body;
+  const { text, length, format, language, title } = req.body;
 
   if (!requireText(res, text, 'No transcript text provided.', 'Load a transcript before generating a digest.')) return;
 
@@ -553,7 +553,7 @@ app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
   if (requireWebKey(req, res)) return;
 
   try {
-    const result = await generateDigest(text, { length, format, language, apiKey: readApiKey(req) });
+    const result = await generateDigest(text, { length, format, language, title, apiKey: readApiKey(req) });
     return res.json(result);
   } catch (err) {
     return sendCaughtError(res, err);

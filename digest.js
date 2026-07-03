@@ -502,9 +502,14 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
   // --- REDUCE phase: synthesise all chunk summaries into the final digest ---
   const combined = chunkSummaries.join('\n\n---\n\n');
 
+  const reduceTitleContext = opts.title && opts.title.trim()
+    ? `The video is titled: "${opts.title.trim()}". Treat the title only as a hint about the video's topic; the summaries below are the source of truth.\n\n`
+    : '';
+
   const reducePrompt =
     'You are given structured summaries of sequential sections of a long YouTube video transcript. ' +
     'Each section was independently summarised; now synthesise them into one coherent final digest.\n\n' +
+    reduceTitleContext +
     `Write your entire response in ${language}. ` +
     structureInstructions +
     '\n\nCHUNK SUMMARIES (in chronological order):\n\n' +
@@ -926,7 +931,14 @@ export async function generateDigest(transcriptText, opts = {}) {
     length = 'detailed',
     format = 'digest',
     language = 'English',
+    title = '',
   } = opts;
+
+  // Optional grounding: the video title. Only a hint — the transcript stays
+  // the sole source of truth. Reused by both the fast path and the reduce step.
+  const titleContext = title && title.trim()
+    ? `The video is titled: "${title.trim()}". Treat the title only as a hint about the video's topic; the transcript below is the sole source of truth for its content.\n\n`
+    : '';
 
   let structureInstructions;
 
@@ -960,6 +972,11 @@ export async function generateDigest(transcriptText, opts = {}) {
       'without watching it — and who is trusting you to give them something CLEARER and BETTER ORGANIZED than the ' +
       'creator managed. Most videos bury a few genuinely good ideas inside rambling, repetition, weak structure, and ' +
       'poor delivery. Your job is to extract the real substance and present it better than the speaker did.\n\n' +
+      'Before you write, silently identify what KIND of video this is — a how-to/tutorial, an interview or conversation, ' +
+      'a talk or lecture, a product review, news or analysis, a personal story/vlog, and so on — and shape the digest to ' +
+      'fit it. A tutorial must preserve the actual steps and the how-to detail; an interview must capture the key claims, ' +
+      'points of disagreement, and memorable exchanges, and make clear who said what; a talk must carry the central ' +
+      'argument and the evidence behind it; a review must land the verdict and the reasons for it.\n\n' +
       'This is NOT a generic summary and NOT a flat list of bullet points. Write it like a sharp, knowledgeable person ' +
       'explaining the video\'s ideas to an intelligent friend who asked "so what was actually good about it?"\n\n' +
       'How to write it:\n' +
@@ -1044,10 +1061,11 @@ export async function generateDigest(transcriptText, opts = {}) {
   // summary-oriented prefix below.
   const prompt =
     format === 'article' || format === 'digest'
-      ? `Write your entire response in ${language}, regardless of what language the transcript is in.\n\n${structureInstructions}\n\nHere is the transcript:\n\n${transcriptText}`
+      ? `Write your entire response in ${language}, regardless of what language the transcript is in.\n\n${titleContext}${structureInstructions}\n\nHere is the transcript:\n\n${transcriptText}`
       : 'You are given the raw auto-generated transcript of a YouTube video. ' +
         'It may be in any language. ' +
         `Write your entire response in ${language}. ` +
+        titleContext +
         structureInstructions +
         '\n\nHere is the transcript:\n\n' +
         transcriptText;
