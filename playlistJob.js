@@ -9,6 +9,10 @@ let _jobCounter = 0;
 
 const MAX_JOBS = 20;
 
+// Default dependencies, overridable via `startPlaylistDigest(url, opts, deps)`
+// so tests can inject fakes without hitting the network or the Claude CLI.
+const defaultDeps = { extractPlaylist, fetchTranscript, generateDigest, mergeUsage, saveEntry, getEntry };
+
 /**
  * Generate a unique job id: `job_<timestamp>_<counter>`.
  */
@@ -44,9 +48,14 @@ function pruneJobs() {
  *
  * @param {string} url
  * @param {{ length?: string, format?: string, language?: string, lang?: string, skipExisting?: boolean }} [opts]
+ * @param {Partial<typeof defaultDeps>} [deps] Injectable dependencies (tests only; defaults to real implementations)
  * @returns {{ jobId: string }}
  */
-export function startPlaylistDigest(url, opts = {}) {
+export function startPlaylistDigest(url, opts = {}, deps = {}) {
+  const { extractPlaylist, fetchTranscript, generateDigest, mergeUsage, saveEntry, getEntry } = {
+    ...defaultDeps,
+    ...deps,
+  };
   const jobId = generateJobId();
   const startedAt = new Date().toISOString();
 
