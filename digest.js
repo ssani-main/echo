@@ -106,17 +106,55 @@ export function mergeUsage(usages) {
  * @param {string} str
  * @returns {unknown}
  */
-function parseJsonLoose(str) {
+export function parseJsonLoose(str) {
   // Strip ```json ... ``` or ``` ... ``` fences
-  let s = str.replace(/```[a-z]*\n?/gi, '').replace(/```/g, '');
+  const s = str.replace(/```[a-z]*\n?/gi, '').replace(/```/g, '').trim();
 
-  // Find the outermost { ... }
-  const start = s.indexOf('{');
-  const end = s.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) {
-    throw new Error(`No JSON object found in Claude output. Snippet: ${str.slice(0, 300)}`);
+  // (a) try a direct parse of the fence-stripped/trimmed text first.
+  try {
+    return JSON.parse(s);
+  } catch (_) {
+    // fall through
   }
-  return JSON.parse(s.slice(start, end + 1));
+
+  const start = s.indexOf('{');
+  if (start === -1) {
+    const e = new Error(`No JSON object found in Claude output. Snippet: ${str.slice(0, 300)}`);
+    e.echoCode = 'MODEL_BAD_JSON';
+    throw e;
+  }
+
+  // (b) brace-slice: first '{' to last '}'.
+  const lastEnd = s.lastIndexOf('}');
+  if (lastEnd > start) {
+    try {
+      return JSON.parse(s.slice(start, lastEnd + 1));
+    } catch (_) {
+      // fall through to repair attempts
+    }
+  }
+
+  // (c) light repair: try progressively shorter slices from the first '{' to
+  // each subsequent '}', working backwards from the end, returning the first
+  // that parses. This recovers from trailing prose after the JSON, or a
+  // stray unmatched '}' further out than the real closing brace.
+  const closeIndices = [];
+  for (let i = s.indexOf('}', start); i !== -1; i = s.indexOf('}', i + 1)) {
+    closeIndices.push(i);
+  }
+  for (let i = closeIndices.length - 1; i >= 0; i--) {
+    const end = closeIndices[i];
+    try {
+      return JSON.parse(s.slice(start, end + 1));
+    } catch (_) {
+      // try the next shorter candidate
+    }
+  }
+
+  // (d) all attempts failed — throw a clearly tagged error.
+  const e = new Error(`Could not parse JSON from Claude output. Snippet: ${str.slice(0, 300)}`);
+  e.echoCode = 'MODEL_BAD_JSON';
+  throw e;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,6 +171,7 @@ function parseJsonLoose(str) {
  */
 export async function runClaude(prompt, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   const { exe, args } = buildSpawnTarget();
+  const isWin = process.platform === 'win32';
 
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -140,16 +179,37 @@ export async function runClaude(prompt, { timeoutMs = DEFAULT_TIMEOUT_MS } = {})
     const child = spawn(exe, args, {
       shell: false,
       stdio: ['pipe', 'pipe', 'pipe'],
+      // On non-Windows, run in its own process group so we can kill the
+      // whole tree (child + any grandchildren) on timeout via a negative pid.
+      ...(isWin ? {} : { detached: true }),
     });
 
-    const stdoutChunks = [];
-    const stderrChunks = [];
+    // Kills the entire process tree rooted at `child`. On Windows, `child`
+    // is `cmd.exe /c claude`, and cmd.kill() only kills cmd.exe itself,
+    // orphaning the grandchild `claude` process — so we use `taskkill /T`
+    // to kill the whole tree instead. On POSIX, killing the negative pid
+    // (the process group) reaches the detached child and its descendants.
+    function killTree() {
+      if (typeof child.pid !== 'number') return;
+      if (isWin) {
+        try {
+          spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+            shell: false,
+            stdio: 'ignore',
+          }).on('error', () => { /* ignore — process may already be gone */ });
+        } catch (_) { /* ignore */ }
+      } else {
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+        } catch (_) { /* ignore — process may already be gone */ }
+      }
+    }
 
     // --- timeout ---
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      try { child.kill(); } catch (_) { /* ignore */ }
+      killTree();
       reject(new Error(`claude CLI timed out after ${timeoutMs / 1000}s.`));
     }, timeoutMs);
 
@@ -172,6 +232,8 @@ export async function runClaude(prompt, { timeoutMs = DEFAULT_TIMEOUT_MS } = {})
     });
 
     // --- collect output ---
+    const stdoutChunks = [];
+    const stderrChunks = [];
     child.stdout.on('data', (chunk) => stdoutChunks.push(chunk));
     child.stderr.on('data', (chunk) => stderrChunks.push(chunk));
 
@@ -335,6 +397,22 @@ export function chunkText(text, budgetChars = CHUNK_CONTENT_CHARS) {
  * @param {string} question
  * @returns {number}
  */
+/**
+ * Builds an "answer in <language>" instruction. Defaults to English when
+ * `language` is absent, blank, or already "english" (case-insensitive) —
+ * this preserves existing hardcoded-English behaviour exactly.
+ *
+ * @param {string|undefined} language
+ * @returns {string}
+ */
+function languageDirective(language) {
+  const trimmed = (language || '').trim();
+  if (!trimmed || trimmed.toLowerCase() === 'english') {
+    return 'Answer in English using concise Markdown.';
+  }
+  return `Answer in ${trimmed} using concise Markdown.`;
+}
+
 function scoreChunkRelevance(chunkContent, question) {
   const words = (s) =>
     new Set(
@@ -612,13 +690,19 @@ async function quotesMapReduce(segmentChunks, opts = {}) {
  * Reduce: Claude call to merge and deduplicate claims across all chunks.
  *
  * @param {string[]} textChunks
- * @param {object} [opts]
+ * @param {object} [opts]  `opts.language` — human-readable language name/code
+ *   for the "claim"/"explanation" text; defaults to English when absent/empty.
  * @returns {Promise<{ claims: Array<{ claim: string, assessment: string, confidence: string, explanation: string }>, usage: object }>}
  */
 async function factCheckMapReduce(textChunks, opts = {}) {
   const usages = [];
   const allClaims = [];
   const total = textChunks.length;
+  const { language } = opts;
+  const languageNote =
+    language && language.trim() && language.trim().toLowerCase() !== 'english'
+      ? `Write the "claim" and "explanation" text in ${language.trim()}. `
+      : '';
 
   const validAssessments = new Set(['supported', 'disputed', 'unverifiable']);
   const validConfidences = new Set(['low', 'medium', 'high']);
@@ -630,6 +714,7 @@ async function factCheckMapReduce(textChunks, opts = {}) {
       'Extract the main factual or checkable claims from THIS PORTION ONLY ' +
       'and assess each one based ONLY on your training knowledge. ' +
       'You do NOT have access to the internet or live data.\n\n' +
+      languageNote +
       'For each claim provide:\n' +
       '  - "claim": a short summary of the factual assertion\n' +
       '  - "assessment": one of "supported", "disputed", or "unverifiable"\n' +
@@ -690,6 +775,7 @@ async function factCheckMapReduce(textChunks, opts = {}) {
     'Some claims may be duplicated or closely related across portions. ' +
     'Merge any duplicate or near-duplicate claims, keeping the best-quality entry. ' +
     'Preserve the exact assessment/confidence/explanation format.\n\n' +
+    languageNote +
     'Return STRICT JSON and nothing else — no prose before or after, no code fences:\n' +
     '{"claims":[{"claim":"...","assessment":"supported|disputed|unverifiable","confidence":"low|medium|high","explanation":"..."}, ...]}\n\n' +
     'CANDIDATE CLAIMS:\n\n' +
@@ -744,6 +830,7 @@ async function factCheckMapReduce(textChunks, opts = {}) {
  * @returns {Promise<{ answer: string, usage: object }>}
  */
 async function askRetrievalLite(textChunks, question, opts = {}) {
+  const { language } = opts;
   // Score each chunk and sort descending by relevance.
   const scored = textChunks.map((chunk, idx) => ({
     idx,
@@ -785,7 +872,7 @@ async function askRetrievalLite(textChunks, question, opts = {}) {
     'Answer the question using ONLY the information present in the transcript text below. ' +
     'If the transcript does not contain enough information to answer the question, say so plainly — ' +
     'do NOT invent or infer facts that are not in the transcript. ' +
-    'Answer in English using concise Markdown.' +
+    languageDirective(language) +
     partialNote +
     `\n\nQUESTION: ${question.trim()}\n\n` +
     'TRANSCRIPT:\n\n' +
@@ -960,7 +1047,8 @@ export async function generateDigest(transcriptText, opts = {}) {
  *
  * @param {string} transcriptText
  * @param {string} question
- * @param {object} [opts]
+ * @param {{ language?: string }} [opts]  `language` — human-readable language
+ *   name/code to answer in; defaults to English when absent/empty.
  * @returns {Promise<{ answer: string, usage: object }>}
  */
 export async function askVideoQuestion(transcriptText, question, opts = {}) {
@@ -970,6 +1058,8 @@ export async function askVideoQuestion(transcriptText, question, opts = {}) {
   if (!question || !question.trim()) {
     throw new Error('No question provided.');
   }
+
+  const { language } = opts;
 
   // --- Long-path guard ---
   if (transcriptText.length > LONG_PATH_THRESHOLD_CHARS) {
@@ -985,7 +1075,7 @@ export async function askVideoQuestion(transcriptText, question, opts = {}) {
     'Answer the question using ONLY the information present in the transcript. ' +
     'If the transcript does not contain enough information to answer the question, say so plainly — ' +
     'do NOT invent or infer facts that are not in the transcript. ' +
-    'Answer in English using concise Markdown.\n\n' +
+    languageDirective(language) + '\n\n' +
     `QUESTION: ${question.trim()}\n\n` +
     'TRANSCRIPT:\n\n' +
     transcriptText;
@@ -1218,12 +1308,21 @@ export async function generateCrossDigest(entries, options = {}) {
  * chunk, then a Claude reduce call deduplicates and consolidates them.
  *
  * @param {string} transcriptText
+ * @param {{ language?: string }} [opts]  `language` — human-readable language
+ *   name/code for the "claim"/"explanation" text; defaults to English when
+ *   absent/empty.
  * @returns {Promise<{ claims: Array<{ claim: string, assessment: string, confidence: string, explanation: string }>, caveat: string, usage: object }>}
  */
 export async function factCheck(transcriptText, opts = {}) {
   if (!transcriptText || !transcriptText.trim()) {
     throw new Error('No transcript text provided.');
   }
+
+  const { language } = opts;
+  const languageNote =
+    language && language.trim() && language.trim().toLowerCase() !== 'english'
+      ? `Write the "claim" and "explanation" text in ${language.trim()}. `
+      : '';
 
   const caveat =
     'These assessments are based solely on the model\'s training knowledge ' +
@@ -1245,6 +1344,7 @@ export async function factCheck(transcriptText, opts = {}) {
     'Extract the main factual or checkable claims made in the video and assess each one ' +
     'based ONLY on your training knowledge. ' +
     'You do NOT have access to the internet or live data — be explicit about this limitation in your explanations.\n\n' +
+    languageNote +
     'For each claim provide:\n' +
     '  - "claim": a short summary of the factual assertion\n' +
     '  - "assessment": one of "supported", "disputed", or "unverifiable"\n' +
