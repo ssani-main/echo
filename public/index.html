@@ -437,40 +437,6 @@
       box-shadow: 0 0 0 3px var(--accent-soft);
     }
 
-    #fetchBtn {
-      padding: 0.65rem 1.4rem;
-      font-family: var(--font-sans);
-      font-size: 0.9rem;
-      font-weight: 500;
-      color: var(--on-accent);
-      background: var(--accent);
-      border: none;
-      border-radius: var(--radius);
-      cursor: pointer;
-      white-space: nowrap;
-      outline: none;
-      transition: background 0.15s;
-    }
-
-    #fetchBtn:hover:not(:disabled) {
-      background: var(--accent-dark);
-    }
-
-    #fetchBtn:focus-visible {
-      box-shadow: 0 0 0 3px var(--accent-soft);
-    }
-
-    #fetchBtn:active:not(:disabled) {
-      background: var(--accent-dark);
-      filter: brightness(0.92);
-    }
-
-    #fetchBtn:disabled {
-      background: var(--muted);
-      opacity: 0.6;
-      cursor: default;
-    }
-
     /* ==============================================
        6. STATUS LINE
     =============================================== */
@@ -1379,11 +1345,6 @@
 
       .command-bar {
         flex-direction: column;
-      }
-
-      #fetchBtn {
-        width: 100%;
-        text-align: center;
       }
 
       #output,
@@ -3414,6 +3375,22 @@
       margin: 0 0 1rem;
     }
 
+    .settings-toggle-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-top: 18px;
+      cursor: pointer;
+    }
+    .settings-toggle-row input[type="checkbox"] {
+      margin-top: 3px;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    .settings-toggle-text { display: flex; flex-direction: column; gap: 2px; }
+    .settings-toggle-title { font-weight: 600; font-size: 0.9rem; }
+    .settings-toggle-row .settings-note { margin: 0; }
+
     .settings-actions {
       display: flex;
       gap: 0.5rem;
@@ -3947,11 +3924,10 @@
       <input
         id="urlInput"
         type="text"
-        placeholder="youtube.com/watch?v=…"
+        placeholder="Paste a YouTube link — it loads automatically"
         autocomplete="off"
         spellcheck="false"
       />
-      <button id="fetchBtn">Get transcript</button>
     </div>
 
     <!-- STATUS LINE -->
@@ -4452,22 +4428,31 @@
         <span class="shortcuts-modal-title">Settings</span>
         <button class="shortcuts-close-btn" id="settingsClose" aria-label="Close settings">✕</button>
       </div>
-      <label class="digest-opt-label" for="apiKeyInput">Anthropic API key</label>
-      <input
-        id="apiKeyInput"
-        type="password"
-        autocomplete="off"
-        spellcheck="false"
-        placeholder="sk-ant-…"
-      />
-      <p class="settings-note">
-        Your key is stored locally in this browser and sent only to Anthropic through this app —
-        never to any other server.
-      </p>
-      <div class="settings-actions">
-        <button class="mini-btn" id="settingsClearKeyBtn">Clear</button>
-        <button class="mini-btn" id="settingsSaveKeyBtn">Save</button>
+      <div id="apiKeySection">
+        <label class="digest-opt-label" for="apiKeyInput">Anthropic API key</label>
+        <input
+          id="apiKeyInput"
+          type="password"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="sk-ant-…"
+        />
+        <p class="settings-note">
+          Your key is stored locally in this browser and sent only to Anthropic through this app —
+          never to any other server.
+        </p>
+        <div class="settings-actions">
+          <button class="mini-btn" id="settingsClearKeyBtn">Clear</button>
+          <button class="mini-btn" id="settingsSaveKeyBtn">Save</button>
+        </div>
       </div>
+      <label class="settings-toggle-row" for="autoDigestToggle">
+        <input type="checkbox" id="autoDigestToggle" />
+        <span class="settings-toggle-text">
+          <span class="settings-toggle-title">Auto-generate AI digest</span>
+          <span class="settings-note">Run the AI digest automatically after fetching a transcript.</span>
+        </span>
+      </label>
     </div>
   </div>
 
@@ -5079,7 +5064,10 @@
     =============================================== */
     const pageContainerEl = document.getElementById('pageContainer');
     const urlInput        = document.getElementById('urlInput');
-    const fetchBtn        = document.getElementById('fetchBtn');
+    // In-flight guard + auto-fetch bookkeeping (replaces the removed "Get transcript" button).
+    let isFetching       = false;
+    let lastAutoFetchRef = '';
+    let autoFetchTimer   = null;
     const statusEl        = document.getElementById('status');
     const outputEl        = document.getElementById('output');
     const radios          = document.querySelectorAll('input[name="viewMode"]');
@@ -6515,12 +6503,14 @@
     async function fetchTranscript() {
       const url = urlInput.value.trim();
       if (!url) { setStatus('Please enter a YouTube URL or video ID.', true); return; }
+      if (isFetching) return; // guard against overlapping fetches
+      lastAutoFetchRef = url; // dedupe key so auto-triggers don't re-fire the same URL
 
       // Read and clear the playlist-navigation flag before any await
       const keepPlaylist = _playlistNavFlag;
       _playlistNavFlag   = false;
 
-      fetchBtn.disabled = true;
+      isFetching = true;
       outputEl.classList.remove('visible');
       showTranscriptSkeleton();
 
@@ -6669,6 +6659,13 @@
         if (!keepPlaylist && url.includes('list=')) {
           loadPlaylist(url);
         }
+
+        // Auto-generate the AI digest if enabled (Echo's default behavior).
+        // In web mode, silently skip when no API key is set to avoid popping
+        // the settings modal right after the transcript loads.
+        if (getAutoDigest() && (ECHO.mode !== 'web' || getApiKey())) {
+          Promise.resolve(runDigest()).catch(err => console.error('[echo] auto-digest error:', err));
+        }
       } catch (err) {
         console.error('[echo] fetchTranscript network error:', err);
         setStatus('Network error — could not reach the server.', true);
@@ -6677,7 +6674,7 @@
         outputEl.innerHTML = '';
         lastSegments = null;
       } finally {
-        fetchBtn.disabled = false;
+        isFetching = false;
       }
     }
 
@@ -6689,18 +6686,34 @@
       return /(?:youtube\.com|youtu\.be)\//i.test(s);
     }
 
-    fetchBtn.addEventListener('click', fetchTranscript);
-    urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') fetchTranscript(); });
+    // Auto-fetch: with the "Get transcript" button removed, entering a valid
+    // YouTube reference (by paste, typing, Enter, or leaving the field) kicks
+    // off the fetch — which in turn auto-runs the digest. maybeAutoFetch()
+    // dedupes so the same URL never re-fires or wastes an AI call.
+    function maybeAutoFetch() {
+      if (isFetching) return;
+      const v = urlInput.value.trim();
+      if (!looksLikeYoutubeRef(v)) return;
+      if (v === lastAutoFetchRef) return;
+      fetchTranscript();
+    }
 
-    // Paste → auto-fetch: if what just landed in the box is recognisably a
-    // YouTube URL or bare video id, kick off the fetch immediately instead of
-    // waiting for the user to also hit Enter / click Fetch.
-    urlInput.addEventListener('paste', () => {
-      setTimeout(() => {
-        if (fetchBtn.disabled) return; // a fetch is already in flight
-        if (looksLikeYoutubeRef(urlInput.value)) fetchTranscript();
-      }, 0);
+    // Enter → fetch immediately (explicit; bypasses the dedupe/debounce).
+    urlInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { clearTimeout(autoFetchTimer); fetchTranscript(); }
     });
+
+    // Paste → fetch on the next tick, once the pasted text has landed.
+    urlInput.addEventListener('paste', () => { setTimeout(maybeAutoFetch, 0); });
+
+    // Typing → debounced fetch once the value settles into a valid reference.
+    urlInput.addEventListener('input', () => {
+      clearTimeout(autoFetchTimer);
+      autoFetchTimer = setTimeout(maybeAutoFetch, 600);
+    });
+
+    // Leaving the field → fetch immediately if it holds a fresh valid reference.
+    urlInput.addEventListener('blur', () => { clearTimeout(autoFetchTimer); maybeAutoFetch(); });
 
     radios.forEach(r => r.addEventListener('change', () => {
       syncToggleActive();
@@ -9302,8 +9315,22 @@
       catch { /* localStorage unavailable — non-fatal */ }
     }
 
+    // Auto-digest preference (default ON — AI digest is Echo's core product).
+    const AUTO_DIGEST_STORAGE_KEY = 'echo-auto-digest';
+
+    function getAutoDigest() {
+      try { return localStorage.getItem(AUTO_DIGEST_STORAGE_KEY) !== 'false'; }
+      catch { return true; }
+    }
+
+    function setAutoDigest(on) {
+      try { localStorage.setItem(AUTO_DIGEST_STORAGE_KEY, on ? 'true' : 'false'); }
+      catch { /* localStorage unavailable — non-fatal */ }
+    }
+
     const settingsOverlayEl = document.getElementById('settingsOverlay');
     const apiKeyInputEl     = document.getElementById('apiKeyInput');
+    const autoDigestToggleEl = document.getElementById('autoDigestToggle');
 
     function openSettingsModal() {
       if (!settingsOverlayEl) return;
@@ -9311,8 +9338,11 @@
       if (!hlCreatePopover.hidden) hideHighlightCreatePopover();
       if (!hlViewPopover.hidden)   hideHighlightViewPopover();
       if (apiKeyInputEl) apiKeyInputEl.value = getApiKey();
+      if (autoDigestToggleEl) autoDigestToggleEl.checked = getAutoDigest();
       settingsOverlayEl.hidden = false;
-      apiKeyInputEl?.focus();
+      // Focus the key field in web mode; otherwise the (visible) auto-digest toggle.
+      if (ECHO.mode === 'web') apiKeyInputEl?.focus();
+      else autoDigestToggleEl?.focus();
     }
 
     function closeSettingsModal() {
@@ -9337,10 +9367,20 @@
       showToast('info', 'API key cleared.');
     });
 
-    // Reveal the settings entry point only in web mode; local mode is unaffected.
-    if (ECHO.mode === 'web') {
-      const settingsBtnEl = document.getElementById('settingsBtn');
-      if (settingsBtnEl) settingsBtnEl.hidden = false;
+    autoDigestToggleEl?.addEventListener('change', () => {
+      setAutoDigest(autoDigestToggleEl.checked);
+      showToast('info', autoDigestToggleEl.checked
+        ? 'Auto-digest on — digests run automatically after fetching a transcript.'
+        : 'Auto-digest off.');
+    });
+
+    // Settings gear is available in all modes now (the auto-digest toggle lives here).
+    const settingsBtnEl = document.getElementById('settingsBtn');
+    if (settingsBtnEl) settingsBtnEl.hidden = false;
+    // The BYOK API-key section only applies to web mode; hide it elsewhere.
+    if (ECHO.mode !== 'web') {
+      const apiKeySectionEl = document.getElementById('apiKeySection');
+      if (apiKeySectionEl) apiKeySectionEl.hidden = true;
     }
 
     /**
@@ -9534,7 +9574,7 @@
           // Segments were dropped (quota) or never captured — ask the user to
           // re-fetch rather than guessing at transcript content.
           urlInput.value = snap.url;
-          setStatus('Session restored — press Get transcript to reload the transcript.');
+          setStatus('Session restored — press Enter in the link box to reload the transcript.');
           return true;
         }
 
