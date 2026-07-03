@@ -122,6 +122,7 @@ const ECHO_ERROR_STATUS = {
   API_NOT_AUTHED:         401,
   API_RATE_LIMITED:       429,
   API_FAILED:             502,
+  WEB_MODE_UNSUPPORTED:   503,
 };
 
 /**
@@ -155,6 +156,25 @@ function sendCaughtError(res, err) {
   }
   // Unexpected error — log detail, send generic message to client
   return sendError(res, 'INTERNAL', 'An unexpected server error occurred.', '');
+}
+
+/**
+ * Validate that `value` is a non-empty (post-trim) string, sending a
+ * structured 400 INTERNAL error via sendError() and returning false if not.
+ * Callers should `if (!requireText(...)) return;` immediately after.
+ *
+ * @param {import('express').Response} res
+ * @param {*} value
+ * @param {string} message - error message to send when validation fails
+ * @param {string} [hint]  - optional remediation hint
+ * @returns {boolean} true if value is valid text (caller should proceed)
+ */
+function requireText(res, value, message, hint = '') {
+  if (!value || !value.trim()) {
+    sendError(res, 'INTERNAL', message, hint, 400);
+    return false;
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,6 +282,28 @@ function rejectOversizeAiPayload(res, { text, segments } = {}) {
     return true;
   }
   return false;
+}
+
+/**
+ * Express middleware — blocks a route entirely in web mode with a 503.
+ * NO-OP in local/desktop mode. Used to disable server-side library/search
+ * routes in hosted web mode, where persistence lives client-side (IndexedDB)
+ * and the server-side SQLite store must never be reachable by visitors.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+function blockInWeb(req, res, next) {
+  if (isWeb) {
+    return sendError(
+      res,
+      'WEB_MODE_UNSUPPORTED',
+      'This feature is not available in hosted web mode.',
+      'Your library is stored in your browser.'
+    );
+  }
+  next();
 }
 
 // ---------------------------------------------------------------------------
@@ -390,18 +432,10 @@ app.post('/api/playlist/digest/cancel', (req, res) => {
 // Digest
 // ---------------------------------------------------------------------------
 
-app.post('/api/digest', async (req, res) => {
+app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
   const { text, length, format, language } = req.body;
 
-  if (!text || !text.trim()) {
-    return sendError(
-      res,
-      'INTERNAL',
-      'No transcript text provided.',
-      'Load a transcript before generating a digest.',
-      400
-    );
-  }
+  if (!requireText(res, text, 'No transcript text provided.', 'Load a transcript before generating a digest.')) return;
 
   if (rejectOversizeAiPayload(res, { text })) return;
 
@@ -417,14 +451,10 @@ app.post('/api/digest', async (req, res) => {
 // Chat / Ask
 // ---------------------------------------------------------------------------
 
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', webLimit(20, 60_000), async (req, res) => {
   const { text, question } = req.body;
-  if (!text || !text.trim()) {
-    return sendError(res, 'INTERNAL', 'text is required.', '', 400);
-  }
-  if (!question || !question.trim()) {
-    return sendError(res, 'INTERNAL', 'question is required.', '', 400);
-  }
+  if (!requireText(res, text, 'text is required.')) return;
+  if (!requireText(res, question, 'question is required.')) return;
   if (rejectOversizeAiPayload(res, { text })) return;
   try {
     const result = await askVideoQuestion(text, question, { apiKey: readApiKey(req) });
@@ -438,7 +468,7 @@ app.post('/api/chat', async (req, res) => {
 // Chapters
 // ---------------------------------------------------------------------------
 
-app.post('/api/chapters', async (req, res) => {
+app.post('/api/chapters', webLimit(20, 60_000), async (req, res) => {
   const { segments } = req.body;
   if (!Array.isArray(segments) || segments.length === 0) {
     return sendError(res, 'INTERNAL', 'segments must be a non-empty array.', '', 400);
@@ -456,7 +486,7 @@ app.post('/api/chapters', async (req, res) => {
 // Quotes
 // ---------------------------------------------------------------------------
 
-app.post('/api/quotes', async (req, res) => {
+app.post('/api/quotes', webLimit(20, 60_000), async (req, res) => {
   const { segments } = req.body;
   if (!Array.isArray(segments) || segments.length === 0) {
     return sendError(res, 'INTERNAL', 'segments must be a non-empty array.', '', 400);
@@ -474,11 +504,9 @@ app.post('/api/quotes', async (req, res) => {
 // Fact-check
 // ---------------------------------------------------------------------------
 
-app.post('/api/factcheck', async (req, res) => {
+app.post('/api/factcheck', webLimit(20, 60_000), async (req, res) => {
   const { text } = req.body;
-  if (!text || !text.trim()) {
-    return sendError(res, 'INTERNAL', 'text is required.', '', 400);
-  }
+  if (!requireText(res, text, 'text is required.')) return;
   if (rejectOversizeAiPayload(res, { text })) return;
   try {
     const result = await factCheck(text, { apiKey: readApiKey(req) });
@@ -508,7 +536,7 @@ app.get('/api/usage', async (req, res) => {
 // IMPORTANT: /api/saved/export must be defined BEFORE /api/saved/:videoId
 // so Express does not capture "export" as a videoId parameter.
 
-app.get('/api/saved', async (_req, res) => {
+app.get('/api/saved', blockInWeb, async (_req, res) => {
   try {
     res.json(await listEntries());
   } catch (err) {
@@ -516,7 +544,7 @@ app.get('/api/saved', async (_req, res) => {
   }
 });
 
-app.get('/api/saved/export', async (_req, res) => {
+app.get('/api/saved/export', blockInWeb, async (_req, res) => {
   try {
     const meta = await listEntries();
     const entries = await Promise.all(meta.map((m) => getEntry(m.videoId)));
@@ -528,7 +556,7 @@ app.get('/api/saved/export', async (_req, res) => {
 
 // Sub-routes for a saved entry — all before the bare /:videoId GET/DELETE
 
-app.patch('/api/saved/:videoId/tags', async (req, res) => {
+app.patch('/api/saved/:videoId/tags', blockInWeb, async (req, res) => {
   try {
     const { tags } = req.body;
     if (!Array.isArray(tags)) {
@@ -542,7 +570,7 @@ app.patch('/api/saved/:videoId/tags', async (req, res) => {
   }
 });
 
-app.patch('/api/saved/:videoId/favorite', async (req, res) => {
+app.patch('/api/saved/:videoId/favorite', blockInWeb, async (req, res) => {
   try {
     const { favorite } = req.body;
     if (favorite === undefined || favorite === null) {
@@ -556,12 +584,10 @@ app.patch('/api/saved/:videoId/favorite', async (req, res) => {
   }
 });
 
-app.post('/api/saved/:videoId/notes', async (req, res) => {
+app.post('/api/saved/:videoId/notes', blockInWeb, async (req, res) => {
   try {
     const { text } = req.body;
-    if (!text || !text.trim()) {
-      return sendError(res, 'INTERNAL', 'text is required.', '', 400);
-    }
+    if (!requireText(res, text, 'text is required.')) return;
     const note = await addNote(req.params.videoId, text);
     if (note === null) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
     res.status(201).json(note);
@@ -570,7 +596,7 @@ app.post('/api/saved/:videoId/notes', async (req, res) => {
   }
 });
 
-app.delete('/api/saved/:videoId/notes/:noteId', async (req, res) => {
+app.delete('/api/saved/:videoId/notes/:noteId', blockInWeb, async (req, res) => {
   try {
     const result = await deleteNote(req.params.videoId, req.params.noteId);
     if (result === null) return sendError(res, 'INTERNAL', 'Entry not found.', '', 404);
@@ -581,7 +607,7 @@ app.delete('/api/saved/:videoId/notes/:noteId', async (req, res) => {
   }
 });
 
-app.put('/api/saved/:videoId/highlights', async (req, res) => {
+app.put('/api/saved/:videoId/highlights', blockInWeb, async (req, res) => {
   try {
     const { highlights } = req.body;
     if (!Array.isArray(highlights)) {
@@ -595,7 +621,7 @@ app.put('/api/saved/:videoId/highlights', async (req, res) => {
   }
 });
 
-app.post('/api/saved/:videoId/highlights', async (req, res) => {
+app.post('/api/saved/:videoId/highlights', blockInWeb, async (req, res) => {
   try {
     const { text, note, color } = req.body;
     let highlight;
@@ -612,7 +638,7 @@ app.post('/api/saved/:videoId/highlights', async (req, res) => {
   }
 });
 
-app.delete('/api/saved/:videoId/highlights/:highlightId', async (req, res) => {
+app.delete('/api/saved/:videoId/highlights/:highlightId', blockInWeb, async (req, res) => {
   try {
     const result = await deleteHighlight(req.params.videoId, req.params.highlightId);
     if (result === null || result === false) {
@@ -624,7 +650,7 @@ app.delete('/api/saved/:videoId/highlights/:highlightId', async (req, res) => {
   }
 });
 
-app.get('/api/saved/:videoId', async (req, res) => {
+app.get('/api/saved/:videoId', blockInWeb, async (req, res) => {
   try {
     const e = await getEntry(req.params.videoId);
     if (!e) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
@@ -634,7 +660,7 @@ app.get('/api/saved/:videoId', async (req, res) => {
   }
 });
 
-app.get('/api/saved/:videoId/export.md', async (req, res) => {
+app.get('/api/saved/:videoId/export.md', blockInWeb, async (req, res) => {
   try {
     const entry = await getEntry(req.params.videoId);
     if (!entry) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
@@ -653,7 +679,7 @@ app.get('/api/saved/:videoId/export.md', async (req, res) => {
   }
 });
 
-app.get('/api/clips', async (req, res) => {
+app.get('/api/clips', blockInWeb, async (req, res) => {
   try {
     const { videoId } = req.query;
     let entries;
@@ -675,7 +701,7 @@ app.get('/api/clips', async (req, res) => {
   }
 });
 
-app.post('/api/saved', async (req, res) => {
+app.post('/api/saved', blockInWeb, async (req, res) => {
   try {
     const { url, videoId, title, segments, digest } = req.body;
     if (!videoId || !Array.isArray(segments) || segments.length === 0) {
@@ -688,7 +714,7 @@ app.post('/api/saved', async (req, res) => {
   }
 });
 
-app.delete('/api/saved/:videoId', async (req, res) => {
+app.delete('/api/saved/:videoId', blockInWeb, async (req, res) => {
   try {
     const ok = await deleteEntry(req.params.videoId);
     if (!ok) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
@@ -702,7 +728,7 @@ app.delete('/api/saved/:videoId', async (req, res) => {
 // Cross-digest
 // ---------------------------------------------------------------------------
 
-app.post('/api/cross-digest', async (req, res) => {
+app.post('/api/cross-digest', webLimit(20, 60_000), async (req, res) => {
   const { videoIds, options } = req.body;
 
   // Web mode: the browser holds the library client-side (no server store of
@@ -830,7 +856,7 @@ app.get('/api/search/status', (_req, res) => {
  * Computes and stores embeddings for all library entries that don't have one yet.
  * Returns { ok, indexed, skipped, total } or a note if embeddings are disabled.
  */
-app.post('/api/search/reindex', async (_req, res) => {
+app.post('/api/search/reindex', blockInWeb, async (_req, res) => {
   // Ensure model init has run (idempotent and fast if already done)
   await initEmbeddings();
 
@@ -879,7 +905,7 @@ app.post('/api/search/reindex', async (_req, res) => {
  * Response shape is always { results: [...], mode: 'keyword'|'hybrid' }.
  * Each result: { videoId, title, url, snippet, tags, favorite }.
  */
-app.get('/api/search', async (req, res) => {
+app.get('/api/search', blockInWeb, async (req, res) => {
   const q     = String(req.query.q || '').trim();
   const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
 

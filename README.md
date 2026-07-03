@@ -122,10 +122,11 @@ Public web mode with no authentication. Each visitor:
 - Library stored in browser's **IndexedDB** — each visitor's library is isolated, no user accounts
 
 **Web-mode limits:**
+- Server-side library API disabled (HTTP 503): `/api/saved*`, `/api/clips`, `/api/search*` — library in IndexedDB only
 - Semantic search disabled (falls back to client-side text filtering)
-- Per-IP rate limiting to prevent abuse
+- Per-IP rate limiting: 20 requests / 60s on AI and transcript routes
 - Transcript and AI payload size caps
-- Playlist digest disabled
+- Batch playlist digest unavailable
 
 ### Desktop app (Tauri v2)
 

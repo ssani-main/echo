@@ -6530,12 +6530,10 @@
      */
     function renderMarkdown(md) {
       // 1. Escape HTML in the raw source first.
+      // Delegates to the canonical escapeAttr() (escapes &, <, >, " — same
+      // character set this local esc() previously escaped by hand).
       function esc(s) {
-        return s
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;');
+        return escapeAttr(s);
       }
 
       // 2. Apply inline transforms (code, links, bold, italic) to an

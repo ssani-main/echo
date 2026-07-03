@@ -313,6 +313,16 @@ export async function fetchTranscript(videoId, opts = {}) {
  * Caps the returned video list at 200 entries.
  * On any failure returns { playlistTitle: null, videos: [] } — never throws.
  */
+// Hostnames allowed for the URL handed to yt-dlp. Guards against passing
+// arbitrary/attacker-controlled URLs (SSRF-ish) through to a spawned process.
+const ALLOWED_PLAYLIST_HOSTS = new Set([
+  'youtube.com',
+  'www.youtube.com',
+  'm.youtube.com',
+  'music.youtube.com',
+  'youtu.be',
+]);
+
 export async function extractPlaylist(url) {
   if (!url || typeof url !== 'string') return { playlistTitle: null, videos: [] };
 
@@ -320,6 +330,17 @@ export async function extractPlaylist(url) {
   let targetUrl = url.trim();
   if (!/^https?:\/\//i.test(targetUrl) && !targetUrl.includes('youtube')) {
     targetUrl = `https://www.youtube.com/playlist?list=${targetUrl}`;
+  }
+
+  // Validate that the final URL handed to yt-dlp actually points at YouTube.
+  let parsed;
+  try {
+    parsed = new URL(targetUrl);
+  } catch {
+    throw new Error('Playlist URL is not a valid URL.');
+  }
+  if (!ALLOWED_PLAYLIST_HOSTS.has(parsed.hostname.toLowerCase())) {
+    throw new Error('Playlist URL must be a YouTube URL.');
   }
 
   const MAX_VIDEOS = 200;

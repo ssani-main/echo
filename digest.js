@@ -1123,18 +1123,6 @@ export async function extractQuotes(segments, opts = {}) {
 }
 
 /**
- * Fact-check the main claims in the transcript using the model's own knowledge.
- *
- * IMPORTANT: The Claude CLI has NO live web access. Verdicts are based solely on
- * the model's training knowledge and must be treated accordingly.
- *
- * For long transcripts a map-reduce approach is used: claims are extracted per
- * chunk, then a Claude reduce call deduplicates and consolidates them.
- *
- * @param {string} transcriptText
- * @returns {Promise<{ claims: Array<{ claim: string, assessment: string, confidence: string, explanation: string }>, caveat: string, usage: object }>}
- */
-/**
  * Generate a single comparative synthesis across multiple saved video entries.
  *
  * Source material preference (controls Claude call cost):
@@ -1220,6 +1208,18 @@ export async function generateCrossDigest(entries, options = {}) {
   return { digest: result, usage: mergeUsage([usage]) };
 }
 
+/**
+ * Fact-check the main claims in the transcript using the model's own knowledge.
+ *
+ * IMPORTANT: The Claude CLI has NO live web access. Verdicts are based solely on
+ * the model's training knowledge and must be treated accordingly.
+ *
+ * For long transcripts a map-reduce approach is used: claims are extracted per
+ * chunk, then a Claude reduce call deduplicates and consolidates them.
+ *
+ * @param {string} transcriptText
+ * @returns {Promise<{ claims: Array<{ claim: string, assessment: string, confidence: string, explanation: string }>, caveat: string, usage: object }>}
+ */
 export async function factCheck(transcriptText, opts = {}) {
   if (!transcriptText || !transcriptText.trim()) {
     throw new Error('No transcript text provided.');
