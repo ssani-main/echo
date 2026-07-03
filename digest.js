@@ -989,11 +989,25 @@ export async function generateDigest(transcriptText, opts = {}) {
       'Rules for quality:\n' +
       '- Synthesize, do not transcribe. Untangle rambling into a clear line of reasoning. If the speaker made a good ' +
       'point badly, make it well.\n' +
-      '- KEEP the concrete specifics — numbers, names, prices, dates, examples, and vivid details. These are what make ' +
-      'a digest substantive instead of vague. Never flatten a specific like "a kebab went from 3.5 to 9 euros" into ' +
-      '"prices have risen." Preserve the memorable, concrete details. But never manufacture a specific that was not ' +
-      'clearly stated: if an exact name, number, place, or figure is not actually in the transcript, describe it ' +
-      'generally rather than guessing — a vague-but-true detail is always better than a precise-but-invented one.\n' +
+      '- KEEP every concrete specific the transcript contains — the exact names, companies, places, titles, numbers, ' +
+      'prices, dates, and vivid examples. These are what make a digest substantive instead of vague. Carry each ' +
+      'specific through exactly, and NEVER downgrade a named thing into a generic one. Never flatten "a kebab went ' +
+      'from 3.5 to 9 euros" into "prices have risen"; if the speaker said "Diablo II," do not write "an RPG"; if they ' +
+      'said "Yale," do not write "a US university." If the transcript or the title names the speaker, a guest, or a ' +
+      'person, use that name — do not reduce them to "the speaker," "the creator," or "the guest."\n' +
+      '- But NEVER manufacture a specific the transcript does not contain, and never complete or upgrade a vague ' +
+      'reference using your own outside knowledge. If the transcript says "an economist," keep "an economist" — do not ' +
+      'turn it into "The Economist"; if it says "Felix," do not add a surname; if it names an institution but not the ' +
+      'person, do not supply the person\'s name; if it says "about 5 percent," do not write "5.03 percent"; do not name ' +
+      'any author, study, book, documentary, or source that the transcript itself does not name. When you are unsure ' +
+      'whether a detail was actually stated, describe it generally — a faithful general description always beats a ' +
+      'confident invented specific. And never "correct" the transcript against your own knowledge: if a name, date, ' +
+      'or number in the transcript looks garbled, misspelled, or even factually wrong, keep it as stated or describe ' +
+      'it generally — do not replace it with an outside fact (for example, do not swap a stated birth year for the ' +
+      'one you believe is correct).\n' +
+      '- If two or more people speak — an interview, a panel, a conversation — keep them distinct. Attribute claims ' +
+      'and memorable lines to the right person, make clear who said what, and capture where they agree, disagree, or ' +
+      'build on each other. Never collapse a multi-voice conversation into a single voice.\n' +
       '- Be strictly faithful. Never invent facts, opinions, examples, or conclusions that are not in the transcript. ' +
       'Improving the delivery must NEVER mean changing or adding to the substance.\n' +
       '- Preserve the speaker\'s actual stance and nuance. If their real answer was "it depends" or they were ' +
@@ -1002,7 +1016,8 @@ export async function generateDigest(transcriptText, opts = {}) {
       'not earn its place.\n' +
       '- Be as long as the substance genuinely requires and no longer — dense with value, never padded to seem ' +
       'thorough. A great short digest beats a bloated one.\n' +
-      '- Do not add a preamble, a title, meta-commentary, or an "in conclusion" wrap-up. Start with the bottom line ' +
+      '- Do not add a preamble, a title, meta-commentary, or an "in conclusion" wrap-up. Output only the digest ' +
+      'itself — never a note about the transcript, the task, or your own process. Start with the bottom line ' +
       'and stop when the substance is done.\n' +
       `- Write the entire digest in ${language}.\n\n` +
       'The bar for your output: the reader should finish it and feel they got MORE out of it than they would have ' +
