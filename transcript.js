@@ -71,6 +71,35 @@ function decodeEntities(str) {
 }
 
 /**
+ * Detect whether a set of raw caption offsets are expressed in milliseconds
+ * (as opposed to seconds), using the median gap between consecutive offsets.
+ * Caption gaps are typically 1-8 seconds.
+ *   - Millisecond offsets → gaps of ~1 000-8 000  → median gap >= 50
+ *   - Second  offsets     → gaps of ~1-8           → median gap <  50
+ * We use the median (not the mean) so that any anomalous long pauses do not
+ * skew the decision.
+ * @param {number[]} offsets  Raw offset values, in original (unsorted) order.
+ * @returns {boolean} true if the offsets appear to be millisecond-scale.
+ */
+export function isMillisecondOffsets(offsets) {
+  if (!Array.isArray(offsets) || offsets.length === 0) return false;
+
+  if (offsets.length < 2) {
+    // Edge case: single segment — fall back to a simple magnitude check.
+    return offsets[0] > 1000;
+  }
+
+  const gaps = [];
+  for (let i = 1; i < offsets.length; i++) {
+    gaps.push(offsets[i] - offsets[i - 1]);
+  }
+  // Sort gaps and pick the middle value (lower-middle for even-length arrays).
+  gaps.sort((a, b) => a - b);
+  const medianGap = gaps[Math.floor((gaps.length - 1) / 2)];
+  return medianGap >= 50;
+}
+
+/**
  * Primary: fetch via the youtube-transcript npm package.
  * Returns an array of { text: string, offset: number } where offset is in seconds.
  * @param {string} videoId
@@ -94,28 +123,8 @@ async function fetchViaPackage(videoId, lang) {
     rawOffset: typeof seg.offset === 'number' ? seg.offset : 0,
   }));
 
-  // Step 2: detect the unit ONCE for the whole array using the median gap between
-  // consecutive offsets.  Caption gaps are typically 1-8 seconds.
-  //   - Millisecond offsets → gaps of ~1 000-8 000  → median gap >= 50
-  //   - Second  offsets     → gaps of ~1-8           → median gap <  50
-  // We use the median (not the mean) so that any anomalous long pauses do not
-  // skew the decision.
-  let isMilliseconds;
-
-  if (raw.length < 2) {
-    // Edge case: single segment — fall back to a simple magnitude check.
-    isMilliseconds = raw.length === 1 && raw[0].rawOffset > 1000;
-  } else {
-    const offsets = raw.map((s) => s.rawOffset);
-    const gaps = [];
-    for (let i = 1; i < offsets.length; i++) {
-      gaps.push(offsets[i] - offsets[i - 1]);
-    }
-    // Sort gaps and pick the middle value (lower-middle for even-length arrays).
-    gaps.sort((a, b) => a - b);
-    const medianGap = gaps[Math.floor((gaps.length - 1) / 2)];
-    isMilliseconds = medianGap >= 50;
-  }
+  // Step 2: detect the unit ONCE for the whole array (see isMillisecondOffsets).
+  const isMilliseconds = isMillisecondOffsets(raw.map((s) => s.rawOffset));
 
   const divisor = isMilliseconds ? 1000 : 1;
 
@@ -178,6 +187,68 @@ async function fetchViaYtDlp(videoId, lang) {
   // Explicit --sub-langs request, so we know exactly which track was pulled.
   Object.defineProperty(segments, 'langUsed', { value: effectiveLang, enumerable: false });
   return segments;
+}
+
+/**
+ * Default retry policy for the primary (youtube-transcript package) fetch.
+ * DEFAULT_RETRY_DELAYS_MS.length is the number of retries (attempts - 1).
+ * Tests can override via fetchTranscript's opts.retryDelaysMs (e.g. []) to
+ * run instantly with zero backoff.
+ */
+export const DEFAULT_RETRY_DELAYS_MS = [300, 900];
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Decide whether an error from the primary fetch represents a permanent
+ * condition (no captions, disabled, unavailable video, bad video id, etc.)
+ * that retrying will never fix — as opposed to a transient/network-style
+ * failure that's worth retrying with backoff.
+ */
+const PERMANENT_ERROR_PATTERNS = [
+  /disabled/i,
+  /not available/i,
+  /no longer available/i,
+  /no transcripts? (are )?available/i,
+  /impossible to retrieve/i,
+];
+
+export function isPermanentFetchError(err) {
+  const message = (err && err.message) || '';
+  return PERMANENT_ERROR_PATTERNS.some((re) => re.test(message));
+}
+
+/**
+ * Wrap a primary-fetch function with retry + exponential backoff.
+ * Retries only on transient failures (see isPermanentFetchError); permanent
+ * failures are re-thrown immediately without wasting a retry.
+ *
+ * @param {(videoId: string, lang: string|undefined) => Promise<any>} fetcher
+ * @param {string} videoId
+ * @param {string|undefined} lang
+ * @param {number[]} [retryDelaysMs]  Backoff delays (ms) between attempts.
+ *   retryDelaysMs.length is the number of retries; defaults to
+ *   DEFAULT_RETRY_DELAYS_MS (2 retries: 300ms, 900ms → 3 attempts total).
+ *   Pass [] to disable retries/backoff entirely (single attempt).
+ */
+export async function fetchWithRetry(fetcher, videoId, lang, retryDelaysMs = DEFAULT_RETRY_DELAYS_MS) {
+  let lastErr;
+  const maxAttempts = 1 + retryDelaysMs.length;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await fetcher(videoId, lang);
+    } catch (err) {
+      lastErr = err;
+      if (isPermanentFetchError(err)) throw err;
+      if (attempt < retryDelaysMs.length) {
+        await sleep(retryDelaysMs[attempt]);
+      }
+    }
+  }
+  throw lastErr;
 }
 
 /**
@@ -255,17 +326,25 @@ export async function listCaptionTracks(videoId) {
  * Throws a descriptive Error if both methods fail.
  *
  * @param {string} videoId
- * @param {{ lang?: string }} [opts]  Optional options object.
+ * @param {{ lang?: string, retryDelaysMs?: number[], primaryFetcher?: Function }} [opts]  Optional options object.
  *   opts.lang — BCP-47 language code to request (e.g. "en", "es", "fr").
  *               When omitted the default/auto-selected track is used, matching
  *               the original single-argument behaviour exactly.
+ *   opts.retryDelaysMs — Backoff delays (ms) between primary-fetch retries.
+ *               Defaults to DEFAULT_RETRY_DELAYS_MS (2 retries). Pass [] to
+ *               disable retries (single attempt) — useful for fast tests.
+ *   opts.primaryFetcher — Override for the primary fetch function (used for
+ *               dependency injection in tests). Defaults to the real
+ *               youtube-transcript-backed fetchViaPackage.
  */
 export async function fetchTranscript(videoId, opts = {}) {
   const lang = opts.lang || undefined;
+  const retryDelaysMs = opts.retryDelaysMs !== undefined ? opts.retryDelaysMs : DEFAULT_RETRY_DELAYS_MS;
+  const primaryFetcher = opts.primaryFetcher || fetchViaPackage;
   let primaryError;
 
   try {
-    const segments = await fetchViaPackage(videoId, lang);
+    const segments = await fetchWithRetry(primaryFetcher, videoId, lang, retryDelaysMs);
     if (segments.length > 0) return segments;
     // Empty result treated as a failure so we try the fallback
     primaryError = new Error('youtube-transcript returned no segments');
