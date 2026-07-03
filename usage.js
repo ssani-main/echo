@@ -22,8 +22,10 @@ export async function getTodayUsage() {
   return new Promise((resolve) => {
     let settled = false;
 
-    const child = spawn('npx', ['-y', 'ccusage@latest', 'daily', '--json'], {
-      shell: true,
+    const npxBin = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+
+    const child = spawn(npxBin, ['-y', 'ccusage@latest', 'daily', '--json'], {
+      shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
