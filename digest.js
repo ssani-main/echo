@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { getProvider } from './providers.js';
 
 // ---------------------------------------------------------------------------
@@ -6,7 +7,22 @@ import { getProvider } from './providers.js';
 // ---------------------------------------------------------------------------
 
 const DEFAULT_TIMEOUT_MS = 180_000; // 3 minutes
-const CLAUDE_ARGS = ['-p', '--model', 'sonnet', '--output-format', 'json'];
+
+// System prompt that pins the CLI subprocess to a pure text-transformation
+// role. Without this, the spawned `claude -p` runs as an interactive Claude
+// Code session and, combined with inherited project context, can reply with
+// conversational meta-commentary ("this looks like the wrong session…")
+// instead of a digest. Kept free of cmd.exe metacharacters (& | < > ^ % ")
+// so it survives the Windows `cmd.exe /c claude …` spawn path unescaped.
+const ISOLATED_SYSTEM_PROMPT =
+  'You are a precise summarization and digest engine for video transcripts. ' +
+  'Follow the instructions in the user message exactly and return only the requested output as Markdown. ' +
+  'Do not add meta-commentary, do not ask questions, and never mention sessions, memory, files, tools, or any workspace or project.';
+
+const CLAUDE_ARGS = [
+  '-p', '--model', 'sonnet', '--output-format', 'json',
+  '--system-prompt', ISOLATED_SYSTEM_PROMPT,
+];
 
 // ---------------------------------------------------------------------------
 // Map-reduce chunking constants
@@ -27,7 +43,7 @@ const CHUNK_CONTENT_CHARS = 360_000; // ~90 k tokens per chunk
 // directly without shell:true. Instead, we invoke cmd.exe explicitly so we
 // keep shell:false on the spawn call itself (no deprecation warning) while
 // still being able to find the .cmd shim on PATH.
-function buildSpawnTarget() {
+export function buildSpawnTarget() {
   if (process.platform === 'win32') {
     const comspec = process.env.ComSpec || 'cmd.exe';
     return { exe: comspec, args: ['/c', 'claude', ...CLAUDE_ARGS] };
@@ -179,6 +195,10 @@ export async function runClaude(prompt, { timeoutMs = DEFAULT_TIMEOUT_MS } = {})
     const child = spawn(exe, args, {
       shell: false,
       stdio: ['pipe', 'pipe', 'pipe'],
+      // Run from the OS temp dir, not the project dir, so the CLI does not
+      // auto-load this project's Claude Code memory or a project CLAUDE.md
+      // (which would leak workspace context into the digest output).
+      cwd: tmpdir(),
       // On non-Windows, run in its own process group so we can kill the
       // whole tree (child + any grandchildren) on timeout via a negative pid.
       ...(isWin ? {} : { detached: true }),
