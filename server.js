@@ -62,8 +62,44 @@ const __dirname = dirname(__filename);
 const ECHO_MODE = process.env.ECHO_MODE === 'web' ? 'web' : 'local';
 const isWeb = ECHO_MODE === 'web';
 
+// ---------------------------------------------------------------------------
+// Numeric env config validation
+// ---------------------------------------------------------------------------
+// Bare Number(process.env.X) silently yields NaN for malformed values (e.g.
+// "200k"), which for size caps means `chars > NaN` is always false — a
+// caller-controlled bypass of the cap. Fail loudly at startup instead.
+
+/**
+ * Reads a numeric env var, validating it is a finite number >= min.
+ * Returns `fallback` when the env var is unset. Throws a clear startup
+ * Error when the env var IS set but is not a valid number.
+ *
+ * @param {string} name
+ * @param {number} fallback
+ * @param {{ min?: number }} [opts]
+ * @returns {number}
+ */
+function numFromEnv(name, fallback, { min = 0 } = {}) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < min) {
+    throw new Error(
+      `Invalid value for env var ${name}: "${raw}". Expected a finite number >= ${min}.`
+    );
+  }
+  return n;
+}
+
 const app = express();
-const PORT = process.env.PORT ? Number(process.env.PORT) : 8000;
+const PORT = numFromEnv('PORT', 8000, { min: 1 });
+
+// Bind to localhost by default — safe default for local/desktop use, where
+// the server should never be reachable from the network. Hosted/web
+// deployments (e.g. behind a reverse proxy) can opt in via ECHO_HOST.
+const HOST = process.env.ECHO_HOST && process.env.ECHO_HOST.trim()
+  ? process.env.ECHO_HOST.trim()
+  : '127.0.0.1';
 
 if (isWeb) {
   // Running behind a reverse proxy in web mode — needed for correct req.ip
@@ -72,6 +108,34 @@ if (isWeb) {
 }
 
 app.use(express.json({ limit: '5mb' }));
+
+// ---------------------------------------------------------------------------
+// Security headers
+// ---------------------------------------------------------------------------
+// The frontend is a single inline public/index.html with inline <script>/
+// <style> blocks (no build step / no nonces), so the CSP below intentionally
+// allows 'unsafe-inline' for script-src and style-src — a known limitation
+// of the inline monolith. It still blocks framing, MIME-sniffing, and
+// restricts network/asset origins to what the app actually uses (self, the
+// JSZip CDN, and Google Fonts).
+const CSP =
+  "default-src 'self'; " +
+  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+  "font-src 'self' https://fonts.gstatic.com; " +
+  "img-src 'self' data: https://i.ytimg.com https://img.youtube.com; " +
+  "connect-src 'self'; " +
+  "object-src 'none'; " +
+  "base-uri 'self'; " +
+  "frame-ancestors 'self'";
+
+app.use((_req, res, next) => {
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('X-Frame-Options', 'SAMEORIGIN');
+  res.set('Referrer-Policy', 'no-referrer');
+  res.set('Content-Security-Policy', CSP);
+  next();
+});
 
 // ---------------------------------------------------------------------------
 // Step 1 — inject window.__ECHO__ into index.html
@@ -188,19 +252,39 @@ function readApiKey(req) {
   return (isWeb && k && k.trim()) ? k.trim() : undefined;
 }
 
+/**
+ * Guards AI endpoints in web mode: every AI call must be billed to a
+ * user-supplied Anthropic API key, never to the operator's own credentials.
+ * Without this, a keyless request in web mode would silently fall back to
+ * ClaudeCliProvider (or ApiKeyProvider's process.env.ANTHROPIC_API_KEY
+ * fallback), billing the operator. NO-OP in local/desktop mode — the CLI
+ * provider continues to work with no key, unchanged.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @returns {boolean} true if the response was already sent (caller must return)
+ */
+function requireWebKey(req, res) {
+  if (!isWeb) return false;
+  if (readApiKey(req)) return false;
+  sendError(
+    res,
+    'API_NOT_AUTHED',
+    'An Anthropic API key is required for this hosted instance.',
+    'Add your own Anthropic API key in Settings to use AI features here, or run Echo locally/desktop for unlimited use.'
+  );
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Step 6 — abuse / cost guards (web-gated no-ops in local mode)
 // ---------------------------------------------------------------------------
 
 // Max transcript length (characters) accepted in web mode before rejecting.
-const ECHO_MAX_TRANSCRIPT_CHARS = process.env.ECHO_MAX_TRANSCRIPT_CHARS
-  ? Number(process.env.ECHO_MAX_TRANSCRIPT_CHARS)
-  : 200_000;
+const ECHO_MAX_TRANSCRIPT_CHARS = numFromEnv('ECHO_MAX_TRANSCRIPT_CHARS', 200_000, { min: 1 });
 
 // Max text/segments payload size (characters) accepted by AI endpoints in web mode.
-const ECHO_MAX_AI_PAYLOAD_CHARS = process.env.ECHO_MAX_AI_PAYLOAD_CHARS
-  ? Number(process.env.ECHO_MAX_AI_PAYLOAD_CHARS)
-  : 200_000;
+const ECHO_MAX_AI_PAYLOAD_CHARS = numFromEnv('ECHO_MAX_AI_PAYLOAD_CHARS', 200_000, { min: 1 });
 
 /**
  * Pure sliding-window rate-limit check. Records a hit for `key` in `store`
@@ -237,10 +321,38 @@ function rateLimitHit(key, maxPerWindow, windowMs, store, now = Date.now()) {
  * @param {number} windowMs
  * @returns {import('express').RequestHandler}
  */
+// How often (ms) each webLimit() store is swept for fully-stale IP entries,
+// to bound memory growth from the otherwise-never-shrinking Map of hits.
+const RATE_LIMIT_SWEEP_INTERVAL_MS = 5 * 60_000;
+
+/**
+ * Removes entries from `store` whose most recent hit already fell outside
+ * `windowMs` — i.e. keys with no timestamps left after pruning. Called
+ * opportunistically (time-gated) rather than on every request, to keep the
+ * hot path cheap.
+ *
+ * @param {Map<string, number[]>} store
+ * @param {number} windowMs
+ * @param {number} now
+ */
+function sweepStaleEntries(store, windowMs, now) {
+  const cutoff = now - windowMs;
+  for (const [key, timestamps] of store) {
+    const hasRecent = timestamps.some((ts) => ts > cutoff);
+    if (!hasRecent) store.delete(key);
+  }
+}
+
 function webLimit(max, windowMs) {
   const store = new Map();
+  let lastSweep = 0;
   return (req, res, next) => {
     if (!isWeb) return next();
+    const now = Date.now();
+    if (now - lastSweep > RATE_LIMIT_SWEEP_INTERVAL_MS) {
+      lastSweep = now;
+      sweepStaleEntries(store, windowMs, now);
+    }
     const key = req.ip || 'unknown';
     if (rateLimitHit(key, max, windowMs, store)) {
       return sendError(
@@ -438,6 +550,7 @@ app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
   if (!requireText(res, text, 'No transcript text provided.', 'Load a transcript before generating a digest.')) return;
 
   if (rejectOversizeAiPayload(res, { text })) return;
+  if (requireWebKey(req, res)) return;
 
   try {
     const result = await generateDigest(text, { length, format, language, apiKey: readApiKey(req) });
@@ -452,12 +565,14 @@ app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
 // ---------------------------------------------------------------------------
 
 app.post('/api/chat', webLimit(20, 60_000), async (req, res) => {
-  const { text, question } = req.body;
+  const { text, question, language, lang, langCode } = req.body;
   if (!requireText(res, text, 'text is required.')) return;
   if (!requireText(res, question, 'question is required.')) return;
   if (rejectOversizeAiPayload(res, { text })) return;
+  if (requireWebKey(req, res)) return;
   try {
-    const result = await askVideoQuestion(text, question, { apiKey: readApiKey(req) });
+    const answerLanguage = language || lang || langCode || undefined;
+    const result = await askVideoQuestion(text, question, { apiKey: readApiKey(req), language: answerLanguage });
     return res.json(result);
   } catch (err) {
     return sendCaughtError(res, err);
@@ -474,6 +589,7 @@ app.post('/api/chapters', webLimit(20, 60_000), async (req, res) => {
     return sendError(res, 'INTERNAL', 'segments must be a non-empty array.', '', 400);
   }
   if (rejectOversizeAiPayload(res, { segments })) return;
+  if (requireWebKey(req, res)) return;
   try {
     const result = await extractChapters(segments, { apiKey: readApiKey(req) });
     return res.json(result);
@@ -492,6 +608,7 @@ app.post('/api/quotes', webLimit(20, 60_000), async (req, res) => {
     return sendError(res, 'INTERNAL', 'segments must be a non-empty array.', '', 400);
   }
   if (rejectOversizeAiPayload(res, { segments })) return;
+  if (requireWebKey(req, res)) return;
   try {
     const result = await extractQuotes(segments, { apiKey: readApiKey(req) });
     return res.json(result);
@@ -505,11 +622,13 @@ app.post('/api/quotes', webLimit(20, 60_000), async (req, res) => {
 // ---------------------------------------------------------------------------
 
 app.post('/api/factcheck', webLimit(20, 60_000), async (req, res) => {
-  const { text } = req.body;
+  const { text, language, lang, langCode } = req.body;
   if (!requireText(res, text, 'text is required.')) return;
   if (rejectOversizeAiPayload(res, { text })) return;
+  if (requireWebKey(req, res)) return;
   try {
-    const result = await factCheck(text, { apiKey: readApiKey(req) });
+    const answerLanguage = language || lang || langCode || undefined;
+    const result = await factCheck(text, { apiKey: readApiKey(req), language: answerLanguage });
     return res.json(result);
   } catch (err) {
     return sendCaughtError(res, err);
@@ -750,6 +869,12 @@ app.post('/api/cross-digest', webLimit(20, 60_000), async (req, res) => {
         400
       );
     }
+    // Same oversize guard as the videoIds branch below — the inline-entries
+    // branch previously skipped this check entirely.
+    const inlineText = entries
+      .map((e) => (e && e.digest) || (Array.isArray(e && e.segments) ? e.segments.map((s) => s.text || '').join(' ') : ''))
+      .join(' ');
+    if (rejectOversizeAiPayload(res, { text: inlineText })) return;
   } else {
     if (!Array.isArray(videoIds) || videoIds.length < 2) {
       return sendError(
@@ -777,6 +902,8 @@ app.post('/api/cross-digest', webLimit(20, 60_000), async (req, res) => {
       entries.push(entry);
     }
   }
+
+  if (requireWebKey(req, res)) return;
 
   try {
     const { digest, usage } = await generateCrossDigest(entries, { ...(options || {}), apiKey: readApiKey(req) });
@@ -979,8 +1106,9 @@ app.get('/api/search', blockInWeb, async (req, res) => {
 
 const isDirectRun = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isDirectRun) {
-  app.listen(PORT, () => {
-    console.log(`Listening on http://localhost:${PORT}`);
+  app.listen(PORT, HOST, () => {
+    const displayHost = HOST === '0.0.0.0' ? 'localhost' : HOST;
+    console.log(`Listening on http://${displayHost}:${PORT} (bound to ${HOST})`);
   });
 }
 
