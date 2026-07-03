@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { buildClips, resolveHighlightSecond } from '../clips.js';
 
 const segments = [
-  { text: 'intro hello world here', offset_seconds: 10 },
-  { text: 'second segment about cats', offset_seconds: 55.7 },
+  { text: 'intro hello world here', offset: 10 },
+  { text: 'second segment about cats', offset: 55.7 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -14,6 +14,15 @@ const segments = [
 test('resolveHighlightSecond: matching text returns the floored offset in seconds', () => {
   assert.equal(resolveHighlightSecond('hello world', segments), 10);
   assert.equal(resolveHighlightSecond('cats', segments), 55); // floored from 55.7
+});
+
+test('resolveHighlightSecond: reads the real segment field name ("offset"), not "offset_seconds"', () => {
+  const realShapeSegments = [
+    { text: 'intro hello world here', offset: 42 },
+  ];
+  const second = resolveHighlightSecond('hello world', realShapeSegments);
+  assert.notEqual(second, null);
+  assert.equal(second, 42);
 });
 
 test('resolveHighlightSecond: no match returns null', () => {
@@ -50,8 +59,10 @@ test('buildClips: an entry with 2 highlights (one matched, one unmatched) produc
   const [matched, unmatched] = clips;
 
   assert.equal(matched.second, 10);
+  assert.notEqual(matched.second, null);
   assert.ok(Number.isInteger(matched.second));
   assert.match(matched.deepLink, /&t=10s/);
+  assert.ok(matched.deepLink.includes('&t='));
   assert.equal(matched.timeLabel, '0:10');
 
   assert.equal(unmatched.second, null);

@@ -26,7 +26,7 @@ function hhmmss(sec) {
  * against transcript segments. Case-insensitive, trimmed. Returns the
  * offset of the FIRST segment where either string contains the other.
  * @param {string} text
- * @param {Array<{text?: string, offset_seconds?: number}>} segments
+ * @param {Array<{text?: string, offset?: number}>} segments
  * @returns {number|null}
  */
 export function resolveHighlightSecond(text, segments) {
@@ -39,7 +39,7 @@ export function resolveHighlightSecond(text, segments) {
     const segText = String(seg.text ?? '').trim().toLowerCase();
     if (!segText) continue;
     if (segText.includes(needle) || needle.includes(segText)) {
-      const offset = Number(seg.offset_seconds);
+      const offset = Number(seg.offset);
       if (!Number.isFinite(offset)) return null;
       return Math.floor(offset);
     }
