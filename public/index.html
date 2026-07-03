@@ -3742,6 +3742,131 @@
     }
 
     .clips-row-copy { flex-shrink: 0; }
+
+    /* ==============================================
+       ANSWER LANGUAGE CONTROL — Ask / Fact-check panels
+    =============================================== */
+    .answer-lang-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.65rem;
+      flex-wrap: wrap;
+    }
+
+    .answer-lang-label {
+      font-family: var(--font-sans);
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .answer-lang-select {
+      padding: 0.24rem 0.55rem;
+      font-family: var(--font-sans);
+      font-size: 0.78rem;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .answer-lang-select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    /* ==============================================
+       DIGEST PROGRESS — live elapsed timer + large-transcript hint
+       (used by startDigestTimer()/stopDigestTimer() in runDigest)
+    =============================================== */
+    .digest-progress-msg {
+      margin-right: 0.5em;
+    }
+
+    .digest-progress-msg.is-large::before {
+      content: '';
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      margin-right: 0.45em;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse-dot 1.6s ease-in-out infinite;
+      vertical-align: middle;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .digest-progress-msg.is-large::before {
+        animation: none;
+        opacity: 1;
+      }
+    }
+
+    .digest-progress-elapsed {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+    }
+
+    /* ==============================================
+       PRINT — Digest export (scoped via body.printing-digest so
+       normal Ctrl+P printing of the app is unaffected)
+    =============================================== */
+    #digestPrintArea {
+      display: none;
+    }
+
+    @media print {
+      /* Hide everything fixed-position/outside the container, then hide every
+         top-level container child except the Digest pane, then hide every
+         child of the Digest pane / Summary panel except the print target
+         itself. Written with :not() (rather than an explicit list of things
+         to hide) so newly-added siblings are hidden by default too. */
+      body.printing-digest #topIndicator,
+      body.printing-digest #toastContainer {
+        display: none !important;
+      }
+
+      body.printing-digest .container > *:not(#paneDigest) {
+        display: none !important;
+      }
+
+      body.printing-digest #paneDigest > *:not(#aiPanelSummary) {
+        display: none !important;
+      }
+
+      body.printing-digest #aiPanelSummary > *:not(#digestPrintArea) {
+        display: none !important;
+      }
+
+      body.printing-digest #digestPrintArea {
+        display: block !important;
+        padding: 0;
+        margin: 0;
+      }
+
+      body.printing-digest #digestPrintArea .digest-print-title {
+        font-family: var(--font-sans);
+        font-size: 1.4rem;
+        font-weight: 700;
+        margin-bottom: 0.2rem;
+      }
+
+      body.printing-digest #digestPrintArea .digest-print-source {
+        font-family: var(--font-sans);
+        font-size: 0.8rem;
+        color: #555;
+        margin-bottom: 1rem;
+        word-break: break-all;
+      }
+    }
   </style>
 </head>
 <body>
@@ -4102,14 +4227,33 @@
                   aria-label="Copy digest to clipboard">Copy</button>
           <button class="mini-btn" id="digestDownloadBtn"
                   aria-label="Download digest as a Markdown file">Download .md</button>
+          <button class="mini-btn" id="digestPrintBtn"
+                  aria-label="Print digest or save as PDF">Print / Save as PDF</button>
         </div>
 
         <div id="digestOutput"></div>
         <div id="usageStats" class="usage-stats"></div>
+
+        <!-- Print-only render target — populated just before window.print() and
+             hidden on screen; see printDigestBtn handler + "@media print" CSS. -->
+        <div id="digestPrintArea" aria-hidden="true"></div>
       </div>
 
       <!-- ASK PANEL -->
       <div id="aiPanelAsk" role="tabpanel" aria-labelledby="aiTabAsk" hidden>
+        <div class="answer-lang-row">
+          <label class="answer-lang-label" for="askLangSelect">Answer language</label>
+          <select id="askLangSelect" class="answer-lang-select" aria-label="Answer language">
+            <option value="">Auto (match video)</option>
+            <option value="English">English</option>
+            <option value="Spanish">Spanish</option>
+            <option value="French">French</option>
+            <option value="German">German</option>
+            <option value="Portuguese">Portuguese</option>
+            <option value="Hindi">Hindi</option>
+            <option value="Japanese">Japanese</option>
+          </select>
+        </div>
         <div class="ask-row">
           <textarea
             id="askInput"
@@ -4129,6 +4273,19 @@
       <!-- FACT-CHECK PANEL -->
       <div id="aiPanelFactcheck" role="tabpanel" aria-labelledby="aiTabFactcheck" hidden>
         <p class="fc-disclaimer">Heads-up: claims are assessed from the model's training knowledge only (no live web search) — verify important claims yourself before relying on them.</p>
+        <div class="answer-lang-row">
+          <label class="answer-lang-label" for="fcLangSelect">Answer language</label>
+          <select id="fcLangSelect" class="answer-lang-select" aria-label="Answer language">
+            <option value="">Auto (match video)</option>
+            <option value="English">English</option>
+            <option value="Spanish">Spanish</option>
+            <option value="French">French</option>
+            <option value="German">German</option>
+            <option value="Portuguese">Portuguese</option>
+            <option value="Hindi">Hindi</option>
+            <option value="Japanese">Japanese</option>
+          </select>
+        </div>
         <div class="fc-btn-row">
           <button id="factCheckBtn" aria-label="Run AI fact-check on this transcript">Check facts</button>
         </div>
@@ -4971,6 +5128,8 @@
     const digestExportRow       = document.getElementById('digestExportRow');
     const digestCopyBtn         = document.getElementById('digestCopyBtn');
     const digestDownloadBtn     = document.getElementById('digestDownloadBtn');
+    const digestPrintBtn        = document.getElementById('digestPrintBtn');
+    const digestPrintArea       = document.getElementById('digestPrintArea');
     const findInput             = document.getElementById('findInput');
     const findCounter           = document.getElementById('findCounter');
     const findPrevBtn           = document.getElementById('findPrevBtn');
@@ -5011,11 +5170,13 @@
     const qaThread         = document.getElementById('qaThread');
     const askClearRow      = document.getElementById('askClearRow');
     const askClearBtn      = document.getElementById('askClearBtn');
+    const askLangSelect    = document.getElementById('askLangSelect');
 
     // Fact-check panel
     const factCheckBtn   = document.getElementById('factCheckBtn');
     const fcInlineStatus = document.getElementById('fcInlineStatus');
     const fcResults      = document.getElementById('fcResults');
+    const fcLangSelect   = document.getElementById('fcLangSelect');
 
     /* ==============================================
        TAB SWITCHING
@@ -5681,6 +5842,35 @@
       const slug      = (slugify(title) || 'echo') + '-digest';
       downloadMd(slug, md);
     });
+
+    /**
+     * Print the current digest (or "Save as PDF" via the browser print
+     * dialog). Renders title + source + digest body into the hidden
+     * #digestPrintArea, toggles a body class the "@media print" stylesheet
+     * uses to hide everything else, then calls window.print(). The body
+     * class is removed on the browser's `afterprint` event so a cancelled
+     * print dialog doesn't leave the app in a print-only state.
+     */
+    function printDigest() {
+      if (!currentDigest || !digestPrintArea) return;
+      const title     = currentMeta?.title || 'Digest';
+      const sourceUrl = currentMeta?.url   || '';
+      digestPrintArea.innerHTML =
+        '<div class="digest-print-title">' + escapeHtml(title) + '</div>' +
+        (sourceUrl ? '<div class="digest-print-source">' + escapeHtml(sourceUrl) + '</div>' : '') +
+        renderMarkdown(currentDigest);
+      document.body.classList.add('printing-digest');
+      window.print();
+    }
+
+    function stopPrintingDigest() {
+      document.body.classList.remove('printing-digest');
+    }
+
+    digestPrintBtn?.addEventListener('click', printDigest);
+    // afterprint fires whether the user prints or cancels the dialog — either
+    // way we want to restore the normal on-screen view.
+    window.addEventListener('afterprint', stopPrintingDigest);
 
     /* ==============================================
        FIND IN TRANSCRIPT  (Feature 3)
@@ -6355,6 +6545,7 @@
       saveBtn.disabled        = true;
       digestOutput.classList.remove('visible');
       digestOutput.innerHTML    = '';
+      stopDigestTimer();
       digestStatus.textContent  = '';
       digestStatus.className    = '';
       digestEmptySt.classList.remove('is-hidden');
@@ -6736,6 +6927,59 @@
     }
 
     /* ==============================================
+       ANSWER LANGUAGE — Ask / Fact-check "Auto (match video)" control
+       Shared localStorage preference between the two panels; "Auto" resolves
+       to the current video's caption language (currentLangCode) via a small
+       ISO 639-1 -> name lookup so the backend's languageDirective() gets a
+       human-readable name instead of a bare code.
+    =============================================== */
+    const ANSWER_LANG_STORAGE_KEY = 'echo-answer-lang';
+
+    // Common ISO 639-1 codes mapped to the names the backend/prompt expects.
+    // Not exhaustive — codes outside this map fall back to English (the
+    // backend's own default) rather than sending a raw code the model might
+    // not reliably interpret as a language directive.
+    const LANG_CODE_TO_NAME = {
+      en: 'English', es: 'Spanish', fr: 'French', de: 'German',
+      pt: 'Portuguese', hi: 'Hindi', ja: 'Japanese', it: 'Italian',
+      ru: 'Russian', ko: 'Korean', zh: 'Chinese', ar: 'Arabic',
+      nl: 'Dutch', tr: 'Turkish', vi: 'Vietnamese', id: 'Indonesian',
+      pl: 'Polish', sv: 'Swedish', th: 'Thai',
+    };
+
+    function getAnswerLangPref() {
+      try { return localStorage.getItem(ANSWER_LANG_STORAGE_KEY) || ''; }
+      catch { return ''; }
+    }
+
+    function setAnswerLangPref(v) {
+      try { localStorage.setItem(ANSWER_LANG_STORAGE_KEY, v || ''); }
+      catch { /* localStorage unavailable — non-fatal */ }
+    }
+
+    /** Resolve "Auto" (empty select value) against the loaded video's caption
+     *  language code; explicit selections pass through unchanged. */
+    function resolveAnswerLanguage(selectEl) {
+      const explicit = selectEl?.value || '';
+      if (explicit) return explicit;
+      if (!currentLangCode) return '';
+      const base = String(currentLangCode).split('-')[0].toLowerCase();
+      return LANG_CODE_TO_NAME[base] || '';
+    }
+
+    // Initialize both selects from the shared preference and keep them in sync.
+    [askLangSelect, fcLangSelect].forEach(sel => {
+      if (!sel) return;
+      sel.value = getAnswerLangPref();
+      sel.addEventListener('change', () => {
+        setAnswerLangPref(sel.value);
+        [askLangSelect, fcLangSelect].forEach(other => {
+          if (other && other !== sel) other.value = sel.value;
+        });
+      });
+    });
+
+    /* ==============================================
        AI SUB-NAV SWITCHING
     =============================================== */
     function switchAiTool(name) {
@@ -6769,6 +7013,52 @@
     });
 
     /* ==============================================
+       DIGEST PROGRESS TIMER — live elapsed mm:ss while a digest request is
+       in flight, with an honest "large transcript / multiple parts" message
+       once estimated transcript size crosses the backend's map-reduce
+       threshold (see LONG_PATH_THRESHOLD_CHARS in digest.js, ~480k chars).
+       Bypasses setDigestStatus() (which only does textContent) so it can
+       render the elapsed-time span alongside the message.
+    =============================================== */
+    const DIGEST_LONG_PATH_THRESHOLD_CHARS = 480_000;
+    let digestTimerHandle = null;
+    let digestTimerStartMs = null;
+
+    function formatElapsedMs(ms) {
+      const totalSec = Math.max(0, Math.floor(ms / 1000));
+      const m = Math.floor(totalSec / 60);
+      const s = totalSec % 60;
+      return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    }
+
+    function startDigestTimer(isLargeTranscript) {
+      stopDigestTimer();
+      digestTimerStartMs = Date.now();
+      const baseMsg = isLargeTranscript
+        ? 'This is a long transcript — Echo is processing it in multiple parts, which can take a few minutes.'
+        : 'Reading the video and writing your digest — usually 10–30s.';
+      const tick = () => {
+        const elapsed = formatElapsedMs(Date.now() - digestTimerStartMs);
+        digestStatus.innerHTML =
+          '<span class="digest-progress-msg' + (isLargeTranscript ? ' is-large' : '') + '">' +
+            escapeHtml(baseMsg) +
+          '</span>' +
+          '<span class="digest-progress-elapsed">' + elapsed + '</span>';
+        digestStatus.className = 'info';
+      };
+      tick();
+      digestTimerHandle = setInterval(tick, 1000);
+    }
+
+    function stopDigestTimer() {
+      if (digestTimerHandle) {
+        clearInterval(digestTimerHandle);
+        digestTimerHandle = null;
+      }
+      digestTimerStartMs = null;
+    }
+
+    /* ==============================================
        DIGEST HANDLER (extracted for reuse by both
        digestBtn in Transcript pane and digestRegenBtn
        in Summary panel)
@@ -6795,20 +7085,22 @@
       usageStatsEl.classList.remove('visible');
       usageStatsEl.innerHTML   = '';
 
+      const plainText = getTranscriptText();
+      const isLargeTranscript = plainText.length > DIGEST_LONG_PATH_THRESHOLD_CHARS;
+
       // Switch to Digest tab / Summary sub-panel and show loading state
       switchTab('digest');
       switchAiTool('summary');
       digestEmptySt.classList.add('is-hidden');
       setTopIndicator('digesting');
-      setDigestStatus('Reading the video and writing your digest — this takes 10–30s.', false);
-
-      const plainText = getTranscriptText();
+      startDigestTimer(isLargeTranscript);
 
       try {
         const res  = await aiFetch('/api/digest', { text: plainText, length: lengthOpt, format: formatOpt, language: langOpt });
         const data = await res.json();
 
         if (!res.ok) {
+          stopDigestTimer();
           const msg = apiErrorMessage(data, 'Failed to generate digest.');
           setDigestStatus(msg, true);
           setTopIndicator('error');
@@ -6830,6 +7122,7 @@
 
         // Show ready dot on tab, update status, set indicator
         digestDot.style.display = '';
+        stopDigestTimer();
         setDigestStatus('Digest ready.', false);
         setTopIndicator('done');
 
@@ -6847,11 +7140,13 @@
 
       } catch (err) {
         console.error('[echo] runDigest network error:', err);
+        stopDigestTimer();
         setDigestStatus('Network error — could not reach the server.', true);
         setTopIndicator('error');
         digestEmptySt.classList.remove('is-hidden');
         showToast('error', 'Network error: ' + err.message);
       } finally {
+        stopDigestTimer(); // safety net — idempotent, in case a branch above missed it
         digestBtn.disabled      = false;
         digestRegenBtn.disabled = false;
       }
@@ -6886,7 +7181,7 @@
 
       const t0 = Date.now();
       try {
-        const res  = await aiFetch('/api/chat', { text, question });
+        const res  = await aiFetch('/api/chat', { text, question, language: resolveAnswerLanguage(askLangSelect) });
         const data = await res.json();
         const elapsed = Date.now() - t0;
 
@@ -6978,7 +7273,7 @@
       fcResults.innerHTML        = '';
 
       try {
-        const res  = await aiFetch('/api/factcheck', { text });
+        const res  = await aiFetch('/api/factcheck', { text, language: resolveAnswerLanguage(fcLangSelect) });
         const data = await res.json();
 
         if (!res.ok) {
@@ -8294,6 +8589,7 @@
         // Full digest-pane reset
         digestOutput.classList.remove('visible');
         digestOutput.innerHTML   = '';
+        stopDigestTimer();
         digestStatus.textContent = '';
         digestStatus.className   = '';
         digestEmptySt.classList.remove('is-hidden');
