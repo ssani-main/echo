@@ -3,6 +3,13 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = dirname(__filename);
 
 const DB = join(tmpdir(), `echo-test-store-${process.pid}-${Date.now()}.db`);
 process.env.ECHO_DB_PATH = DB;
@@ -194,6 +201,99 @@ test('searchLibrary keyword search finds a distinctive word and returns [] for n
 
   const noHits = await store.searchLibrary('qqqzzznonexistentqueryterm');
   assert.deepEqual(noHits, []);
+});
+
+// ---------------------------------------------------------------------------
+// segment_count denormalization
+// ---------------------------------------------------------------------------
+
+test('listEntries reports segmentCount from the denormalized column for various segment counts', async () => {
+  const segments = Array.from({ length: 7 }, (_, i) => ({ text: `seg ${i}`, offset: i }));
+  await store.saveEntry({
+    videoId: 'vid-segcount',
+    url: 'https://www.youtube.com/watch?v=vid-segcount',
+    title: 'Segment Count Video',
+    segments,
+  });
+
+  const all = await store.listEntries();
+  const meta = all.find((e) => e.videoId === 'vid-segcount');
+  assert.ok(meta);
+  assert.equal(meta.segmentCount, 7);
+
+  // Full entry (getEntry) must still return the complete segments array.
+  const entry = await store.getEntry('vid-segcount');
+  assert.equal(entry.segments.length, 7);
+  assert.deepEqual(entry.segments, segments);
+
+  // Re-saving with fewer segments updates the denormalized count too.
+  const fewer = segments.slice(0, 3);
+  await store.saveEntry({
+    videoId: 'vid-segcount',
+    url: 'https://www.youtube.com/watch?v=vid-segcount',
+    title: 'Segment Count Video',
+    segments: fewer,
+  });
+  const allAfter = await store.listEntries();
+  const metaAfter = allAfter.find((e) => e.videoId === 'vid-segcount');
+  assert.equal(metaAfter.segmentCount, 3);
+});
+
+test('segment_count migration backfills existing rows created before the column existed', () => {
+  const migrationDb = join(tmpdir(), `echo-test-migration-${process.pid}-${Date.now()}.db`);
+  try {
+    // Simulate a pre-migration DB: create the videos table WITHOUT segment_count,
+    // then insert a row with segments but no segment_count value.
+    const raw = new DatabaseSync(migrationDb);
+    raw.exec(`
+      CREATE TABLE videos (
+        videoId   TEXT PRIMARY KEY,
+        url       TEXT NOT NULL,
+        title     TEXT,
+        savedAt   TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        segments  TEXT NOT NULL DEFAULT '[]',
+        digest    TEXT,
+        favorite  INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    const now = new Date().toISOString();
+    raw.prepare(`
+      INSERT INTO videos (videoId, url, title, savedAt, updatedAt, segments, digest, favorite)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'legacy-vid',
+      'https://www.youtube.com/watch?v=legacy-vid',
+      'Legacy Video',
+      now, now,
+      JSON.stringify([{ text: 'a', offset: 0 }, { text: 'b', offset: 1 }, { text: 'c', offset: 2 }]),
+      null, 0,
+    );
+    raw.close();
+
+    // Import store.js in a fresh subprocess pointed at this legacy DB so the
+    // module-load-time migration runs against it, then report listEntries().
+    const storeUrl = new URL('../store.js', import.meta.url).href;
+    const script = `
+      process.env.ECHO_DB_PATH = ${JSON.stringify(migrationDb)};
+      import(${JSON.stringify(storeUrl)}).then(async (store) => {
+        const all = await store.listEntries();
+        process.stdout.write(JSON.stringify(all.map((e) => ({ videoId: e.videoId, segmentCount: e.segmentCount }))));
+      });
+    `;
+    const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: __dirname,
+      encoding: 'utf8',
+    });
+    const result = JSON.parse(out.trim());
+    const legacy = result.find((e) => e.videoId === 'legacy-vid');
+    assert.ok(legacy, 'legacy row should be present after migration');
+    assert.equal(legacy.segmentCount, 3);
+  } finally {
+    for (const suffix of ['', '-wal', '-shm']) {
+      try { rmSync(migrationDb + suffix, { force: true }); } catch { /* ignore */ }
+    }
+  }
 });
 
 // ---------------------------------------------------------------------------

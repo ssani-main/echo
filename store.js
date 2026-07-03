@@ -36,7 +36,8 @@ db.exec(`
     updatedAt TEXT NOT NULL,
     segments  TEXT NOT NULL DEFAULT '[]',
     digest    TEXT,
-    favorite  INTEGER NOT NULL DEFAULT 0
+    favorite  INTEGER NOT NULL DEFAULT 0,
+    segment_count INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS tags (
@@ -68,6 +69,37 @@ db.exec(`
     digest
   );
 `);
+
+// ---------------------------------------------------------------------------
+// One-time migration: add segment_count column to pre-existing DBs and
+// backfill it from the segments JSON so listEntries() never has to parse
+// the full transcript just to report a count. Idempotent: skips entirely
+// once the column exists (guards against duplicate-column errors from
+// concurrent processes touching the same DB file).
+// ---------------------------------------------------------------------------
+
+(function migrateSegmentCount() {
+  const cols = db.prepare('PRAGMA table_info(videos)').all();
+  const hasCol = cols.some((c) => c.name === 'segment_count');
+  if (hasCol) return; // Already migrated (or created fresh with the column above)
+
+  try {
+    db.exec('ALTER TABLE videos ADD COLUMN segment_count INTEGER NOT NULL DEFAULT 0');
+  } catch (err) {
+    // Tolerate a race where another process added the column concurrently.
+    if (!/duplicate column/i.test(err?.message || '')) throw err;
+    return;
+  }
+
+  // Backfill existing rows (added before this column existed) once.
+  const rows = db.prepare('SELECT videoId, segments FROM videos').all();
+  const updateCount = db.prepare('UPDATE videos SET segment_count = ? WHERE videoId = ?');
+  for (const row of rows) {
+    let n = 0;
+    try { n = JSON.parse(row.segments || '[]').length; } catch { n = 0; }
+    updateCount.run(n, row.videoId);
+  }
+})();
 
 // Embeddings persistence table — added separately to avoid touching the existing
 // schema block.  FK ON DELETE CASCADE keeps it tidy when a video is removed.
@@ -219,8 +251,8 @@ function syncFts(videoId) {
   }
 
   const insertVideo = db.prepare(`
-    INSERT OR IGNORE INTO videos (videoId, url, title, savedAt, updatedAt, segments, digest, favorite)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO videos (videoId, url, title, savedAt, updatedAt, segments, digest, favorite, segment_count)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertTag = db.prepare(
     'INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)'
@@ -248,6 +280,7 @@ function syncFts(videoId) {
         JSON.stringify(entry.segments || []),
         entry.digest    ?? null,
         entry.favorite  ? 1 : 0,
+        Array.isArray(entry.segments) ? entry.segments.length : 0,
       );
 
       // Tags — dedup + cap at 20, matching setTags sanitization
@@ -311,7 +344,7 @@ export async function listEntries() {
     title:          row.title,
     savedAt:        row.savedAt,
     hasDigest:      !!row.digest,
-    segmentCount:   JSON.parse(row.segments || '[]').length,
+    segmentCount:   row.segment_count || 0,
     tags:           tagsByVideo[row.videoId]       || [],
     favorite:       row.favorite === 1,
     noteCount:      noteCountMap[row.videoId]      || 0,
@@ -340,8 +373,8 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
   if (!existing) {
     // ---- New entry --------------------------------------------------------
     db.prepare(`
-      INSERT INTO videos (videoId, url, title, savedAt, updatedAt, segments, digest, favorite)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO videos (videoId, url, title, savedAt, updatedAt, segments, digest, favorite, segment_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       videoId,
       safeUrl,
@@ -350,6 +383,7 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
       JSON.stringify(segments || []),
       digest || null,
       typeof favorite === 'boolean' ? (favorite ? 1 : 0) : 0,
+      Array.isArray(segments) ? segments.length : 0,
     );
 
     const initTags = Array.isArray(tags) ? tags : [];
@@ -376,7 +410,7 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
 
     db.prepare(`
       UPDATE videos
-      SET url = ?, title = ?, updatedAt = ?, segments = ?, digest = ?, favorite = ?
+      SET url = ?, title = ?, updatedAt = ?, segments = ?, digest = ?, favorite = ?, segment_count = ?
       WHERE videoId = ?
     `).run(
       url != null ? safeUrl : existing.url,
@@ -385,6 +419,7 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
       JSON.stringify(segments || []),
       keepDigest,
       keepFavorite,
+      Array.isArray(segments) ? segments.length : 0,
       videoId,
     );
 
