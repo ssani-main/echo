@@ -3955,6 +3955,158 @@
         word-break: break-all;
       }
     }
+
+    /* ==============================================
+       41. FIRST-RUN ONBOARDING CARD (empty-state welcome
+       + web-mode BYOK proactive prompt). Reuses the
+       .playlist-panel card look (surface/rule/radius) and
+       .mini-btn for actions.
+    =============================================== */
+    .onboard-card {
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      padding: 1rem 2.4rem 1rem 1.1rem;
+      margin-bottom: 1.1rem;
+    }
+
+    .onboard-card-title {
+      font-family: var(--font-sans);
+      font-size: 0.92rem;
+      font-weight: 700;
+      color: var(--ink);
+      margin: 0 0 0.4rem;
+    }
+
+    .onboard-card-text {
+      font-family: var(--font-serif);
+      font-size: 0.88rem;
+      line-height: 1.55;
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .onboard-dismiss {
+      position: absolute;
+      top: 0.7rem;
+      right: 0.7rem;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.85rem;
+      padding: 0.2rem;
+      line-height: 1;
+      outline: none;
+    }
+
+    .onboard-dismiss:hover { color: var(--ink); }
+
+    .onboard-dismiss:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .onboard-key-note {
+      margin-top: 0.8rem;
+      padding: 0.75rem 0.9rem;
+      background: var(--accent-soft);
+      border-radius: 6px;
+    }
+
+    .onboard-key-note .onboard-card-text {
+      color: var(--ink);
+    }
+
+    .onboard-key-actions {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.6rem 1rem;
+      margin-top: 0.6rem;
+    }
+
+    .onboard-key-link {
+      font-family: var(--font-sans);
+      font-size: 0.78rem;
+      color: var(--accent);
+      text-decoration: underline;
+    }
+
+    .onboard-key-link:hover { color: var(--accent-dark); }
+
+    /* ==============================================
+       42. SETTINGS — inline key-validation status
+       (Task 3: BYOK Save button validates before storing)
+    =============================================== */
+    .settings-key-status {
+      font-family: var(--font-sans);
+      font-size: 0.78rem;
+      min-height: 1.1em;
+      margin: -0.4rem 0 0.6rem;
+      color: var(--muted);
+    }
+
+    .settings-key-status.success { color: var(--accent); }
+    .settings-key-status.error   { color: var(--warn); }
+
+    /* ==============================================
+       43. SITE FOOTER (legal / trust links)
+    =============================================== */
+    .site-footer {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-top: 2.5rem;
+      padding: 1rem 0 0.5rem;
+      font-family: var(--font-sans);
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .site-footer-sep { opacity: 0.6; }
+
+    .site-footer-link {
+      background: none;
+      border: none;
+      padding: 0;
+      font: inherit;
+      color: var(--muted);
+      text-decoration: underline;
+      cursor: pointer;
+      outline: none;
+    }
+
+    .site-footer-link:hover { color: var(--ink); }
+
+    .site-footer-link:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    /* LEGAL OVERLAY — reuses .shortcuts-backdrop / .shortcuts-modal */
+    #legalOverlay {
+      position: fixed;
+      inset: 0;
+      z-index: 19000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #legalOverlay[hidden] { display: none; }
+
+    .legal-modal-body {
+      font-family: var(--font-serif);
+      font-size: 0.85rem;
+      line-height: 1.6;
+      color: var(--ink);
+    }
+
+    .legal-modal-body p { margin: 0 0 0.85rem; }
+    .legal-modal-body p:last-child { margin-bottom: 0; }
   </style>
 </head>
 <body>
@@ -4226,6 +4378,29 @@
 
       <!-- TRANSCRIPT OUTPUT -->
       <div id="output" class="visible">
+        <!-- FIRST-RUN ONBOARDING CARD — shown once on the initial empty state
+             (before any transcript has ever loaded), dismissible, remembered
+             via localStorage "echo-onboarded". Lives inside #output so it is
+             automatically wiped out the moment a fetch starts (see
+             showTranscriptSkeleton()/fetchTranscript()). -->
+        <div id="onboardCard" class="onboard-card" hidden>
+          <button type="button" id="onboardDismissBtn" class="onboard-dismiss"
+                  aria-label="Dismiss welcome message">✕</button>
+          <p class="onboard-card-title">Welcome to Echo</p>
+          <p class="onboard-card-text">Read what a YouTube video actually said — paste a link above to
+            get the transcript and an AI digest. No account needed.</p>
+          <!-- Web-mode-only BYOK prompt — populated/shown by initOnboardCard() -->
+          <div id="onboardKeyNote" class="onboard-key-note" hidden>
+            <p class="onboard-card-text">AI features (digest, Ask, fact-check) need your own Anthropic
+              API key. Your key stays in this browser — Echo only relays it to Anthropic on your behalf
+              and never stores it on our servers.</p>
+            <div class="onboard-key-actions">
+              <button type="button" id="onboardAddKeyBtn" class="mini-btn">Add API key</button>
+              <a class="onboard-key-link" href="https://console.anthropic.com/settings/keys"
+                 target="_blank" rel="noopener noreferrer">Get a key from the Anthropic Console →</a>
+            </div>
+          </div>
+        </div>
         <p class="empty-state">Nothing loaded yet — drop a link above to pull the transcript.</p>
         <p class="empty-state empty-state-saved-hint" id="emptyStateSavedHint" hidden></p>
       </div>
@@ -4475,6 +4650,15 @@
       </div>
     </div>
 
+    <!-- SITE FOOTER — legal/trust links -->
+    <footer class="site-footer">
+      <span class="site-footer-brand">Echo</span>
+      <span class="site-footer-sep" aria-hidden="true">·</span>
+      <button type="button" class="site-footer-link" id="footerPrivacyBtn">Privacy</button>
+      <span class="site-footer-sep" aria-hidden="true">·</span>
+      <button type="button" class="site-footer-link" id="footerTermsBtn">Terms</button>
+    </footer>
+
   </div><!-- /.container -->
 
   <!-- CROSS-DIGEST OVERLAY (result modal for cross-video synthesis) -->
@@ -4506,6 +4690,18 @@
         </div>
       </div>
       <div id="clipsContent"></div>
+    </div>
+  </div>
+
+  <!-- LEGAL OVERLAY (Privacy / Terms — single modal, content swapped by JS) -->
+  <div id="legalOverlay" role="dialog" aria-modal="true" aria-label="Legal information" hidden>
+    <div class="shortcuts-backdrop" id="legalBackdrop"></div>
+    <div class="shortcuts-modal">
+      <div class="shortcuts-modal-header">
+        <span class="shortcuts-modal-title" id="legalModalTitle">Privacy</span>
+        <button class="shortcuts-close-btn" id="legalClose" aria-label="Close">✕</button>
+      </div>
+      <div id="legalModalBody" class="legal-modal-body"></div>
     </div>
   </div>
 
@@ -4570,9 +4766,10 @@
           placeholder="sk-ant-…"
         />
         <p class="settings-note">
-          Your key is stored locally in this browser and sent only to Anthropic through this app —
-          never to any other server.
+          Your key is stored only in this browser and sent to this Echo server, which relays your
+          requests to Anthropic on your behalf. It is not stored server-side or sent anywhere else.
         </p>
+        <p id="apiKeyStatus" class="settings-key-status" aria-live="polite"></p>
         <div class="settings-actions">
           <button class="mini-btn" id="settingsClearKeyBtn">Clear</button>
           <button class="mini-btn" id="settingsSaveKeyBtn">Save</button>
@@ -6553,6 +6750,7 @@
       crossDigestOverlay: closeCrossDigestModal,
       settingsOverlay:    closeSettingsModal,
       researchRail:       closeResearchRail,
+      legalOverlay:       closeLegalOverlay,
     };
     document.addEventListener('keydown', e => {
       if (e.key !== 'Escape') return;
@@ -7384,6 +7582,7 @@
         }
         renderSegments(lastSegments);
         maybeShowNextActionNudge();
+        markOnboarded(); // a successful fetch means the user is past first-run
         saveSession();
 
         // Async: if this video is already saved, load its highlights
@@ -9781,9 +9980,18 @@
       catch { /* localStorage unavailable — non-fatal */ }
     }
 
-    const settingsOverlayEl = document.getElementById('settingsOverlay');
-    const apiKeyInputEl     = document.getElementById('apiKeyInput');
+    const settingsOverlayEl  = document.getElementById('settingsOverlay');
+    const apiKeyInputEl      = document.getElementById('apiKeyInput');
+    const apiKeyStatusEl     = document.getElementById('apiKeyStatus');
+    const settingsSaveKeyBtnEl = document.getElementById('settingsSaveKeyBtn');
     const autoDigestToggleEl = document.getElementById('autoDigestToggle');
+
+    /** Sets the inline key-status line under the API key input (Task 3). */
+    function setKeyStatus(text, level) {
+      if (!apiKeyStatusEl) return;
+      apiKeyStatusEl.textContent = text || '';
+      apiKeyStatusEl.className   = 'settings-key-status' + (level ? ' ' + level : '');
+    }
 
     function openSettingsModal() {
       if (!settingsOverlayEl) return;
@@ -9791,6 +9999,7 @@
       if (!hlCreatePopover.hidden) hideHighlightCreatePopover();
       if (!hlViewPopover.hidden)   hideHighlightViewPopover();
       if (apiKeyInputEl) apiKeyInputEl.value = getApiKey();
+      setKeyStatus('', '');
       if (autoDigestToggleEl) autoDigestToggleEl.checked = getAutoDigest();
       settingsOverlayEl.hidden = false;
       // Focus the key field in web mode; otherwise the (visible) auto-digest toggle.
@@ -9807,16 +10016,65 @@
     document.getElementById('settingsClose')?.addEventListener('click', closeSettingsModal);
     document.getElementById('settingsBackdrop')?.addEventListener('click', closeSettingsModal);
 
-    document.getElementById('settingsSaveKeyBtn')?.addEventListener('click', () => {
+    /**
+     * Save button behavior:
+     *  - Local mode: unchanged — store the key as-is, no validation call
+     *    (the key section isn't even shown in local mode).
+     *  - Web mode with a non-empty key: validate against POST /api/validate-key
+     *    (X-Echo-Api-Key header) before storing. Valid → store + toast + close.
+     *    Invalid/network error → do NOT store, show inline error, keep modal open.
+     *  - Web mode with an empty field: treat Save as a clear (no validation needed).
+     */
+    settingsSaveKeyBtnEl?.addEventListener('click', async () => {
       const v = apiKeyInputEl?.value || '';
-      setApiKey(v);
-      showToast('success', v.trim() ? 'API key saved.' : 'API key cleared.');
-      closeSettingsModal();
+
+      if (ECHO.mode !== 'web') {
+        setApiKey(v);
+        showToast('success', v.trim() ? 'API key saved.' : 'API key cleared.');
+        closeSettingsModal();
+        return;
+      }
+
+      const trimmed = v.trim();
+      if (!trimmed) {
+        setApiKey('');
+        setKeyStatus('', '');
+        showToast('info', 'API key cleared.');
+        closeSettingsModal();
+        return;
+      }
+
+      setKeyStatus('Checking…', '');
+      settingsSaveKeyBtnEl.disabled = true;
+      try {
+        const res  = await fetch('/api/validate-key', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Echo-Api-Key': trimmed },
+          body:    '{}',
+        });
+        const data = await res.json().catch(() => ({}));
+
+        if (res.ok && data.valid) {
+          setApiKey(trimmed);
+          setKeyStatus('Key verified ✓', 'success');
+          showToast('success', 'API key saved and verified.');
+          closeSettingsModal();
+        } else {
+          const msg = data?.error?.message || 'That key looks invalid.';
+          setKeyStatus(msg, 'error');
+        }
+      } catch (err) {
+        console.error('[echo] validate-key network error:', err);
+        setKeyStatus('Network error while checking the key.', 'error');
+      } finally {
+        settingsSaveKeyBtnEl.disabled = false;
+      }
     });
 
     document.getElementById('settingsClearKeyBtn')?.addEventListener('click', () => {
       clearApiKey();
       if (apiKeyInputEl) apiKeyInputEl.value = '';
+      setKeyStatus('', '');
       showToast('info', 'API key cleared.');
     });
 
@@ -9871,6 +10129,101 @@
       }
       return true;
     }
+
+    // Clips' backend route (/api/clips) 503s in web mode — hide the entry
+    // point entirely rather than let users hit a broken button (Task 1).
+    if (ECHO.mode === 'web' && savedClipsBtn) {
+      savedClipsBtn.hidden = true;
+    }
+
+    /* ==============================================
+       FIRST-RUN ONBOARDING CARD (Task 2)
+       Shown once on the initial empty state, before any transcript has ever
+       loaded. Dismissible; dismissal (and reaching a loaded transcript) is
+       remembered via localStorage so it never nags a returning user. In web
+       mode with no stored key, also surfaces the BYOK requirement proactively
+       instead of waiting for the reactive requireApiKey() popup.
+    =============================================== */
+    const ONBOARD_STORAGE_KEY = 'echo-onboarded';
+
+    function isOnboarded() {
+      try { return localStorage.getItem(ONBOARD_STORAGE_KEY) === 'true'; }
+      catch { return false; }
+    }
+
+    function markOnboarded() {
+      try { localStorage.setItem(ONBOARD_STORAGE_KEY, 'true'); }
+      catch { /* localStorage unavailable — non-fatal */ }
+    }
+
+    /** Shows the onboarding card on the pristine empty state (no-op once onboarded). */
+    function initOnboardCard() {
+      if (isOnboarded()) return;
+      const card = document.getElementById('onboardCard');
+      if (!card) return;
+      const keyNote = document.getElementById('onboardKeyNote');
+      if (keyNote) keyNote.hidden = !(ECHO.mode === 'web' && !getApiKey());
+      card.hidden = false;
+    }
+
+    document.getElementById('onboardDismissBtn')?.addEventListener('click', () => {
+      markOnboarded();
+      const card = document.getElementById('onboardCard');
+      if (card) card.hidden = true;
+    });
+
+    document.getElementById('onboardAddKeyBtn')?.addEventListener('click', () => {
+      openSettingsModal();
+    });
+
+    /* ==============================================
+       LEGAL OVERLAY — Privacy / Terms (Task 4)
+       Single shared modal (matches the shortcuts/settings modal pattern);
+       content is swapped by JS depending on which footer link was clicked.
+    =============================================== */
+    const legalOverlayEl    = document.getElementById('legalOverlay');
+    const legalModalTitleEl = document.getElementById('legalModalTitle');
+    const legalModalBodyEl  = document.getElementById('legalModalBody');
+
+    const LEGAL_CONTENT = {
+      privacy: {
+        title: 'Privacy',
+        body:
+          '<p>Echo does not create an account or store your data on its servers in hosted mode — ' +
+          'your library (saved transcripts, digests, highlights) lives entirely in your own browser ' +
+          '(IndexedDB).</p>' +
+          '<p>Your Anthropic API key is stored only in your browser’s localStorage. It is sent to ' +
+          'this app’s server solely to relay your AI requests to Anthropic on your behalf — it is ' +
+          'not persisted server-side and is not shared with any other party.</p>' +
+          '<p>Transcripts you fetch are retrieved on demand and are not logged in web mode.</p>',
+      },
+      terms: {
+        title: 'Terms',
+        body:
+          '<p>Echo is provided as-is, with no warranty of any kind.</p>' +
+          '<p>You are responsible for your own Anthropic API usage and any costs it incurs.</p>' +
+          '<p>Please respect YouTube’s Terms of Service when using this app.</p>' +
+          '<p>Echo is not affiliated with, endorsed by, or sponsored by YouTube or Anthropic.</p>',
+      },
+    };
+
+    function openLegalOverlay(kind) {
+      if (!legalOverlayEl) return;
+      const content = LEGAL_CONTENT[kind] || LEGAL_CONTENT.privacy;
+      if (legalModalTitleEl) legalModalTitleEl.textContent = content.title;
+      if (legalModalBodyEl)  legalModalBodyEl.innerHTML    = content.body;
+      legalOverlayEl.hidden = false;
+    }
+
+    function closeLegalOverlay() {
+      if (!legalOverlayEl) return;
+      legalOverlayEl.hidden = true;
+    }
+
+    document.getElementById('footerPrivacyBtn')?.addEventListener('click', () => openLegalOverlay('privacy'));
+    document.getElementById('footerTermsBtn')?.addEventListener('click', () => openLegalOverlay('terms'));
+    document.getElementById('legalClose')?.addEventListener('click', closeLegalOverlay);
+    document.getElementById('legalBackdrop')?.addEventListener('click', closeLegalOverlay);
 
     /** Returns true if the keyboard event originates from a form-entry context. */
     function isTypingContext(e) {
@@ -10053,6 +10406,7 @@
         reApplyOverlays();
         updateNowReading();
         syncDigestExportRow();
+        markOnboarded(); // a restored transcript session means the user is past first-run
 
         digestBtn.disabled              = false;
         saveBtn.disabled                = false;
@@ -10391,8 +10745,13 @@
     const _autoLoaded = autoLoadFromQuery();
     // Autofocus the URL input for a fast paste-and-go flow — but not when we're
     // about to auto-fetch from a query param, or when a session was just restored
-    // (focus would be a distraction in either case).
-    if (!_autoLoaded && !_restored) urlInput.focus();
+    // (focus would be a distraction in either case). Same guard applies to the
+    // first-run onboarding card — no point showing it if we're about to replace
+    // #output's contents anyway.
+    if (!_autoLoaded && !_restored) {
+      urlInput.focus();
+      initOnboardCard();
+    }
   </script>
 </body>
 </html>

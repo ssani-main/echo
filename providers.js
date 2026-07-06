@@ -153,6 +153,41 @@ export const ApiKeyProvider = {
 };
 
 /**
+ * Validates a candidate Anthropic API key without spending tokens, by
+ * calling `models.list()` (a metadata-only endpoint) rather than
+ * `messages.create()`. Used by the web-mode Settings UI so a user learns
+ * immediately whether their key works, instead of on first AI call.
+ *
+ * @param {string} apiKey
+ * @returns {Promise<{ valid: true }>}
+ * @throws {Error} tagged with echoCode/hint (see mapAnthropicError) on
+ *   invalid/empty key or any Anthropic API failure.
+ */
+export async function validateApiKey(apiKey) {
+  if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+    const e = new Error('No Anthropic API key available.');
+    e.echoCode = 'API_NOT_AUTHED';
+    e.hint = 'Enter your Anthropic API key.';
+    throw e;
+  }
+
+  let client;
+  try {
+    client = new Anthropic({ apiKey: apiKey.trim() });
+  } catch (err) {
+    throw mapAnthropicError(err);
+  }
+
+  try {
+    await client.models.list({ limit: 1 });
+  } catch (err) {
+    throw mapAnthropicError(err);
+  }
+
+  return { valid: true };
+}
+
+/**
  * Selects the summarization provider to use.
  *
  * Defaults to ClaudeCliProvider (preserves current local-dev behaviour

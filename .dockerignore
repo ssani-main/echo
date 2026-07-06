@@ -1,0 +1,16 @@
+node_modules
+.git
+.gitignore
+data/
+data/models/
+*.log
+npm-debug.log*
+src-tauri/binaries
+src-tauri/target
+tests/
+.env
+.env.*
+!.env.example
+Dockerfile
+.dockerignore
+*.md

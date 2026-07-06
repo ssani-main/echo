@@ -50,6 +50,7 @@ import {
 import { getTodayUsage } from './usage.js';
 import { logEvent, errLabel } from './usagelog.js';
 import { searchVideos, forYou } from './discovery.js';
+import { validateApiKey } from './providers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -419,6 +420,17 @@ function blockInWeb(req, res, next) {
 }
 
 // ---------------------------------------------------------------------------
+// Health
+// ---------------------------------------------------------------------------
+// Unauthenticated, unrated-limited liveness check for container/proxy
+// healthchecks (e.g. Docker HEALTHCHECK, load balancer probes). Works
+// identically in local and web mode.
+
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', mode: ECHO_MODE });
+});
+
+// ---------------------------------------------------------------------------
 // Transcript
 // ---------------------------------------------------------------------------
 
@@ -633,6 +645,36 @@ app.post('/api/enrich', webLimit(20, 60_000), async (req, res) => {
     return res.json(result);
   } catch (err) {
     logEvent('enrich', { videoId: videoId || null, mode: mode || 'explain', selLen: (selection || '').length, ok: false, err: errLabel(err), ms: Date.now() - t0 });
+    return sendCaughtError(res, err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Key validation (web mode only)
+// ---------------------------------------------------------------------------
+// Lets the Settings UI validate a candidate Anthropic API key immediately
+// (via a cheap, token-free models.list() call) instead of the user only
+// finding out it's invalid on their first AI call.
+
+app.post('/api/validate-key', webLimit(20, 60_000), async (req, res) => {
+  if (!isWeb) {
+    return sendError(
+      res,
+      'WEB_MODE_UNSUPPORTED',
+      'Key validation is only available in hosted web mode.',
+      ''
+    );
+  }
+
+  const apiKey = readApiKey(req);
+  if (!apiKey) {
+    return sendError(res, 'API_NOT_AUTHED', 'No API key provided.', 'Enter your Anthropic API key.');
+  }
+
+  try {
+    const result = await validateApiKey(apiKey);
+    return res.json(result);
+  } catch (err) {
     return sendCaughtError(res, err);
   }
 });

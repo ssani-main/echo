@@ -126,6 +126,8 @@ ECHO_MODE=web PORT=8080 node server.js
 
 Public web mode with no authentication. Each visitor:
 - **Provides their own Anthropic API key** in Settings (gear icon)
+- **First-run onboarding**: new users see a card explaining that they need to add their own API key to use the AI features
+- Key validated on save via `POST /api/validate-key` — invalid keys are rejected immediately
 - Key stored in browser's **localStorage**, sent per-request as `X-Echo-Api-Key` header — **never stored on server**
 - Library stored in browser's **IndexedDB** — each visitor's library is isolated, no user accounts
 
@@ -139,6 +141,32 @@ Public web mode with no authentication. Each visitor:
 ### Desktop app (Tauri v2)
 
 A native window wrapper running the same Node backend as a sidecar. Build prerequisites (Rust, VS C++ Build Tools 2022, WebView2) and commands (`npm run tauri:dev`, `npm run tauri:build`) are documented in `DESKTOP.md` — refer to that file.
+
+### Deploy with Docker
+
+A production-ready container image runs Echo in web mode with yt-dlp pre-installed.
+
+```bash
+# Copy the example env file and add your settings (if any)
+cp .env.example .env
+
+# Build the image
+docker build -t echo .
+
+# Run the container
+docker run -p 8080:8080 echo
+```
+
+Then open **http://localhost:8080**. The container:
+- Runs in `ECHO_MODE=web` (BYOK — visitors bring their own Anthropic API key)
+- Listens on `0.0.0.0:8080` for use behind a reverse proxy
+- Includes a `HEALTHCHECK` that pings `/api/health` every 30s for orchestration tools (Kubernetes, Docker Compose, etc.)
+- Uses `node:22-bookworm-slim` with yt-dlp for transcript fallback and Discovery features
+
+To customize, edit `.env` before building, or pass environment variables at runtime:
+```bash
+docker run -e PORT=3000 -e ECHO_MODE=web -p 3000:3000 echo
+```
 
 ---
 
@@ -155,7 +183,7 @@ A native window wrapper running the same Node backend as a sidecar. Build prereq
 | `ECHO_MAX_TRANSCRIPT_CHARS` | `200000` | Web-mode transcript character limit |
 | `ECHO_MAX_AI_PAYLOAD_CHARS` | `200000` | Web-mode AI payload character limit |
 
-**Node version requirement:** ≥ 22.5 (for `node:sqlite` support).
+See [`.env.example`](./.env.example) for the full list of variables and detailed documentation for each. **Node version requirement:** ≥ 22.5 (for `node:sqlite` support).
 
 ## 🕹️ How to use
 
@@ -188,6 +216,8 @@ echo/
 
 | Method | Route | Body | Returns |
 |--------|-------|------|---------|
+| `GET` | `/api/health` | _(none)_ | `{ status: 'ok', mode }` |
+| `POST` | `/api/validate-key` | `{ key }` | `{ valid: true }` or `{ valid: false, error }` |
 | `POST` | `/api/transcript` | `{ url, lang? }` | `{ videoId, url, title, segments }` |
 | `GET` | `/api/languages` | `?videoId=` | `{ tracks: [{ code, name, auto }] }` |
 | `POST` | `/api/playlist` | `{ url }` | `{ playlistTitle, videos: [{ videoId, title }] }` |
