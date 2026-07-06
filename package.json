@@ -7,7 +7,8 @@
     "test": "node --test",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "npm run pkg:stage-deps && NO_STRIP=1 APPIMAGE_EXTRACT_AND_RUN=1 tauri build",
+    "pkg:stage-deps": "rm -rf src-tauri/dist-deps && mkdir -p src-tauri/dist-deps && cp package.json package-lock.json src-tauri/dist-deps/ && npm install --omit=dev --ignore-scripts --no-audit --no-fund --prefix src-tauri/dist-deps && rm -f src-tauri/dist-deps/package.json src-tauri/dist-deps/package-lock.json"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.109.1",

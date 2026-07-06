@@ -6,3 +6,6 @@
 # Sidecar Node binary is machine-specific and large (~90MB) — copy it in
 # locally before building (see DESKTOP.md). Do not commit it.
 /binaries/
+
+# Production-only node_modules staged for bundling (see package.json "pkg:stage-deps"). Generated, do not commit.
+/dist-deps/

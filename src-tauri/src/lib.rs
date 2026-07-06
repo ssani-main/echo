@@ -9,11 +9,9 @@
 //      from the bundled loading page to http://127.0.0.1:<port>/.
 //   4. Kill the sidecar when the window closes / the app exits.
 //
-// NOTE: this file cannot be compiled in this environment (no Rust/MSVC
-// toolchain installed here). It has been written against the documented
-// Tauri v2.11 / tauri-plugin-shell 2.x APIs but is UNVERIFIED until the
-// first `cargo tauri dev` / `cargo build` on a machine with the toolchain.
-// See DESKTOP.md for the specific API calls to double-check.
+// NOTE: written against the Tauri v2.11 / tauri-plugin-shell 2.x APIs.
+// Verified to compile with `cargo check` (Rust 1.95, Linux) on 2026-07-06.
+// See DESKTOP.md for the runtime spawn/navigate flow.
 
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
@@ -81,13 +79,9 @@ fn start_backend(app_handle: tauri::AppHandle) {
     .expect("failed to resolve app_data_dir");
 
   let db_path: PathBuf = app_data_dir.join("library.db");
-  let models_dir: PathBuf = app_data_dir.join("models");
 
   if let Err(err) = std::fs::create_dir_all(&app_data_dir) {
     log::error!("[echo] failed to create app data dir: {err}");
-  }
-  if let Err(err) = std::fs::create_dir_all(&models_dir) {
-    log::error!("[echo] failed to create models dir: {err}");
   }
 
   let server_entry = resource_dir.join("server.js");
@@ -100,7 +94,6 @@ fn start_backend(app_handle: tauri::AppHandle) {
     .args([server_entry.to_string_lossy().to_string()])
     .env("PORT", port.to_string())
     .env("ECHO_DB_PATH", db_path.to_string_lossy().to_string())
-    .env("ECHO_MODELS_DIR", models_dir.to_string_lossy().to_string())
     .env("ECHO_MODE", "desktop");
 
   let (mut rx, child) = match sidecar_cmd.spawn() {

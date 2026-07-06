@@ -17,7 +17,7 @@ a native WebView2 window.
                ▼
     1. find_free_port()            — scans 127.0.0.1 starting at 8737
     2. spawn Node sidecar          — bundled node.exe runs server.js
-       env: PORT, ECHO_DB_PATH, ECHO_MODELS_DIR
+       env: PORT, ECHO_DB_PATH
     3. poll 127.0.0.1:<port>       — until TCP connect succeeds (30s budget)
     4. window.navigate(url)        — swap loading page for the live app
     5. on window close / app exit  — kill the sidecar child process
@@ -103,6 +103,10 @@ npm install                # installs @tauri-apps/cli / @tauri-apps/api (already
 npm run tauri:dev          # cargo tauri dev — hot-reload desktop window
 npm run tauri:build        # cargo tauri build — produces installer(s) in src-tauri/target/release/bundle/
 ```
+
+The desktop bundle ships a production-only `node_modules` (staged into `src-tauri/dist-deps/` by the `pkg:stage-deps` npm script, run automatically by `npm run tauri:build`). The full dev `node_modules` must NOT be bundled — it contains `@tauri-apps/cli`'s musl-linked native binary, which breaks AppImage bundling via linuxdeploy.
+
+AppImage bundling also requires two env vars, which `npm run tauri:build` sets automatically: `APPIMAGE_EXTRACT_AND_RUN=1` (linuxdeploy is itself an AppImage and needs this where FUSE is unavailable, e.g. CI/containers) and `NO_STRIP=1` (linuxdeploy ships an old `strip` that fails on the `.relr.dyn` sections of modern system libraries on bleeding-edge distros such as Arch). The `.deb` and `.rpm` bundles are unaffected and build without these. Verified 2026-07-06: all three Linux installers (AppImage, .deb, .rpm) build on Arch/Linux.
 
 `tauri:dev` uses `devUrl: http://localhost:8000` in `tauri.conf.json`, so
 for the dev workflow, run `npm start` in a separate terminal first (or

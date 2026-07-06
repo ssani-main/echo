@@ -45,15 +45,13 @@
       "../providers.js": "providers.js",
       "../transcript.js": "transcript.js",
       "../store.js": "store.js",
-      "../embeddings.js": "embeddings.js",
-      "../clips.js": "clips.js",
       "../markdown.js": "markdown.js",
       "../playlistJob.js": "playlistJob.js",
       "../sanitize.js": "sanitize.js",
       "../usage.js": "usage.js",
       "../package.json": "package.json",
       "../public": "public",
-      "../node_modules": "node_modules"
+      "dist-deps/node_modules": "node_modules"
     },
     "windows": {
       "webviewInstallMode": {
