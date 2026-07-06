@@ -68,13 +68,25 @@ from the local Node server, exactly like a browser tab does today.
 
 ## LLM provider
 
+The Tauri launcher now sets `ECHO_MODE=desktop` when spawning the sidecar.
 The default provider is still the local `claude` CLI (`providers.js` →
-`ClaudeCliProvider`), unchanged from Phase 0. For LLM features (digest,
-ask, fact-check) to work in the desktop app, the `claude` CLI must be
-installed and authenticated on the machine the app runs on, and
-resolvable on `PATH` from the sidecar's process environment (or set
-`ECHO_PROVIDER=api` + an Anthropic API key as env vars before launching,
-to use `ApiKeyProvider` instead).
+`ClaudeCliProvider`) — if it's installed and authenticated on the machine
+the app runs on (resolvable on `PATH` from the sidecar's process
+environment), AI features (digest, ask, fact-check) work for free with no
+extra setup, exactly as before.
+
+Desktop mode additionally enables **optional** bring-your-own-key (BYOK):
+a user without the `claude` CLI can add their own Anthropic API key in
+Settings, and the frontend sends it as the `X-Echo-Api-Key` header on AI
+requests. The server honors that header in desktop mode (see
+`readApiKey()` in `server.js`) and uses `ApiKeyProvider` for that request;
+keyless requests keep falling through to the CLI provider unchanged. This
+mirrors hosted web mode's BYOK support but, unlike web mode, is never
+required — desktop keeps full server-side SQLite library access, no rate
+limits, and no payload caps regardless of whether a key is set.
+
+`POST /api/validate-key` (Settings' "test key" button) also works in
+desktop mode now, not just web mode.
 
 ## Build prerequisites
 

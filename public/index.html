@@ -5726,6 +5726,24 @@
       const env = data?.error;
       let message, hint;
 
+      // Desktop-specific: the CLI isn't installed/authed and the user hasn't
+      // set a BYOK key yet — point them straight at Settings instead of
+      // showing the generic (CLI-oriented) error.
+      const code = env && typeof env === 'object' ? env.code : undefined;
+      if (
+        (code === 'CLAUDE_NOT_INSTALLED' || code === 'CLAUDE_NOT_AUTHED') &&
+        ECHO.mode === 'desktop' &&
+        !getApiKey()
+      ) {
+        showToast(
+          'error',
+          'Claude CLI not found — add your Anthropic API key in Settings to use AI features, or install the Claude CLI.',
+          ''
+        );
+        openSettingsModal();
+        return;
+      }
+
       if (env && typeof env === 'object') {
         message = env.message || fallback || 'An error occurred.';
         hint    = env.hint    || '';
@@ -10028,7 +10046,7 @@
     settingsSaveKeyBtnEl?.addEventListener('click', async () => {
       const v = apiKeyInputEl?.value || '';
 
-      if (ECHO.mode !== 'web') {
+      if (ECHO.mode !== 'web' && ECHO.mode !== 'desktop') {
         setApiKey(v);
         showToast('success', v.trim() ? 'API key saved.' : 'API key cleared.');
         closeSettingsModal();
@@ -10088,10 +10106,27 @@
     // Settings gear is available in all modes now (the auto-digest toggle lives here).
     const settingsBtnEl = document.getElementById('settingsBtn');
     if (settingsBtnEl) settingsBtnEl.hidden = false;
-    // The BYOK API-key section only applies to web mode; hide it elsewhere.
-    if (ECHO.mode !== 'web') {
+    // The BYOK API-key section applies to web (required) and desktop (optional);
+    // hidden only in local mode, where the CLI is the sole AI path.
+    if (ECHO.mode !== 'web' && ECHO.mode !== 'desktop') {
       const apiKeySectionEl = document.getElementById('apiKeySection');
       if (apiKeySectionEl) apiKeySectionEl.hidden = true;
+    }
+
+    // Desktop-specific copy: the web note ("sent to this Echo server, which
+    // relays…") is inaccurate/over-scary on desktop, where the server runs
+    // locally on the user's own machine and the CLI is the default AI path.
+    if (ECHO.mode === 'desktop') {
+      const apiKeyNoteEl = document.querySelector('#apiKeySection .settings-note');
+      if (apiKeyNoteEl) {
+        apiKeyNoteEl.textContent = 'Optional. Echo uses your local Claude CLI by default. Add an ' +
+          'Anthropic API key only if you don’t have the CLI — it’s stored on this device ' +
+          'and used to call Anthropic directly; nothing is sent to any other server.';
+      }
+      const apiKeyLabelEl = document.querySelector('label[for="apiKeyInput"]');
+      if (apiKeyLabelEl && !/\(optional\)/i.test(apiKeyLabelEl.textContent)) {
+        apiKeyLabelEl.textContent += ' (optional)';
+      }
     }
 
     /**
@@ -10106,7 +10141,7 @@
      */
     function aiFetch(url, body) {
       const headers = { 'Content-Type': 'application/json' };
-      if (ECHO.mode === 'web') {
+      if (ECHO.mode === 'web' || ECHO.mode === 'desktop') {
         const k = getApiKey();
         if (k) headers['X-Echo-Api-Key'] = k;
       }
@@ -10162,7 +10197,19 @@
       const card = document.getElementById('onboardCard');
       if (!card) return;
       const keyNote = document.getElementById('onboardKeyNote');
-      if (keyNote) keyNote.hidden = !(ECHO.mode === 'web' && !getApiKey());
+      if (keyNote) {
+        if (ECHO.mode === 'desktop') {
+          // Soft, non-nagging framing — the CLI is the default, the key is optional.
+          const noteTextEl = keyNote.querySelector('.onboard-card-text');
+          if (noteTextEl) {
+            noteTextEl.textContent = 'AI uses your local Claude CLI. No CLI? Add your ' +
+              'Anthropic key in Settings — optional.';
+          }
+          keyNote.hidden = !!getApiKey();
+        } else {
+          keyNote.hidden = !(ECHO.mode === 'web' && !getApiKey());
+        }
+      }
       card.hidden = false;
     }
 

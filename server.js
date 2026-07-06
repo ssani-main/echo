@@ -56,12 +56,19 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // ---------------------------------------------------------------------------
-// Mode flag — 'local' (default: npm start, Tauri desktop) vs 'web' (hosted).
-// Every web-only branch below is gated on `isWeb` so local/desktop behavior
-// stays byte-for-byte identical to today.
+// Mode flag — 'local' (default: npm start) vs 'web' (hosted) vs 'desktop'
+// (Tauri app). Every web-only branch below is gated on `isWeb` so local/
+// desktop behavior stays byte-for-byte identical to today. Desktop mode is
+// otherwise identical to local (full server-side library, no rate limits,
+// no payload caps, embeddings on) — it only additionally allows optional
+// BYOK via `readApiKey`/`/api/validate-key`, purely as a fallback when the
+// local `claude` CLI isn't installed/authenticated.
 // ---------------------------------------------------------------------------
-const ECHO_MODE = process.env.ECHO_MODE === 'web' ? 'web' : 'local';
+const ECHO_MODE = process.env.ECHO_MODE === 'web' ? 'web'
+  : process.env.ECHO_MODE === 'desktop' ? 'desktop'
+  : 'local';
 const isWeb = ECHO_MODE === 'web';
+const isDesktop = ECHO_MODE === 'desktop';
 
 // ---------------------------------------------------------------------------
 // Numeric env config validation
@@ -245,12 +252,16 @@ function requireText(res, value, message, hint = '') {
 // ---------------------------------------------------------------------------
 // Step 2 — BYOK (bring-your-own-key) header threading
 // ---------------------------------------------------------------------------
-// Only honored in web mode. In local mode this always returns undefined, so
-// getProvider() falls through to the default ClaudeCliProvider — unchanged.
+// Honored in web mode (required there) and desktop mode (optional there —
+// the Tauri app lets a user without the `claude` CLI add their own
+// Anthropic key in Settings). In local mode this always returns undefined,
+// so getProvider() falls through to the default ClaudeCliProvider —
+// unchanged. In desktop mode a keyless request also falls through to the
+// CLI provider; the header is just an optional override.
 
 function readApiKey(req) {
   const k = req.get('X-Echo-Api-Key');
-  return (isWeb && k && k.trim()) ? k.trim() : undefined;
+  return ((isWeb || isDesktop) && k && k.trim()) ? k.trim() : undefined;
 }
 
 /**
@@ -657,11 +668,11 @@ app.post('/api/enrich', webLimit(20, 60_000), async (req, res) => {
 // finding out it's invalid on their first AI call.
 
 app.post('/api/validate-key', webLimit(20, 60_000), async (req, res) => {
-  if (!isWeb) {
+  if (!isWeb && !isDesktop) {
     return sendError(
       res,
       'WEB_MODE_UNSUPPORTED',
-      'Key validation is only available in hosted web mode.',
+      'Key validation is only available when using your own API key (web or desktop mode).',
       ''
     );
   }
@@ -1213,4 +1224,4 @@ if (isDirectRun) {
   });
 }
 
-export { app, rateLimitHit, buildInjectedHtml, ECHO_MODE, isWeb, ECHO_ERROR_STATUS };
+export { app, rateLimitHit, buildInjectedHtml, ECHO_MODE, isWeb, isDesktop, ECHO_ERROR_STATUS };

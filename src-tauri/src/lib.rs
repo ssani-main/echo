@@ -100,7 +100,8 @@ fn start_backend(app_handle: tauri::AppHandle) {
     .args([server_entry.to_string_lossy().to_string()])
     .env("PORT", port.to_string())
     .env("ECHO_DB_PATH", db_path.to_string_lossy().to_string())
-    .env("ECHO_MODELS_DIR", models_dir.to_string_lossy().to_string());
+    .env("ECHO_MODELS_DIR", models_dir.to_string_lossy().to_string())
+    .env("ECHO_MODE", "desktop");
 
   let (mut rx, child) = match sidecar_cmd.spawn() {
     Ok(pair) => pair,
