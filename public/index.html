@@ -1980,6 +1980,85 @@
     }
 
     /* ==============================================
+       28a. DISCOVERY PANE (topic chips + result grid)
+       Reuses .saved-card / .saved-card-* library card styles so
+       Discovery results look native alongside the Library grid.
+    =============================================== */
+    .discovery-chips {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.6rem;
+    }
+
+    .discovery-chip {
+      padding: 0.28rem 0.75rem;
+      font-family: var(--font-sans);
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--accent);
+      background: var(--accent-soft);
+      border: 1px solid transparent;
+      border-radius: 999px;
+      cursor: pointer;
+      outline: none;
+      transition: background 0.12s, border-color 0.12s, color 0.12s;
+    }
+
+    .discovery-chip:hover {
+      border-color: var(--accent);
+    }
+
+    .discovery-chip:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .discovery-chip.is-active {
+      color: var(--on-accent);
+      background: var(--accent);
+    }
+
+    .discovery-subtitle {
+      font-family: var(--font-sans);
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+      min-height: 1.1em;
+    }
+
+    /* Result grid — identical layout to #savedOutput's card grid */
+    .discovery-results {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(236px, 1fr));
+      gap: 1.15rem;
+    }
+
+    @media (max-width: 520px) {
+      .discovery-results {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Duration badge overlaid on a Discovery result thumbnail (bottom-right,
+       distinct corner from the top-left Library "Digest" badge). */
+    .discovery-duration-badge {
+      position: absolute;
+      right: 0.5rem;
+      bottom: 0.5rem;
+      z-index: 3;
+      font-family: var(--font-sans);
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: #fff;
+      background: rgba(0, 0, 0, 0.72);
+      border-radius: 4px;
+      padding: 0.08rem 0.4rem;
+    }
+
+    /* ==============================================
        28b. SEARCH SNIPPET + SEMANTIC MODE TAG
     =============================================== */
 
@@ -3912,6 +3991,21 @@
             <span id="libraryCount" class="library-btn-count">0</span>
           </button>
           <button
+            id="discoveryBtn"
+            class="library-btn"
+            type="button"
+            aria-pressed="false"
+            title="Discover new videos"
+          >
+            <svg class="library-btn-icon" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true" fill="none">
+              <g stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"/>
+                <path d="M15.5 8.5l-2.1 5.1-5.1 2.1 2.1-5.1z"/>
+              </g>
+            </svg>
+            <span class="library-btn-label">Discovery</span>
+          </button>
+          <button
             id="researchBtn"
             class="library-btn"
             type="button"
@@ -4326,6 +4420,45 @@
       <div id="savedResultCount" class="saved-result-count" aria-live="polite" aria-atomic="true"></div>
       <div id="savedStatusMsg" class="saved-status-msg" aria-live="polite" aria-atomic="true"></div>
       <div id="savedOutput"></div>
+    </div>
+
+    <!-- DISCOVERY PANE -->
+    <div id="paneDiscovery" role="tabpanel" aria-labelledby="discoveryBtn" hidden>
+      <div class="saved-toolbar">
+        <div class="saved-search-wrap">
+          <input
+            id="discoverySearchInput"
+            type="search"
+            placeholder="Search YouTube…"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="Search YouTube videos"
+          />
+        </div>
+        <button
+          id="discoverySearchBtn"
+          class="mini-btn"
+          aria-label="Search YouTube"
+        >Search</button>
+        <button
+          id="discoveryForYouBtn"
+          class="mini-btn"
+          aria-label="Show For You suggestions based on your library"
+        >For You</button>
+      </div>
+      <div id="discoveryChips" class="discovery-chips" role="group" aria-label="Topic shortcuts">
+        <button class="discovery-chip" type="button" data-topic="Tech">Tech</button>
+        <button class="discovery-chip" type="button" data-topic="Science">Science</button>
+        <button class="discovery-chip" type="button" data-topic="Business">Business</button>
+        <button class="discovery-chip" type="button" data-topic="Podcasts">Podcasts</button>
+        <button class="discovery-chip" type="button" data-topic="News">News</button>
+        <button class="discovery-chip" type="button" data-topic="AI">AI</button>
+        <button class="discovery-chip" type="button" data-topic="History">History</button>
+        <button class="discovery-chip" type="button" data-topic="Health">Health</button>
+      </div>
+      <div id="discoverySubtitle" class="discovery-subtitle" aria-live="polite" aria-atomic="true"></div>
+      <div id="discoveryStatusMsg" class="saved-status-msg" aria-live="polite" aria-atomic="true"></div>
+      <div id="discoveryResults" class="discovery-results"></div>
     </div>
 
   </div><!-- /.container -->
@@ -5107,6 +5240,15 @@
     const libraryBtn         = document.getElementById('libraryBtn');
     const libraryCountEl     = document.getElementById('libraryCount');
     const savedOutput        = document.getElementById('savedOutput');
+    const discoveryBtn            = document.getElementById('discoveryBtn');
+    const paneDiscovery           = document.getElementById('paneDiscovery');
+    const discoverySearchInput    = document.getElementById('discoverySearchInput');
+    const discoverySearchBtn      = document.getElementById('discoverySearchBtn');
+    const discoveryForYouBtn      = document.getElementById('discoveryForYouBtn');
+    const discoveryChipsEl        = document.getElementById('discoveryChips');
+    const discoverySubtitleEl     = document.getElementById('discoverySubtitle');
+    const discoveryStatusMsgEl    = document.getElementById('discoveryStatusMsg');
+    const discoveryResultsEl      = document.getElementById('discoveryResults');
     const savedCompareBtn    = document.getElementById('savedCompareBtn');
     const compareBar         = document.getElementById('compareBar');
     const compareCountLabel  = document.getElementById('compareCountLabel');
@@ -5172,9 +5314,9 @@
     let lastReaderLens = 'transcript'; // 'transcript' | 'digest'
 
     function switchTab(name) {
-      const names   = ['transcript', 'digest', 'saved'];
-      const tabEls  = [tabTranscript, tabDigest, null];
-      const paneEls = [paneTranscript, paneDigest, paneSaved];
+      const names   = ['transcript', 'digest', 'saved', 'discovery'];
+      const tabEls  = [tabTranscript, tabDigest, null, null];
+      const paneEls = [paneTranscript, paneDigest, paneSaved, paneDiscovery];
 
       names.forEach((n, i) => {
         const active = n === name;
@@ -5187,8 +5329,10 @@
 
       if (name === 'transcript' || name === 'digest') lastReaderLens = name;
       if (name === 'saved') { loadSaved(); checkEmbeddingsStatus(); }
+      if (name === 'discovery') initDiscoveryPane();
       if (name === 'digest') hideNextActionNudge();
       libraryBtn.setAttribute('aria-pressed', name === 'saved' ? 'true' : 'false');
+      if (discoveryBtn) discoveryBtn.setAttribute('aria-pressed', name === 'discovery' ? 'true' : 'false');
       updateReaderChromeVisibility();
       saveSession();
     }
@@ -5204,13 +5348,25 @@
       }
     }
 
+    /** Toggle the Discovery destination the same way libraryBtnClick toggles
+     *  the Library — open it, or return to the last reader lens if already open. */
+    function discoveryBtnClick() {
+      const isDiscoveryActive = paneDiscovery && !paneDiscovery.hidden;
+      if (isDiscoveryActive && currentMeta) {
+        switchTab(lastReaderLens);
+      } else {
+        switchTab('discovery');
+      }
+    }
+
     /** Show/hide the content header + lens tabs: only while a video is loaded
-     *  AND the active pane is a reader lens (not the Library). */
+     *  AND the active pane is a reader lens (not the Library/Discovery). */
     function updateReaderChromeVisibility() {
       const activePane = !paneTranscript.hidden ? 'transcript'
                         : !paneDigest.hidden     ? 'digest'
+                        : (paneDiscovery && !paneDiscovery.hidden) ? 'discovery'
                         : 'saved';
-      const show = !!currentMeta && activePane !== 'saved';
+      const show = !!currentMeta && activePane !== 'saved' && activePane !== 'discovery';
       tabBarEl.hidden       = !show;
       contentHeaderEl.hidden = !show;
     }
@@ -5218,6 +5374,7 @@
     tabTranscript.addEventListener('click', () => switchTab('transcript'));
     tabDigest.addEventListener('click',     () => switchTab('digest'));
     libraryBtn.addEventListener('click',    libraryBtnClick);
+    if (discoveryBtn) discoveryBtn.addEventListener('click', discoveryBtnClick);
 
     // Arrow-key roving focus within the lens tab bar (2 tabs)
     const tabBtns  = [tabTranscript, tabDigest];
@@ -9920,7 +10077,7 @@
         }
 
         // Restore active tab — does not trigger the next-action nudge or any AI call.
-        switchTab(snap.activeTab === 'digest' || snap.activeTab === 'saved' ? snap.activeTab : 'transcript');
+        switchTab(['digest', 'saved', 'discovery'].includes(snap.activeTab) ? snap.activeTab : 'transcript');
 
         setStatus(`Session restored — ${lastSegments.length} segment${lastSegments.length === 1 ? '' : 's'}.`);
         return true;
@@ -9930,8 +10087,215 @@
     }
 
     /* ==============================================
+       DISCOVERY PANE — search/browse YouTube without leaving the app,
+       then click a result to load it straight into the reader via the
+       existing fetchTranscript() path (same one autoLoadFromQuery uses).
+       Local-only feature: hidden entirely when ECHO.mode === 'web'
+       (the backend routes 503 in that mode).
+    =============================================== */
+    let discoveryInitialised = false; // guards the first-open lazy-load
+
+    /** Formats a raw view count into a compact label, e.g. 1234567 -> "1.2M views". */
+    function formatViews(n) {
+      if (n == null || isNaN(n)) return '';
+      const num = Number(n);
+      let label;
+      if (num >= 1_000_000) label = (num / 1_000_000).toFixed(num >= 10_000_000 ? 0 : 1) + 'M';
+      else if (num >= 1_000) label = (num / 1_000).toFixed(num >= 10_000 ? 0 : 1) + 'K';
+      else label = String(num);
+      return `${label} view${num === 1 ? '' : 's'}`;
+    }
+
+    /** Renders an array of Discovery Card objects into #discoveryResults,
+     *  reusing the .saved-card visual language from the Library grid. */
+    function renderDiscoveryResults(results) {
+      if (!Array.isArray(results) || results.length === 0) {
+        discoveryResultsEl.innerHTML = '';
+        return;
+      }
+
+      discoveryResultsEl.innerHTML = results.map(card => {
+        const title    = card.title || card.videoId || 'Untitled';
+        const channel  = card.channel || '';
+        const viewsStr = formatViews(card.views);
+        const durBadge = card.durationText
+          ? `<span class="discovery-duration-badge">${escapeHtml(card.durationText)}</span>`
+          : '';
+        const safeUrl  = safeHttpUrl(card.url);
+        const thumbHtml = (card.thumbnail && safeHttpUrl(card.thumbnail))
+          ? `<img class="saved-card-thumb"
+                  src="${escapeAttr(card.thumbnail)}"
+                  alt="" loading="lazy"
+                  onerror="this.remove()">`
+          : '';
+
+        return `<div class="saved-card"
+                     data-url="${escapeAttr(safeUrl || card.url || '')}"
+                     tabindex="0"
+                     role="button"
+                     aria-label="Load ${escapeAttr(title)}">
+          <div class="saved-card-thumb-wrap">
+            <div class="saved-card-thumb-fallback" aria-hidden="true">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+                <rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/>
+                <path d="M10 8.75 15 12l-5 3.25z" fill="currentColor" stroke="none"/>
+              </svg>
+            </div>
+            ${thumbHtml}
+            ${durBadge}
+          </div>
+          <div class="saved-card-body">
+            <div class="saved-card-title-row">
+              <div class="saved-card-title">${escapeHtml(title)}</div>
+            </div>
+            <div class="saved-card-meta">
+              ${channel ? `<span class="saved-meta-item">${escapeHtml(channel)}</span>` : ''}
+              ${(channel && viewsStr) ? '<span class="saved-meta-sep" aria-hidden="true">·</span>' : ''}
+              ${viewsStr ? `<span class="saved-meta-item">${escapeHtml(viewsStr)}</span>` : ''}
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+
+      discoveryResultsEl.querySelectorAll('.saved-card').forEach(card => {
+        card.addEventListener('click', () => loadDiscoveryCard(card.dataset.url));
+        card.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            loadDiscoveryCard(card.dataset.url);
+          }
+        });
+      });
+    }
+
+    /** Loads a Discovery result into the reader — the exact same sequence
+     *  autoLoadFromQuery() uses: populate #urlInput, then fetchTranscript()
+     *  (which itself calls switchTab('transcript') once the fetch begins). */
+    function loadDiscoveryCard(url) {
+      if (!url) return;
+      urlInput.value = url;
+      fetchTranscript();
+    }
+
+    function setDiscoveryStatus(text, isError) {
+      discoveryStatusMsgEl.textContent = text || '';
+      discoveryStatusMsgEl.className   = 'saved-status-msg' + (isError ? ' error' : '');
+    }
+
+    /** Runs a Discovery search for `q` and renders the results (or an
+     *  empty/error state) into #discoveryResults. */
+    async function runDiscoverySearch(q) {
+      const query = (q || '').trim();
+      if (!query) return;
+      discoverySubtitleEl.textContent = '';
+      setDiscoveryStatus('Searching…', false);
+      discoveryResultsEl.innerHTML = '';
+      try {
+        const res  = await fetch(`/api/discovery/search?q=${encodeURIComponent(query)}&n=20`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg = data && data.echoCode === 'YTDLP_MISSING'
+            ? "Couldn't reach YouTube. Is yt-dlp installed?"
+            : (data && data.error) || 'Search failed.';
+          setDiscoveryStatus(msg, true);
+          return;
+        }
+        const results = Array.isArray(data.results) ? data.results : [];
+        if (results.length === 0) {
+          setDiscoveryStatus(`No videos found for '${query}'.`, false);
+          renderDiscoveryResults([]);
+          return;
+        }
+        setDiscoveryStatus('', false);
+        renderDiscoveryResults(results);
+      } catch (e) {
+        setDiscoveryStatus("Couldn't reach YouTube. Is yt-dlp installed?", true);
+      }
+    }
+
+    /** Loads /api/discovery/foryou — personalised suggestions derived from
+     *  the local library — and shows a "Based on: …" subtitle, or a
+     *  friendly hint when the library is empty. */
+    async function loadDiscoveryForYou() {
+      setDiscoveryStatus('Loading suggestions…', false);
+      discoverySubtitleEl.textContent = '';
+      discoveryResultsEl.innerHTML = '';
+      try {
+        const res  = await fetch('/api/discovery/foryou');
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg = data && data.echoCode === 'YTDLP_MISSING'
+            ? "Couldn't reach YouTube. Is yt-dlp installed?"
+            : (data && data.error) || 'Could not load suggestions.';
+          setDiscoveryStatus(msg, true);
+          return;
+        }
+        const results = Array.isArray(data.results) ? data.results : [];
+        const basedOn = Array.isArray(data.basedOn) ? data.basedOn : [];
+        if (results.length === 0) {
+          setDiscoveryStatus('', false);
+          discoverySubtitleEl.textContent =
+            'Save a few videos and For You will suggest more like them.';
+          renderDiscoveryResults([]);
+          return;
+        }
+        setDiscoveryStatus('', false);
+        discoverySubtitleEl.textContent = basedOn.length > 0
+          ? `Based on: ${basedOn.join(', ')}`
+          : '';
+        renderDiscoveryResults(results);
+      } catch (e) {
+        setDiscoveryStatus("Couldn't reach YouTube. Is yt-dlp installed?", true);
+      }
+    }
+
+    if (discoverySearchBtn) {
+      discoverySearchBtn.addEventListener('click', () => runDiscoverySearch(discoverySearchInput.value));
+    }
+    if (discoverySearchInput) {
+      discoverySearchInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          runDiscoverySearch(discoverySearchInput.value);
+        }
+      });
+    }
+    if (discoveryForYouBtn) {
+      discoveryForYouBtn.addEventListener('click', loadDiscoveryForYou);
+    }
+    if (discoveryChipsEl) {
+      discoveryChipsEl.querySelectorAll('.discovery-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          discoveryChipsEl.querySelectorAll('.discovery-chip').forEach(c => c.classList.remove('is-active'));
+          chip.classList.add('is-active');
+          discoverySearchInput.value = chip.dataset.topic;
+          runDiscoverySearch(chip.dataset.topic);
+        });
+      });
+    }
+
+    /** First-open lazy-load for the Discovery pane: if the library already
+     *  has saved videos, lead with personalised For You suggestions;
+     *  otherwise leave the topic chips as the entry point. */
+    function initDiscoveryPane() {
+      if (discoveryInitialised) return;
+      discoveryInitialised = true;
+      if (Array.isArray(savedList) && savedList.length > 0) {
+        loadDiscoveryForYou();
+      } else {
+        discoverySubtitleEl.textContent =
+          'Save a few videos and For You will suggest more like them.';
+      }
+    }
+
+    /* ==============================================
        INITIALISE
     =============================================== */
+    if (ECHO.mode === 'web' && discoveryBtn) {
+      // Discovery's backend routes 503 in web mode — hide the entry point.
+      discoveryBtn.hidden = true;
+    }
     loadUsageChip();
     loadSaved();
     let _restored = false;

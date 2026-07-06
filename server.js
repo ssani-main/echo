@@ -49,6 +49,7 @@ import {
 } from './digest.js';
 import { getTodayUsage } from './usage.js';
 import { logEvent, errLabel } from './usagelog.js';
+import { searchVideos, forYou } from './discovery.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1117,6 +1118,48 @@ app.get('/api/search', blockInWeb, async (req, res) => {
   } catch (err) {
     logEvent('search', { qLen: q.length, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Discovery routes — keyless YouTube search via yt-dlp
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/discovery/search?q=...&n=...
+ * Keyless YouTube search (yt-dlp ytsearch). Response: { results: Card[] }.
+ */
+app.get('/api/discovery/search', blockInWeb, async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  const n = Math.min(Math.max(parseInt(req.query.n, 10) || 20, 1), 40);
+  const t0 = Date.now();
+
+  if (!q) return res.json({ results: [] });
+
+  try {
+    const results = await searchVideos(q, { n });
+    logEvent('discovery-search', { q, n: results.length, ms: Date.now() - t0, ok: true });
+    res.json({ results });
+  } catch (err) {
+    logEvent('discovery-search', { q, ok: false });
+    sendCaughtError(res, err);
+  }
+});
+
+/**
+ * GET /api/discovery/foryou
+ * "For You" feed derived from the saved library's tags/titles.
+ * Response: { results: Card[], basedOn: string[] }.
+ */
+app.get('/api/discovery/foryou', blockInWeb, async (_req, res) => {
+  const t0 = Date.now();
+  try {
+    const saved = await listEntries();
+    const { results, basedOn } = await forYou(saved);
+    logEvent('discovery-foryou', { n: results.length, basedOn, ms: Date.now() - t0, ok: true });
+    res.json({ results, basedOn });
+  } catch (err) {
+    sendCaughtError(res, err);
   }
 });
 
