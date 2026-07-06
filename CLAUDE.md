@@ -24,11 +24,12 @@ Direction: **ship to others** — a hosted web BYOK app + a free desktop app, fr
 - Fixed a Windows `spawn('*.cmd',{shell:false})` EINVAL crash in `usage.js` (see [`docs/memory/echo-windows-cmd-spawn-einval.md`](docs/memory/echo-windows-cmd-spawn-einval.md)).
 - Security/correctness hardening pass: resolveHref XSS scheme filter + /api/languages input validation + parallelized map-reduce + prompt-input sanitization + playlistJob rejection guard. Tests 154/154 green.
 - **Feature cut**: removed embeddings/semantic search (+ `@xenova/transformers`), clips, notes, favorites, and saved highlights (all 0-use). **Kept** FTS5 keyword search, digest/ask/enrich, tags, find-in-transcript, Discovery, export, and the map-reduce digest fallback.
+- **Desktop installers build (Linux)**: fixed the Tauri bundle (stale `embeddings.js`/`clips.js` refs, missing `websearch.js`/`discovery.js`/`usagelog.js`, dev-`node_modules` musl leak) so `npm run tauri:build` produces AppImage/`.deb`/`.rpm`; `lib.rs` compiles (`cargo check`, Rust 1.95) and the bundled backend drives a real transcript+digest end-to-end. Added `tests/tauri-bundle.test.js` as a drift guard. Tests 157/157 green.
 
 **What's left (all external-dependency-blocked):**
 - Deploy the web app → `fly deploy` (see [`DEPLOY.md`](DEPLOY.md); Fly builds the image remotely, no local Docker needed).
 - Confirm a real BYOK digest on the live site (needs a real Anthropic key; the CLI path is already proven end-to-end).
-- Ship desktop installers → needs Rust + MSVC toolchain + first `npm run tauri:build` (the `src-tauri/src/lib.rs` change is unverified until compiled).
+- Ship desktop installers → **Linux done** (`npm run tauri:build` → AppImage/`.deb`/`.rpm`, verified 2026-07-06 on Arch). Remaining: macOS/Windows installers (need those toolchains) + code-signing/notarization for distribution.
 
 ## Gotchas worth knowing
 - **Digest CLI isolation:** the `claude -p` digest subprocess must spawn with `cwd=tmpdir()` + an isolating `--system-prompt`, or it leaks this repo's own CLAUDE.md/memory into digests. See [`docs/memory/digest-cli-isolation.md`](docs/memory/digest-cli-isolation.md).
@@ -36,9 +37,10 @@ Direction: **ship to others** — a hosted web BYOK app + a free desktop app, fr
 - **URL scheme filtering by host is unsafe:** `new URL('javascript:alert(1)').host === ''` (empty string), so host-based filters like `host.includes('duckduckgo.com')` pass `javascript:`/`file:`/`data:` URLs through. Always validate scheme with `/^https?:\/\//i` before using a URL. See [`docs/memory/echo-url-scheme-host-empty.md`](docs/memory/echo-url-scheme-host-empty.md) and `websearch.js` `resolveHref()`.
 - **Tests miss runtime:** `node --test` doesn't spawn the real CLI or load the page under CSP. Before calling UI work done, drive a real digest + load the page (screenshots across light/dark/mobile). See [`docs/memory/echo-tests-miss-runtime.md`](docs/memory/echo-tests-miss-runtime.md) and [`docs/memory/visual-qa-before-ui-done.md`](docs/memory/visual-qa-before-ui-done.md).
 - **Test video:** use `youtube.com/watch?v=GRzaq5AHiV8` for manual/E2E checks.
+- **Tauri bundle drift:** `tauri.conf.json` `bundle.resources` lists backend `.js` files individually — a new backend module (or a new `./x.js` import) that isn't added there crashes the desktop sidecar at runtime with `ERR_MODULE_NOT_FOUND`, and `node --test` / the `.deb`/`.rpm` bundlers never catch it (they don't start the backend). `tests/tauri-bundle.test.js` guards this. AppImage bundling also needs a production-only `node_modules` + `NO_STRIP=1` + `APPIMAGE_EXTRACT_AND_RUN=1`, all handled by `npm run tauri:build` (see [`DESKTOP.md`](DESKTOP.md)).
 
 ## Key docs
 - [`DEPLOY.md`](DEPLOY.md) — Fly.io runbook (+ Railway note).
-- [`DESKTOP.md`](DESKTOP.md) — Tauri desktop shell (build-blocked on toolchain).
+- [`DESKTOP.md`](DESKTOP.md) — Tauri desktop shell (Linux installers build; macOS/Windows + signing pending).
 - [`PLAN.md`](PLAN.md) — feature-cut plan (now completed).
 - [`docs/memory/`](docs/memory/) — full accumulated context.
