@@ -5,6 +5,10 @@ const CCUSAGE_TIMEOUT_MS = 60_000; // 1 minute
 // Module-level in-memory cache: { ts: number, data: object } | null
 let cache = null;
 
+// Module-level in-flight guard: while a ccusage spawn is running, concurrent
+// callers await this same promise instead of starting their own subprocess.
+let pending = null;
+
 /**
  * Returns today's Claude Code usage totals via ccusage (run on demand via npx).
  * Never throws — always resolves with an object.
@@ -19,15 +23,40 @@ export async function getTodayUsage() {
     return cache.data;
   }
 
-  return new Promise((resolve) => {
+  // A spawn is already in flight for a cache miss — piggyback on it instead
+  // of starting a second concurrent ccusage subprocess.
+  if (pending) {
+    return pending;
+  }
+
+  pending = new Promise((resolve) => {
     let settled = false;
 
-    const npxBin = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-
-    const child = spawn(npxBin, ['-y', 'ccusage@latest', 'daily', '--json'], {
-      shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    let child;
+    try {
+      if (process.platform === 'win32') {
+        // On Windows, spawn('npx.cmd', args, { shell: false }) throws EINVAL
+        // synchronously (post CVE-2024-27980 Node behavior), which would
+        // escape this promise executor as an unhandled rejection. Run via a
+        // shell instead, passing the full command as a single string (not a
+        // separate args array) to avoid the DEP0190 deprecation warning.
+        // All tokens here are hardcoded constants — no user input — so
+        // there is no shell-injection surface.
+        child = spawn('npx -y ccusage@latest daily --json', {
+          shell: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+      } else {
+        child = spawn('npx', ['-y', 'ccusage@latest', 'daily', '--json'], {
+          shell: false,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+      }
+    } catch (err) {
+      settled = true;
+      resolve({ available: false, error: err.message });
+      return;
+    }
 
     const stdoutChunks = [];
     const stderrChunks = [];
@@ -98,4 +127,10 @@ export async function getTodayUsage() {
       return resolve(result);
     });
   });
+
+  // Clear the in-flight guard once settled (success or failure) so the next
+  // cache miss can spawn a fresh ccusage call.
+  pending.finally(() => { pending = null; });
+
+  return pending;
 }

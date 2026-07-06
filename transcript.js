@@ -158,7 +158,7 @@ async function fetchViaYtDlp(videoId, lang) {
     '--sub-format', 'json3',
     '-o', tmpBase,
     videoUrl,
-  ]);
+  ], { timeout: 30000 });
 
   // yt-dlp writes the file as <base>.<lang>.json3
   const subFile = `${tmpBase}.${effectiveLang}.json3`;

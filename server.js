@@ -510,6 +510,19 @@ app.get('/api/languages', webLimit(20, 60_000), async (req, res) => {
 // ---------------------------------------------------------------------------
 
 app.post('/api/playlist', webLimit(20, 60_000), async (req, res) => {
+  // Playlist enumeration spawns yt-dlp per request and can be used to fan out
+  // many downstream requests from a single anonymous call — too expensive to
+  // expose to anonymous web traffic. Disabled entirely in web mode; unchanged
+  // in local/desktop mode.
+  if (isWeb) {
+    return sendError(
+      res,
+      'WEB_MODE_UNSUPPORTED',
+      "Playlist processing isn't available in hosted mode.",
+      'Paste a single video link instead.'
+    );
+  }
+
   const { url } = req.body;
   if (!url) {
     return sendError(res, 'INTERNAL', 'url is required.', '', 400);
@@ -694,7 +707,7 @@ app.post('/api/validate-key', webLimit(20, 60_000), async (req, res) => {
 // Usage
 // ---------------------------------------------------------------------------
 
-app.get('/api/usage', async (req, res) => {
+app.get('/api/usage', blockInWeb, async (req, res) => {
   try {
     const usage = await getTodayUsage();
     return res.json(usage);

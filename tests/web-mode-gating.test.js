@@ -110,6 +110,7 @@ async function assertWebModeUnsupported(base, method, path) {
 
 // The full set of server-side library/search routes gated by blockInWeb().
 const GATED_ROUTES = [
+  ['GET', '/api/usage'],
   ['GET', '/api/saved'],
   ['GET', '/api/saved/export'],
   ['GET', '/api/saved/some-video-id'],
@@ -126,6 +127,7 @@ const GATED_ROUTES = [
   ['GET', '/api/clips'],
   ['GET', '/api/search'],
   ['POST', '/api/search/reindex'],
+  ['POST', '/api/playlist'],
 ];
 
 let webServer;
@@ -141,6 +143,38 @@ for (const [method, path] of GATED_ROUTES) {
     await assertWebModeUnsupported(webServer.base, method, path);
   });
 }
+
+// ---------------------------------------------------------------------------
+// POST /api/playlist is gated via an inline `if (isWeb)` check (not the
+// shared blockInWeb() middleware, since it also needs webLimit()), so it is
+// worth a dedicated assertion with a realistic playlist URL body, in addition
+// to its entry in GATED_ROUTES above (which only sends `{}`) — proving the
+// isWeb short-circuit fires before any yt-dlp playlist enumeration is
+// attempted, regardless of what the caller sends.
+// ---------------------------------------------------------------------------
+
+test('web mode: POST /api/playlist with a real playlist URL body returns 503 WEB_MODE_UNSUPPORTED (never spawns yt-dlp)', async () => {
+  const res = await fetch(`${webServer.base}/api/playlist`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: 'https://www.youtube.com/playlist?list=PLxyz' }),
+  });
+  assert.equal(res.status, 503, `expected 503, got ${res.status}`);
+  const body = await res.json();
+  assert.equal(body.error.code, 'WEB_MODE_UNSUPPORTED');
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/usage must never leak operator spend data to anonymous web
+// traffic — it must be gated, not merely error out for some other reason.
+// ---------------------------------------------------------------------------
+
+test('web mode: GET /api/usage returns 503 WEB_MODE_UNSUPPORTED (must not leak operator spend as 200 usage data)', async () => {
+  const res = await fetch(`${webServer.base}/api/usage`);
+  assert.equal(res.status, 503, `expected 503, got ${res.status}`);
+  const body = await res.json();
+  assert.equal(body.error.code, 'WEB_MODE_UNSUPPORTED');
+});
 
 test('tears down the web-mode server', async () => {
   await webServer.stop();
