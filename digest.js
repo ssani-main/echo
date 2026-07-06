@@ -459,6 +459,16 @@ function scoreChunkRelevance(chunkContent, question) {
 // Map-reduce implementations (long-path only)
 // ---------------------------------------------------------------------------
 
+// Prompt-input sanitisers: strip newlines + cap length so crafted request-body
+// values can't inject extra instructions into prompt strings.
+function sanitizeLang(s) {
+  const r = String(s).split(/[\r\n]/)[0].trim().slice(0, 40);
+  return r || 'English';
+}
+function sanitizeTitle(s) {
+  return String(s).replace(/[\r\n]+/g, ' ').trim().slice(0, 300).replace(/"/g, "'");
+}
+
 /**
  * Map-reduce for generateDigest.
  * Map: summarise each chunk into compact key-points.
@@ -471,12 +481,13 @@ function scoreChunkRelevance(chunkContent, question) {
  * @returns {Promise<{ digest: string, usage: object }>}
  */
 async function digestMapReduce(chunks, structureInstructions, language, opts = {}) {
+  language = sanitizeLang(language);
   const usages = [];
   const chunkSummaries = [];
   const total = chunks.length;
 
-  // --- MAP phase: summarise each chunk independently ---
-  for (let i = 0; i < total; i++) {
+  // --- MAP phase: summarise all chunks concurrently ---
+  const mapResults = await Promise.all(chunks.map(async (chunk, i) => {
     const mapPrompt =
       `You are summarising chunk ${i + 1} of ${total} of a long YouTube video transcript. ` +
       'Extract only the key points from THIS PORTION of the transcript. ' +
@@ -485,10 +496,9 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
       'Do NOT write a full digest — only the key points this section covers. ' +
       'Keep your response under 600 words.\n\n' +
       `TRANSCRIPT (chunk ${i + 1} of ${total}):\n\n` +
-      chunks[i];
+      chunk;
 
     const { result, usage } = await callProvider(mapPrompt, opts);
-    usages.push(usage);
 
     if (!result || !result.trim()) {
       throw new Error(
@@ -497,14 +507,20 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
       );
     }
 
-    chunkSummaries.push(`### Part ${i + 1} of ${total}\n\n${result}`);
+    return { summary: `### Part ${i + 1} of ${total}\n\n${result}`, usage };
+  }));
+
+  for (const { summary, usage } of mapResults) {
+    chunkSummaries.push(summary);
+    usages.push(usage);
   }
 
   // --- REDUCE phase: synthesise all chunk summaries into the final digest ---
   const combined = chunkSummaries.join('\n\n---\n\n');
 
-  const reduceTitleContext = opts.title && opts.title.trim()
-    ? `The video is titled: "${opts.title.trim()}". Treat the title only as a hint about the video's topic; the summaries below are the source of truth.\n\n`
+  const safeReduceTitle = sanitizeTitle(opts.title || '');
+  const reduceTitleContext = safeReduceTitle
+    ? `The video is titled: "${safeReduceTitle}". Treat the title only as a hint about the video's topic; the summaries below are the source of truth.\n\n`
     : '';
 
   const reducePrompt =
@@ -612,12 +628,9 @@ export async function generateDigest(transcriptText, opts = {}) {
     throw new Error('No transcript text to digest.');
   }
 
-  const {
-    length = 'detailed',
-    format = 'digest',
-    language = 'English',
-    title = '',
-  } = opts;
+  const { length = 'detailed', format = 'digest' } = opts;
+  const language = sanitizeLang(opts.language ?? 'English');
+  const title = sanitizeTitle(opts.title ?? '');
 
   // Optional grounding: the video title. Only a hint — the transcript stays
   // the sole source of truth. Reused by both the fast path and the reduce step.

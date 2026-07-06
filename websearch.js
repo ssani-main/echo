@@ -80,8 +80,16 @@ function resolveHref(href) {
     return null;
   }
 
+  // Reject any non-http(s) scheme (e.g. javascript:, file:, data:).
+  // new URL('javascript:...').host returns '' so the duckduckgo check above
+  // does NOT catch these — this guard is the last line of defence before the
+  // URL is handed to callers and eventually rendered as a clickable link.
+  if (!/^https?:\/\//i.test(url)) return null;
+
   return url;
 }
+
+export { resolveHref };
 
 /**
  * Runs a web search via DuckDuckGo's lite HTML endpoint and returns a list

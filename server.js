@@ -463,9 +463,18 @@ app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
 // ---------------------------------------------------------------------------
 
 app.get('/api/languages', webLimit(20, 60_000), async (req, res) => {
-  const { videoId } = req.query;
-  if (!videoId) {
+  const { videoId: rawId } = req.query;
+  if (!rawId) {
     return sendError(res, 'INTERNAL', 'videoId query parameter is required.', '', 400);
+  }
+  const videoId = extractVideoId(rawId);
+  if (!videoId) {
+    return sendError(
+      res,
+      'INVALID_URL',
+      'Could not find a valid YouTube video ID in that URL.',
+      'Paste a full YouTube URL (e.g. youtube.com/watch?v=…) or an 11-character video ID.'
+    );
   }
   try {
     const tracks = await listCaptionTracks(videoId);

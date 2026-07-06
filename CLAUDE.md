@@ -22,6 +22,7 @@ Direction: **ship to others** — a hosted web BYOK app + a free desktop app, fr
 - Desktop BYOK mode (`ECHO_MODE=desktop`).
 - Web-mode cost-sink hardening (`/api/usage` + `/api/playlist` gated; yt-dlp timeout; ccusage dedup).
 - Fixed a Windows `spawn('*.cmd',{shell:false})` EINVAL crash in `usage.js` (see [`docs/memory/echo-windows-cmd-spawn-einval.md`](docs/memory/echo-windows-cmd-spawn-einval.md)).
+- Security/correctness hardening pass: resolveHref XSS scheme filter + /api/languages input validation + parallelized map-reduce + prompt-input sanitization + playlistJob rejection guard. Tests 154/154 green.
 - **Feature cut**: removed embeddings/semantic search (+ `@xenova/transformers`), clips, notes, favorites, and saved highlights (all 0-use). **Kept** FTS5 keyword search, digest/ask/enrich, tags, find-in-transcript, Discovery, export, and the map-reduce digest fallback.
 
 **What's left (all external-dependency-blocked):**
@@ -32,6 +33,7 @@ Direction: **ship to others** — a hosted web BYOK app + a free desktop app, fr
 ## Gotchas worth knowing
 - **Digest CLI isolation:** the `claude -p` digest subprocess must spawn with `cwd=tmpdir()` + an isolating `--system-prompt`, or it leaks this repo's own CLAUDE.md/memory into digests. See [`docs/memory/digest-cli-isolation.md`](docs/memory/digest-cli-isolation.md).
 - **Windows `.cmd` spawns:** `spawn('*.cmd', args, {shell:false})` throws `EINVAL` synchronously on Windows (Node post-CVE-2024-27980). Use `shell:true` with a constant command string. yt-dlp is currently a real `.exe` here (unaffected); `claude` already routes via `cmd.exe /c`.
+- **URL scheme filtering by host is unsafe:** `new URL('javascript:alert(1)').host === ''` (empty string), so host-based filters like `host.includes('duckduckgo.com')` pass `javascript:`/`file:`/`data:` URLs through. Always validate scheme with `/^https?:\/\//i` before using a URL. See [`docs/memory/echo-url-scheme-host-empty.md`](docs/memory/echo-url-scheme-host-empty.md) and `websearch.js` `resolveHref()`.
 - **Tests miss runtime:** `node --test` doesn't spawn the real CLI or load the page under CSP. Before calling UI work done, drive a real digest + load the page (screenshots across light/dark/mobile). See [`docs/memory/echo-tests-miss-runtime.md`](docs/memory/echo-tests-miss-runtime.md) and [`docs/memory/visual-qa-before-ui-done.md`](docs/memory/visual-qa-before-ui-done.md).
 - **Test video:** use `youtube.com/watch?v=GRzaq5AHiV8` for manual/E2E checks.
 

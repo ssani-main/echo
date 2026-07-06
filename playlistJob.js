@@ -176,7 +176,11 @@ export function startPlaylistDigest(url, opts = {}, deps = {}) {
     }
   }
 
-  run();
+  run().catch((err) => {
+    job.status = 'error';
+    job.error = (err && err.message) || 'Unexpected error during playlist digest.';
+    job.finishedAt = new Date().toISOString();
+  });
 
   return { jobId };
 }
