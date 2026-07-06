@@ -1,0 +1,58 @@
+# Echo — hosted web mode (BYOK), Fly.io config.
+#
+# This app is stateless: server-side library persistence is disabled in
+# ECHO_MODE=web (each visitor's library lives in browser IndexedDB), and AI
+# calls are bring-your-own-key (each request carries its own Anthropic key
+# via the X-Echo-Api-Key header). No volume, no secrets needed to deploy.
+#
+# `app` below is a placeholder — `fly launch` (or `fly apps create`) will
+# either use this name if it's free or prompt you to pick another. Rename it
+# here before deploying if you already know what you want.
+app = "echo-web"
+
+# Placeholder region — pick the one closest to your users.
+# List choices: `fly platform regions`
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # Redundant with the Dockerfile's own ENV, set explicitly here so it's
+  # visible/auditable from `fly.toml` and survives if the Dockerfile ever
+  # changes its defaults.
+  ECHO_MODE = "web"
+  ECHO_HOST = "0.0.0.0"
+  # Web-mode abuse/cost guards — same defaults as .env.example, listed here
+  # for visibility. Safe to tune without touching the Dockerfile.
+  ECHO_MAX_TRANSCRIPT_CHARS = "200000"
+  ECHO_MAX_AI_PAYLOAD_CHARS = "200000"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+
+  # Cost-saving default: scale to zero machines when idle, cold-start on the
+  # next request. Set min_machines_running = 1 if you'd rather pay for an
+  # always-warm machine and avoid the first-request cold-start latency.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/api/health"
+    protocol = "http"
+    timeout = "5s"
+
+# Keep this at exactly one machine. The per-IP rate limiter (used to guard
+# the AI/transcript routes in ECHO_MODE=web) tracks counts in-process memory
+# — it is NOT shared across machines. Running more than one machine means
+# each machine enforces its own independent limit, effectively multiplying
+# the real per-visitor rate cap. See DEPLOY.md "Scaling note" before
+# changing this.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
