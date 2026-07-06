@@ -2084,55 +2084,6 @@
       overflow: hidden;
     }
 
-    /* Inline pill shown in the result-count row when mode === "hybrid" */
-    .search-mode-tag {
-      display: inline-block;
-      font-family: var(--font-sans);
-      font-size: 0.62rem;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--accent);
-      background: var(--accent-soft);
-      border-radius: 4px;
-      padding: 0.08rem 0.38rem;
-      vertical-align: middle;
-      margin-left: 0.35rem;
-    }
-
-    /* ==============================================
-       29. STAR / FAVORITE BUTTON
-    =============================================== */
-    .saved-star-btn {
-      flex-shrink: 0;
-      align-self: flex-start;
-      margin-top: 0.05rem;
-      padding: 0.15rem 0.3rem;
-      font-size: 1.05rem;
-      line-height: 1;
-      color: var(--muted);
-      background: transparent;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      outline: none;
-      transition: color 0.12s, transform 0.12s;
-    }
-
-    .saved-star-btn[aria-pressed="true"] {
-      color: var(--accent);
-    }
-
-    .saved-star-btn:hover {
-      color: var(--accent);
-      transform: scale(1.2);
-    }
-
-    .saved-star-btn:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
-    }
-
     /* ==============================================
        30. TAG CHIPS + TAG EDITOR
     =============================================== */
@@ -2246,7 +2197,7 @@
     }
 
     /* ==============================================
-       31. CARD ACTIONS ROW (notes btn lives here)
+       31. CARD ACTIONS ROW
     =============================================== */
     .saved-card-actions {
       display: flex;
@@ -2256,7 +2207,6 @@
       flex-wrap: wrap;
     }
 
-    .saved-notes-btn,
     .saved-export-btn {
       display: inline-flex;
       align-items: center;
@@ -2276,159 +2226,15 @@
       transition: color 0.12s, border-color 0.12s, background 0.12s;
     }
 
-    .saved-notes-btn:hover,
-    .saved-notes-btn[aria-expanded="true"],
     .saved-export-btn:hover {
       color: var(--accent);
       border-color: var(--accent);
       background: var(--accent-soft);
     }
 
-    .saved-notes-btn:focus-visible,
     .saved-export-btn:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 1px;
-    }
-
-    /* ==============================================
-       32. NOTES PANEL (inline, below card body)
-    =============================================== */
-    .saved-notes-panel {
-      display: none;
-      border-top: 1px solid var(--rule);
-      margin-top: 0.65rem;
-      padding-top: 0.65rem;
-    }
-
-    .saved-notes-panel.expanded {
-      display: block;
-    }
-
-    .saved-notes-loading,
-    .saved-notes-empty {
-      font-family: var(--font-serif);
-      font-size: 0.85rem;
-      font-style: italic;
-      color: var(--muted);
-      padding: 0.25rem 0;
-    }
-
-    .saved-note-item {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.5rem;
-      padding: 0.38rem 0;
-      border-bottom: 1px solid var(--rule);
-    }
-
-    .saved-note-item:last-of-type {
-      border-bottom: none;
-    }
-
-    .saved-note-text {
-      flex: 1;
-      font-family: var(--font-serif);
-      font-size: 0.875rem;
-      line-height: 1.55;
-      color: var(--ink);
-    }
-
-    .saved-note-date {
-      font-family: var(--font-mono);
-      font-size: 0.63rem;
-      color: var(--muted);
-      white-space: nowrap;
-      flex-shrink: 0;
-      margin-top: 0.15rem;
-    }
-
-    .saved-note-delete {
-      flex-shrink: 0;
-      padding: 0.1rem 0.3rem;
-      font-size: 0.68rem;
-      line-height: 1;
-      color: var(--muted);
-      background: transparent;
-      border: none;
-      border-radius: 3px;
-      cursor: pointer;
-      outline: none;
-      transition: color 0.1s;
-    }
-
-    .saved-note-delete:hover {
-      color: var(--warn);
-    }
-
-    .saved-note-delete:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 1px;
-    }
-
-    .saved-note-add-row {
-      display: flex;
-      gap: 0.4rem;
-      margin-top: 0.6rem;
-      align-items: flex-start;
-    }
-
-    .saved-note-textarea {
-      flex: 1;
-      min-width: 0;
-      padding: 0.38rem 0.6rem;
-      font-family: var(--font-serif);
-      font-size: 0.85rem;
-      line-height: 1.45;
-      color: var(--ink);
-      background: var(--surface);
-      border: 1px solid var(--rule);
-      border-radius: 6px;
-      outline: none;
-      resize: vertical;
-      min-height: 2.3rem;
-      max-height: 6rem;
-      transition: border-color 0.15s, box-shadow 0.15s;
-    }
-
-    .saved-note-textarea::placeholder {
-      color: var(--muted);
-      font-style: italic;
-      opacity: 1;
-    }
-
-    .saved-note-textarea:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--accent-soft);
-    }
-
-    .saved-note-submit {
-      flex-shrink: 0;
-      padding: 0.38rem 0.85rem;
-      font-family: var(--font-sans);
-      font-size: 0.78rem;
-      font-weight: 500;
-      color: var(--on-accent);
-      background: var(--accent);
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      white-space: nowrap;
-      outline: none;
-      transition: background 0.15s;
-    }
-
-    .saved-note-submit:hover:not(:disabled) {
-      background: var(--accent-dark);
-    }
-
-    .saved-note-submit:focus-visible {
-      box-shadow: 0 0 0 3px var(--accent-soft);
-    }
-
-    .saved-note-submit:disabled {
-      background: var(--muted);
-      opacity: 0.5;
-      cursor: default;
     }
 
     /* ==============================================
@@ -2549,33 +2355,7 @@
     }
 
     /* ==============================================
-       34. USER HIGHLIGHTS
-    =============================================== */
-    mark.user-highlight {
-      background: var(--accent-soft);
-      color: var(--ink);
-      border-left: 2px solid var(--accent);
-      border-radius: 0 2px 2px 0;
-      padding: 0 2px;
-      cursor: pointer;
-    }
-
-    mark.user-highlight:hover {
-      filter: brightness(0.92);
-    }
-
-    /* Superscript dot when a note is attached */
-    mark.user-highlight[data-note]::after {
-      content: '\00B7';
-      font-size: 0.65em;
-      vertical-align: super;
-      color: var(--accent);
-      margin-left: 1px;
-      pointer-events: none;
-    }
-
-    /* ==============================================
-       35. HIGHLIGHT POPOVERS
+       35. SHARED POPOVER BASE (used by the enrich toolbar)
     =============================================== */
     .hl-popover {
       /* Hidden by default — [hidden] attribute alone is overridden by display:flex,
@@ -2604,44 +2384,6 @@
       gap: 0.3rem;
       flex-wrap: wrap;
       align-items: center;
-    }
-
-    .hl-popover-note-text {
-      font-family: var(--font-serif);
-      font-size: 0.84rem;
-      line-height: 1.5;
-      color: var(--ink);
-      padding: 0.15rem 0 0.1rem;
-      border-bottom: 1px solid var(--rule);
-      margin-bottom: 0.1rem;
-    }
-
-    .hl-note-textarea {
-      width: 100%;
-      padding: 0.32rem 0.5rem;
-      font-family: var(--font-serif);
-      font-size: 0.82rem;
-      line-height: 1.45;
-      color: var(--ink);
-      background: var(--paper);
-      border: 1px solid var(--rule);
-      border-radius: 5px;
-      outline: none;
-      resize: vertical;
-      min-height: 2rem;
-      max-height: 5rem;
-      transition: border-color 0.15s, box-shadow 0.15s;
-    }
-
-    .hl-note-textarea::placeholder {
-      color: var(--muted);
-      font-style: italic;
-      opacity: 1;
-    }
-
-    .hl-note-textarea:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 2px var(--accent-soft);
     }
 
     /* ==============================================
@@ -3763,74 +3505,6 @@
 
     #crossDigestContent strong { font-weight: 600; }
 
-    /* Clips modal — reuses .cross-digest-modal/-header/-title/-btn-row; only
-       the row/group layout inside #clipsContent needs scoped rules. */
-    .clips-empty {
-      font-family: var(--font-serif);
-      font-size: 1rem;
-      color: var(--ink-muted, var(--ink));
-      opacity: 0.72;
-      padding: 0.5rem 0 0.25rem;
-    }
-
-    .clips-video-group + .clips-video-group { margin-top: 1.4rem; }
-
-    .clips-video-title {
-      display: block;
-      font-family: var(--font-sans);
-      font-size: 0.9rem;
-      font-weight: 700;
-      color: var(--accent);
-      margin-bottom: 0.5rem;
-      padding-bottom: 0.3rem;
-      border-bottom: 1px solid var(--rule);
-      text-decoration: none;
-    }
-
-    .clips-video-title:hover { text-decoration: underline; }
-
-    .clips-row {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.6rem;
-      padding: 0.5rem 0;
-      border-bottom: 1px solid var(--rule);
-    }
-
-    .clips-row:last-child { border-bottom: none; }
-
-    .clips-row-time {
-      flex-shrink: 0;
-      font-family: var(--font-sans);
-      font-size: 0.78rem;
-      font-weight: 600;
-      color: var(--accent);
-      text-decoration: none;
-      white-space: nowrap;
-      padding-top: 0.1rem;
-    }
-
-    .clips-row-time:hover { text-decoration: underline; }
-
-    .clips-row-body { flex: 1; min-width: 0; }
-
-    .clips-row-text {
-      font-family: var(--font-serif);
-      font-size: 0.95rem;
-      line-height: 1.5;
-      color: var(--ink);
-    }
-
-    .clips-row-note {
-      font-family: var(--font-sans);
-      font-size: 0.78rem;
-      color: var(--ink);
-      opacity: 0.65;
-      margin-top: 0.15rem;
-    }
-
-    .clips-row-copy { flex-shrink: 0; }
-
     /* ==============================================
        ANSWER LANGUAGE CONTROL — Ask / Fact-check panels
     =============================================== */
@@ -4570,7 +4244,6 @@
         <select id="savedSortSelect" aria-label="Sort saved videos">
           <option value="recent">Recently saved</option>
           <option value="title">Title A–Z</option>
-          <option value="favorites">Favorites first</option>
         </select>
         <button
           id="savedExportBtn"
@@ -4578,23 +4251,11 @@
           aria-label="Export saved library as a ZIP of Markdown files"
         >Export library</button>
         <button
-          id="savedClipsBtn"
-          class="mini-btn"
-          aria-label="View all highlight clips as YouTube deep-links"
-        >Clips</button>
-        <button
           id="savedCompareBtn"
           class="mini-btn"
           aria-label="Toggle compare mode to select videos for cross-digest"
           aria-pressed="false"
         >Compare</button>
-        <button
-          id="savedReindexBtn"
-          class="mini-btn"
-          hidden
-          aria-label="Build semantic search index for the library"
-          title="Compute local embeddings so searches can use semantic similarity"
-        >Semantic index</button>
       </div>
       <!-- Compare action bar — visible when 2+ cards are selected in compare mode -->
       <div id="compareBar" hidden role="status" aria-live="polite">
@@ -4674,22 +4335,6 @@
         </div>
       </div>
       <div id="crossDigestContent"></div>
-    </div>
-  </div>
-
-  <!-- CLIPS OVERLAY (highlight clip reel — YouTube deep-links) -->
-  <div id="clipsOverlay" role="dialog" aria-modal="true" aria-label="Highlight clips" hidden>
-    <div class="cross-digest-backdrop" id="clipsBackdrop"></div>
-    <div class="cross-digest-modal">
-      <div class="cross-digest-header">
-        <span class="cross-digest-title">Highlight clips</span>
-        <div class="cross-digest-btn-row">
-          <button class="mini-btn" id="clipsCopyBtn" aria-label="Copy all clips to clipboard">Copy all</button>
-          <button class="mini-btn" id="clipsExportBtn" aria-label="Export clips as Markdown file">Export .md</button>
-          <button class="mini-btn" id="clipsCloseBtn" aria-label="Close clips panel">✕</button>
-        </div>
-      </div>
-      <div id="clipsContent"></div>
     </div>
   </div>
 
@@ -4785,34 +4430,6 @@
     </div>
   </div>
 
-  <!-- HIGHLIGHT CREATION POPOVER (shown on text selection) -->
-  <div id="hlCreatePopover" class="hl-popover" role="dialog"
-       aria-label="Highlight selected text" aria-modal="false" hidden>
-    <div class="hl-popover-actions">
-      <button class="mini-btn" id="hlCreateBtn" aria-label="Save as highlight">Highlight</button>
-      <button class="mini-btn" id="hlWithNoteBtn" aria-label="Highlight and add a note">+ Note</button>
-      <button class="mini-btn" id="hlCreateClose" aria-label="Close" title="Close (Esc)">✕</button>
-    </div>
-    <div id="hlNoteArea" hidden>
-      <textarea id="hlNoteInput" class="hl-note-textarea" rows="2"
-                placeholder="Add a note…"
-                aria-label="Note for this highlight"></textarea>
-      <div class="hl-popover-actions" style="margin-top:0.15rem">
-        <button class="mini-btn" id="hlNoteSave" aria-label="Save highlight with note">Save</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- HIGHLIGHT VIEW POPOVER (shown on clicking an existing highlight) -->
-  <div id="hlViewPopover" class="hl-popover" role="dialog"
-       aria-label="Highlight details" aria-modal="false" hidden>
-    <div id="hlViewNoteText" class="hl-popover-note-text" hidden></div>
-    <div class="hl-popover-actions">
-      <button class="mini-btn" id="hlViewRemoveBtn" aria-label="Remove this highlight">Remove</button>
-      <button class="mini-btn" id="hlViewClose" aria-label="Close" title="Close (Esc)">✕</button>
-    </div>
-  </div>
-
   <!-- DIGEST SELECTION ENRICH TOOLBAR (shown when the user selects text inside the AI digest) -->
   <div id="enrichToolbar" class="hl-popover enrich-toolbar" role="toolbar"
        aria-label="Look up selected text" hidden>
@@ -4827,7 +4444,7 @@
   <!-- RESEARCH RAIL — right-side drawer accumulating every digest enrich lookup
        (Explain/Background/Fact-check) for the current video. Non-modal
        (aria-modal="false"): the scrim closes it but underlying content stays
-       reachable via Esc/close button, same as the highlight popovers above. -->
+       reachable via Esc/close button, same as the enrich toolbar above. -->
   <div id="researchRail" role="dialog" aria-modal="false" aria-label="Research" hidden>
     <div class="research-rail-backdrop" id="researchRailBackdrop"></div>
     <div class="research-rail-panel">
@@ -4846,10 +4463,10 @@
   <script>
     /* ==============================================
        WEB MODE FLAG — injected by the server as
-       window.__ECHO__ = { mode, embeddings }. Falls back
+       window.__ECHO__ = { mode }. Falls back
        to local-mode defaults when unset (e.g. tests).
     =============================================== */
-    const ECHO = window.__ECHO__ || { mode: 'local', embeddings: true };
+    const ECHO = window.__ECHO__ || { mode: 'local' };
 
     /* ==============================================
        LIBRARY STORAGE ADAPTER
@@ -4896,51 +4513,6 @@
         });
       },
 
-      /** PATCH /api/saved/:id/favorite -> entry (raw Response) */
-      setFavorite(videoId, fav) {
-        return fetch(`/api/saved/${encodeURIComponent(videoId)}/favorite`, {
-          method:  'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ favorite: fav }),
-        });
-      },
-
-      /** POST /api/saved/:id/notes -> note (raw Response) */
-      addNote(videoId, text) {
-        return fetch(`/api/saved/${encodeURIComponent(videoId)}/notes`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ text }),
-        });
-      },
-
-      /** DELETE /api/saved/:id/notes/:noteId (raw Response) */
-      deleteNote(videoId, noteId) {
-        return fetch(
-          `/api/saved/${encodeURIComponent(videoId)}/notes/${encodeURIComponent(noteId)}`,
-          { method: 'DELETE' }
-        );
-      },
-
-      /** POST /api/saved/:id/highlights -> highlight (raw Response) */
-      addHighlight(videoId, { text, note } = {}) {
-        const body = { text };
-        if (note) body.note = note;
-        return fetch(`/api/saved/${encodeURIComponent(videoId)}/highlights`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify(body),
-        });
-      },
-
-      /** DELETE /api/saved/:id/highlights/:hid (raw Response) */
-      deleteHighlight(videoId, hlId) {
-        return fetch(
-          `/api/saved/${encodeURIComponent(videoId)}/highlights/${encodeURIComponent(hlId)}`,
-          { method: 'DELETE' }
-        );
-      },
-
       /** GET /api/saved/export -> {entries:[...]} (raw Response) */
       exportAll() {
         return fetch('/api/saved/export');
@@ -4964,7 +4536,7 @@
        server-side store of record, so Markdown must be
        assembled in the browser). Deliberately mirrors the
        server's markdown.js entryToMarkdown() at a lighter
-       weight (no highlight timestamp deep-linking) — this
+       weight — this
        matches the template that was previously inlined in
        exportSavedLibrary() before this extraction.
     =============================================== */
@@ -4981,20 +4553,6 @@
       if (includeTranscript && Array.isArray(e.segments) && e.segments.length > 0) {
         const paras = reflowToParagraphs(e.segments);
         md += paras.join('\n\n');
-      }
-
-      if (Array.isArray(e.notes) && e.notes.length > 0) {
-        md += '\n\n## Notes\n\n';
-        e.notes.forEach(n => { md += `- ${n.text}\n`; });
-      }
-
-      if (Array.isArray(e.highlights) && e.highlights.length > 0) {
-        md += '\n\n## Highlights\n\n';
-        e.highlights.forEach(h => {
-          let line = `- "${h.text}"`;
-          if (h.note) line += ` — ${h.note}`;
-          md += line + '\n';
-        });
       }
 
       return md;
@@ -5014,7 +4572,7 @@
        Schema: a single object store "videos" (keyPath
        videoId, index on savedAt) holding the FULL entry
        object { videoId, url, title, savedAt, updatedAt,
-       segments, digest, favorite, tags, notes, highlights }
+       segments, digest, favorite, tags }
        — this matches the shape store.getEntry() returns on
        the server, so listEntries()/getEntry() render
        identically in both modes. (A normalized 4-store form
@@ -5082,32 +4640,11 @@
       }));
     }
 
-    let _idbIdCounter = 0;
-    /** Same "<timestamp>-<counter>" scheme as store.js's generateId(). */
-    function idbGenerateId() {
-      _idbIdCounter += 1;
-      return `${Date.now()}-${_idbIdCounter}`;
-    }
-
     /** Mirrors store.js's tag sanitize logic: trim, dedup, drop empties, cap at 20. */
     function idbSanitizeTags(tags) {
       return Array.isArray(tags)
         ? [...new Set(tags.map((t) => String(t).trim()).filter(Boolean))].slice(0, 20)
         : [];
-    }
-
-    /** Mirrors store.js's sanitizeHighlight(): requires non-empty text, assigns id/createdAt if missing. */
-    function idbSanitizeHighlight(raw) {
-      const text = String(raw?.text ?? '').trim();
-      if (!text) return null;
-      const h = {
-        id:        raw.id ?? idbGenerateId(),
-        text,
-        createdAt: raw.createdAt ?? new Date().toISOString(),
-      };
-      if (raw.note  != null) h.note  = String(raw.note);
-      if (raw.color != null) h.color = String(raw.color);
-      return h;
     }
 
     /** Mirrors store.js's toMeta(): the metadata-only shape returned by listEntries(). */
@@ -5121,8 +4658,6 @@
         segmentCount:   entry.segments?.length || 0,
         tags:           Array.isArray(entry.tags)       ? entry.tags        : [],
         favorite:       typeof entry.favorite === 'boolean' ? entry.favorite : false,
-        noteCount:      Array.isArray(entry.notes)      ? entry.notes.length      : 0,
-        highlightCount: Array.isArray(entry.highlights) ? entry.highlights.length : 0,
       };
     }
 
@@ -5162,25 +4697,18 @@
       },
 
       /**
-       * Upsert an entry by videoId, preserving digest/tags/favorite/notes/
-       * highlights when the payload omits them — same semantics as
+       * Upsert an entry by videoId, preserving digest/tags/favorite
+       * when the payload omits them — same semantics as
        * store.js's saveEntry(). -> saved meta, 200 | 400
        */
       async saveEntry(payload) {
         try {
-          const { url, videoId, title, segments, digest, tags, favorite, notes, highlights } = payload || {};
+          const { url, videoId, title, segments, digest, tags, favorite } = payload || {};
           if (!videoId || !Array.isArray(segments) || segments.length === 0) {
             return idbErr('videoId and segments are required.', 400);
           }
           const now = new Date().toISOString();
           const existing = await idbGetEntry(videoId);
-
-          const sanitizedNotes = Array.isArray(notes)
-            ? notes.filter((n) => n && n.id && n.text)
-            : null;
-          const sanitizedHighlights = Array.isArray(highlights)
-            ? highlights.map(idbSanitizeHighlight).filter(Boolean)
-            : null;
 
           let entry;
           if (!existing) {
@@ -5194,8 +4722,6 @@
               digest:     digest || null,
               favorite:   typeof favorite === 'boolean' ? favorite : false,
               tags:       idbSanitizeTags(tags),
-              notes:      sanitizedNotes || [],
-              highlights: sanitizedHighlights || [],
             };
           } else {
             entry = {
@@ -5207,8 +4733,6 @@
               digest:     digest ? digest : existing.digest,
               favorite:   typeof favorite === 'boolean' ? favorite : existing.favorite,
               tags:       Array.isArray(tags) ? idbSanitizeTags(tags) : existing.tags,
-              notes:      sanitizedNotes !== null ? sanitizedNotes : existing.notes,
-              highlights: sanitizedHighlights !== null ? sanitizedHighlights : existing.highlights,
             };
           }
 
@@ -5235,84 +4759,6 @@
           const entry = { ...existing, tags: idbSanitizeTags(tags), updatedAt: new Date().toISOString() };
           await idbPutEntry(entry);
           return idbJson(entry, 200);
-        } catch (err) { return idbCaughtError(err); }
-      },
-
-      /** -> full entry, 200 | 404 */
-      async setFavorite(videoId, fav) {
-        try {
-          const existing = await idbGetEntry(videoId);
-          if (!existing) return idbErr('Not found.', 404);
-          const entry = { ...existing, favorite: Boolean(fav), updatedAt: new Date().toISOString() };
-          await idbPutEntry(entry);
-          return idbJson(entry, 200);
-        } catch (err) { return idbCaughtError(err); }
-      },
-
-      /** -> created note, 201 | 404 */
-      async addNote(videoId, text) {
-        try {
-          const existing = await idbGetEntry(videoId);
-          if (!existing) return idbErr('Not found.', 404);
-          const note = { id: idbGenerateId(), text: String(text ?? '').trim(), createdAt: new Date().toISOString() };
-          const entry = {
-            ...existing,
-            notes:     [...(existing.notes || []), note],
-            updatedAt: new Date().toISOString(),
-          };
-          await idbPutEntry(entry);
-          return idbJson(note, 201);
-        } catch (err) { return idbCaughtError(err); }
-      },
-
-      /** -> { ok:true }, 200 | 404 (entry not found or note not found) */
-      async deleteNote(videoId, noteId) {
-        try {
-          const existing = await idbGetEntry(videoId);
-          if (!existing) return idbErr('Entry not found.', 404);
-          const notes = existing.notes || [];
-          if (!notes.some((n) => n.id === noteId)) return idbErr('Note not found.', 404);
-          const entry = {
-            ...existing,
-            notes:     notes.filter((n) => n.id !== noteId),
-            updatedAt: new Date().toISOString(),
-          };
-          await idbPutEntry(entry);
-          return idbJson({ ok: true }, 200);
-        } catch (err) { return idbCaughtError(err); }
-      },
-
-      /** -> created highlight, 201 | 400 (empty text) | 404 */
-      async addHighlight(videoId, { text, note, color } = {}) {
-        try {
-          const highlight = idbSanitizeHighlight({ text, note, color });
-          if (!highlight) return idbErr('highlight.text is required and must be a non-empty string', 400);
-          const existing = await idbGetEntry(videoId);
-          if (!existing) return idbErr('Not found.', 404);
-          const entry = {
-            ...existing,
-            highlights: [...(existing.highlights || []), highlight],
-            updatedAt:  new Date().toISOString(),
-          };
-          await idbPutEntry(entry);
-          return idbJson(highlight, 201);
-        } catch (err) { return idbCaughtError(err); }
-      },
-
-      /** -> { ok:true }, 200 | 404 */
-      async deleteHighlight(videoId, hlId) {
-        try {
-          const existing = await idbGetEntry(videoId);
-          if (!existing) return idbErr('Not found.', 404);
-          const highlights = existing.highlights || [];
-          if (!highlights.some((h) => h.id === hlId)) return idbErr('Not found.', 404);
-          const entry = {
-            ...existing,
-            highlights: highlights.filter((h) => h.id !== hlId),
-            updatedAt:  new Date().toISOString(),
-          };
-          await idbPutEntry(entry);
-          return idbJson({ ok: true }, 200);
         } catch (err) { return idbCaughtError(err); }
       },
 
@@ -5378,31 +4824,20 @@
     // Saved library state
     let savedList           = [];     // full fetched list from /api/saved
     let savedSearchQuery    = '';     // current search filter string (client-side)
-    let savedSortMode       = 'recent'; // 'recent' | 'title' | 'favorites'
+    let savedSortMode       = 'recent'; // 'recent' | 'title'
     let savedApiResults     = null;   // { results, mode } from /api/search, or null = use local filter
     let savedSearchDebTimer = null;   // debounce timer handle
-    let embeddingsChecked   = false;  // whether we've already fetched /api/search/status
-    // Per-videoId notes cache: Map<videoId, Note[]>  — loaded lazily when notes panel opens
-    const savedNotesCache = new Map();
 
     // Compare / cross-digest state
     let compareMode          = false;           // whether compare checkboxes are visible
     const selectedVideoIds   = new Set();       // videoIds checked in compare mode
     let crossDigestMarkdown  = '';              // most recently received cross-digest markdown
 
-    // Clips modal state
-    let currentClips = [];                      // most recently fetched /api/clips result
-
     // Find-in-transcript state
     let findQuery         = '';
     let findMatches       = [];   // Array of <mark> DOM nodes
     let findIndex         = -1;
     let findDebounceTimer = null;
-
-    // User highlights state
-    let currentHighlights = [];   // [{id, text, note, color, createdAt}] for current video
-    let hlPendingText     = '';   // text selected when create-popover is open
-    let hlViewActiveId    = null; // id of highlight shown in view-popover
 
     // Session-restore state (see SESSION RESTORE section near init)
     let askThread        = [];    // [{q, a}] mirrors qaThread DOM, for session-restore snapshots
@@ -5472,12 +4907,6 @@
     const crossDigestCopyBtn    = document.getElementById('crossDigestCopyBtn');
     const crossDigestDownloadBtn = document.getElementById('crossDigestDownloadBtn');
     const crossDigestCloseBtn   = document.getElementById('crossDigestCloseBtn');
-    const savedClipsBtn      = document.getElementById('savedClipsBtn');
-    const clipsOverlay       = document.getElementById('clipsOverlay');
-    const clipsContent       = document.getElementById('clipsContent');
-    const clipsCopyBtn       = document.getElementById('clipsCopyBtn');
-    const clipsExportBtn     = document.getElementById('clipsExportBtn');
-    const clipsCloseBtn      = document.getElementById('clipsCloseBtn');
     const contentHeaderEl       = document.getElementById('contentHeader');
     const contentHeaderThumb    = document.getElementById('contentHeaderThumb');
     const contentHeaderTitle    = document.getElementById('contentHeaderTitle');
@@ -5541,7 +4970,7 @@
       });
 
       if (name === 'transcript' || name === 'digest') lastReaderLens = name;
-      if (name === 'saved') { loadSaved(); checkEmbeddingsStatus(); }
+      if (name === 'saved') { loadSaved(); }
       if (name === 'discovery') initDiscoveryPane();
       if (name === 'digest') hideNextActionNudge();
       libraryBtn.setAttribute('aria-pressed', name === 'saved' ? 'true' : 'false');
@@ -6302,8 +5731,6 @@
             if (tag === 'script' || tag === 'style') return NodeFilter.FILTER_REJECT;
             // Skip text already inside a find-hit mark (none should exist here)
             if (node.parentElement?.closest('mark.find-hit')) return NodeFilter.FILTER_REJECT;
-            // Skip text inside user-highlight marks to avoid nesting
-            if (node.parentElement?.closest('mark.user-highlight')) return NodeFilter.FILTER_REJECT;
             return NodeFilter.FILTER_ACCEPT;
           }
         }
@@ -6491,280 +5918,21 @@
       });
     });
 
-    /* ==============================================
-       USER HIGHLIGHTS — FEATURE B
-    =============================================== */
-
-    /** Unwrap all user-highlight marks, re-merging adjacent text nodes. */
-    function clearHighlightMarks() {
-      outputEl.querySelectorAll('mark.user-highlight').forEach(mark => {
-        const parent = mark.parentNode;
-        if (!parent) return;
-        while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
-        parent.removeChild(mark);
-        parent.normalize();
-      });
-    }
-
     /**
-     * Walk text nodes under outputEl (readable mode only) and wrap all
-     * occurrences of hl.text with <mark class="user-highlight">.
-     * Skips text already inside any <mark> to avoid nesting.
-     */
-    function wrapHighlightText(text, hlId, note) {
-      if (!text) return;
-      const regex = new RegExp(escapeRegex(text.trim()), 'g');
-
-      const walker = document.createTreeWalker(
-        outputEl,
-        NodeFilter.SHOW_TEXT,
-        {
-          acceptNode(node) {
-            const tag = node.parentElement?.tagName?.toLowerCase();
-            if (tag === 'script' || tag === 'style') return NodeFilter.FILTER_REJECT;
-            if (node.parentElement?.closest('mark')) return NodeFilter.FILTER_REJECT;
-            return NodeFilter.FILTER_ACCEPT;
-          }
-        }
-      );
-
-      const textNodes = [];
-      let nd;
-      while ((nd = walker.nextNode())) textNodes.push(nd);
-
-      for (const textNode of textNodes) {
-        const txt = textNode.textContent;
-        regex.lastIndex = 0;
-        if (!regex.test(txt)) continue;
-        regex.lastIndex = 0;
-
-        const frag   = document.createDocumentFragment();
-        let lastIdx  = 0;
-        let match;
-
-        while ((match = regex.exec(txt)) !== null) {
-          if (match.index > lastIdx) {
-            frag.appendChild(document.createTextNode(txt.slice(lastIdx, match.index)));
-          }
-          const mark       = document.createElement('mark');
-          mark.className   = 'user-highlight';
-          mark.dataset.hlId = String(hlId);
-          if (note) {
-            mark.dataset.note = '1';
-            mark.title        = note;
-          }
-          mark.setAttribute('aria-label', note ? `Highlighted: ${note}` : 'Highlighted text');
-          mark.textContent = match[0];
-          frag.appendChild(mark);
-          lastIdx = match.index + match[0].length;
-        }
-
-        if (lastIdx < txt.length) {
-          frag.appendChild(document.createTextNode(txt.slice(lastIdx)));
-        }
-
-        textNode.parentNode.replaceChild(frag, textNode);
-      }
-    }
-
-    /** Wire click listeners on every .user-highlight mark to show the view popover. */
-    function wireHighlightClicks() {
-      outputEl.querySelectorAll('mark.user-highlight').forEach(mark => {
-        mark.addEventListener('click', e => {
-          e.stopPropagation();
-          const hlId = mark.dataset.hlId;
-          const hl   = currentHighlights.find(h => String(h.id) === String(hlId));
-          if (!hl) return;
-          hideHighlightCreatePopover();
-          showHighlightViewPopover(mark, hl);
-        });
-      });
-    }
-
-    /**
-     * Apply all highlights from the array to the DOM.
-     * Only operates in readable (plain) mode — no-op in timecoded.
-     */
-    function applyHighlights(highlights) {
-      clearHighlightMarks();
-      if (!highlights || highlights.length === 0) return;
-      if (getMode() !== 'plain') return;
-      for (const hl of highlights) {
-        try { wrapHighlightText(hl.text, hl.id, hl.note || null); } catch (_) {}
-      }
-      wireHighlightClicks();
-    }
-
-    /**
-     * Re-apply both user-highlights and the active find query after any re-render.
+     * Re-apply the active find query after any re-render.
      * Call this every time renderSegments() is called.
      */
     function reApplyOverlays() {
       clearFindHighlights();
-      applyHighlights(currentHighlights);
       if (findQuery) applyFindHighlights(findQuery);
     }
 
-    /* --- Highlight create popover --- */
-    const hlCreatePopover = document.getElementById('hlCreatePopover');
-    const hlViewPopover   = document.getElementById('hlViewPopover');
-
-    function showHighlightCreatePopover(rect, text) {
-      hlPendingText = text;
-      document.getElementById('hlNoteArea').hidden   = true;
-      document.getElementById('hlNoteInput').value   = '';
-
-      // Fixed positioning: getBoundingClientRect() is already viewport-relative —
-      // do NOT add window.scrollY/scrollX.
-      const popW = 220;
-      const popH = 120; // conservative estimate of popover height
-      const vw   = window.innerWidth;
-      const vh   = window.innerHeight;
-
-      // Prefer below the selection; fall back to above if not enough room
-      let top;
-      if (rect.bottom + 6 + popH > vh) {
-        top = Math.max(8, rect.top - popH - 8); // above
-      } else {
-        top = rect.bottom + 6;
-      }
-
-      const left = Math.max(8, Math.min(rect.left, vw - popW - 8));
-
-      hlCreatePopover.style.top  = top  + 'px';
-      hlCreatePopover.style.left = left + 'px';
-      hlCreatePopover.hidden     = false;
-      document.getElementById('hlCreateBtn').focus();
-    }
-
-    function hideHighlightCreatePopover() {
-      hlCreatePopover.hidden   = true;
-      hlPendingText            = '';
-      document.getElementById('hlNoteArea').hidden = true;
-      document.getElementById('hlNoteInput').value = '';
-    }
-
-    function showHighlightViewPopover(markEl, hl) {
-      hlViewActiveId = String(hl.id);
-      const noteEl   = document.getElementById('hlViewNoteText');
-      if (hl.note) {
-        noteEl.textContent = hl.note;
-        noteEl.hidden      = false;
-      } else {
-        noteEl.textContent = '';
-        noteEl.hidden      = true;
-      }
-
-      // Fixed positioning: getBoundingClientRect() is already viewport-relative —
-      // do NOT add window.scrollY/scrollX.
-      const rect = markEl.getBoundingClientRect();
-      const popW = 200;
-      const popH = 80; // conservative estimate
-      const vw   = window.innerWidth;
-      const vh   = window.innerHeight;
-
-      // Prefer below the mark; fall back to above if not enough room
-      let top;
-      if (rect.bottom + 6 + popH > vh) {
-        top = Math.max(8, rect.top - popH - 8); // above
-      } else {
-        top = rect.bottom + 6;
-      }
-
-      const left = Math.max(8, Math.min(rect.left, vw - popW - 8));
-
-      hlViewPopover.style.top  = top  + 'px';
-      hlViewPopover.style.left = left + 'px';
-      hlViewPopover.hidden     = false;
-      document.getElementById('hlViewRemoveBtn').focus();
-    }
-
-    function hideHighlightViewPopover() {
-      hlViewPopover.hidden = true;
-      hlViewActiveId       = null;
-    }
-
-    /* --- Selection listener → show create popover --- */
-    outputEl.addEventListener('mouseup', e => {
-      setTimeout(() => {
-        // If click target is a user-highlight mark, let its click handler manage things
-        if (e.target.closest && e.target.closest('mark.user-highlight')) return;
-
-        const sel = window.getSelection();
-        if (!sel || sel.isCollapsed) {
-          if (!hlCreatePopover.hidden) hideHighlightCreatePopover();
-          return;
-        }
-
-        const text = sel.toString().trim();
-        if (!text || text.length < 2) {
-          if (!hlCreatePopover.hidden) hideHighlightCreatePopover();
-          return;
-        }
-
-        // Only in readable mode with a loaded transcript
-        if (getMode() !== 'plain' || !currentMeta || !lastSegments) return;
-
-        // Verify selection is within #output
-        const range = sel.getRangeAt(0);
-        if (!outputEl.contains(range.commonAncestorContainer)) return;
-
-        const rect = range.getBoundingClientRect();
-        hideHighlightViewPopover();
-        showHighlightCreatePopover(rect, text);
-      }, 15);
-    });
-
-    /* --- Create popover buttons --- */
-    document.getElementById('hlCreateBtn')?.addEventListener('click', async () => {
-      const text = hlPendingText;
-      hideHighlightCreatePopover();
-      await saveHighlight(text, '');
-    });
-
-    document.getElementById('hlWithNoteBtn')?.addEventListener('click', () => {
-      const noteArea = document.getElementById('hlNoteArea');
-      noteArea.hidden = !noteArea.hidden;
-      if (!noteArea.hidden) document.getElementById('hlNoteInput').focus();
-    });
-
-    document.getElementById('hlNoteSave')?.addEventListener('click', async () => {
-      const note = document.getElementById('hlNoteInput').value.trim();
-      const text = hlPendingText;
-      hideHighlightCreatePopover();
-      await saveHighlight(text, note);
-    });
-
-    document.getElementById('hlNoteInput')?.addEventListener('keydown', e => {
-      e.stopPropagation();
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        document.getElementById('hlNoteSave')?.click();
-      }
-      if (e.key === 'Escape') hideHighlightCreatePopover();
-    });
-
-    document.getElementById('hlNoteInput')?.addEventListener('click', e => e.stopPropagation());
-
-    document.getElementById('hlCreateClose')?.addEventListener('click', hideHighlightCreatePopover);
-
-    /* --- View popover buttons --- */
-    document.getElementById('hlViewRemoveBtn')?.addEventListener('click', async () => {
-      const id = hlViewActiveId;
-      hideHighlightViewPopover();
-      if (id) await removeHighlight(id);
-    });
-
-    document.getElementById('hlViewClose')?.addEventListener('click', hideHighlightViewPopover);
-
-    /* --- Keyboard: Esc closes any open overlay or popover ---
-       Popovers take priority (most transient), then any visible [role="dialog"]
-       modal — using its known close handler where one exists, otherwise just
-       hiding it. This generically covers new overlays (e.g. crossDigestOverlay)
-       without needing a hardcoded id list. */
+    /* --- Keyboard: Esc closes any open overlay ---
+       Any visible [role="dialog"] modal — using its known close handler where
+       one exists, otherwise just hiding it. This generically covers new
+       overlays (e.g. crossDigestOverlay) without needing a hardcoded id list. */
     const DIALOG_CLOSE_FNS = {
       shortcutsOverlay:   closeShortcutsOverlay,
-      clipsOverlay:       closeClipsModal,
       crossDigestOverlay: closeCrossDigestModal,
       settingsOverlay:    closeSettingsModal,
       researchRail:       closeResearchRail,
@@ -6773,9 +5941,6 @@
     document.addEventListener('keydown', e => {
       if (e.key !== 'Escape') return;
 
-      if (!hlCreatePopover.hidden) { hideHighlightCreatePopover(); return; }
-      if (!hlViewPopover.hidden)   { hideHighlightViewPopover();   return; }
-
       const openDialog = document.querySelector('[role="dialog"]:not([hidden])');
       if (openDialog) {
         const closeFn = DIALOG_CLOSE_FNS[openDialog.id];
@@ -6783,26 +5948,12 @@
       }
     });
 
-    /* --- Click outside → close popovers --- */
-    document.addEventListener('click', e => {
-      if (!hlCreatePopover.hidden) {
-        if (!hlCreatePopover.contains(e.target) && !outputEl.contains(e.target)) {
-          hideHighlightCreatePopover();
-        }
-      }
-      if (!hlViewPopover.hidden) {
-        if (!hlViewPopover.contains(e.target) && !outputEl.contains(e.target)) {
-          hideHighlightViewPopover();
-        }
-      }
-    });
-
     /* ==============================================
        DIGEST SELECTION ENRICH — floating toolbar (Explain / Background /
        Fact-check / Ask) shown when the user selects text inside #digestOutput,
        plus the inline "researching… → result" cards those actions produce.
-       This is a parallel feature to the transcript highlight popover above —
-       it does not touch #output / highlight state at all.
+       This is independent from find-in-transcript and does not touch #output
+       state at all.
     =============================================== */
     const enrichToolbar        = document.getElementById('enrichToolbar');
     const enrichBtnExplain     = document.getElementById('enrichBtnExplain');
@@ -7225,7 +6376,7 @@
        backdrop + Esc-to-close conventions (see DIALOG_CLOSE_FNS above), and
        reuses the header Library button's styling/count-badge pattern for
        its own toggle button. Persisted via saveSession()/restoreSession()
-       and reset per-video alongside askThread/currentHighlights.
+       and reset per-video alongside askThread.
     =============================================== */
     const researchBtn          = document.getElementById('researchBtn');
     const researchCountEl      = document.getElementById('researchCount');
@@ -7387,97 +6538,6 @@
       saveSession();
     });
 
-    /* --- Auto-save video to library before persisting a highlight --- */
-    async function ensureSaved() {
-      if (savedList.some(e => e.videoId === currentMeta.videoId)) return true;
-
-      try {
-        const res = await Library.saveEntry({
-          url:      currentMeta.url,
-          videoId:  currentMeta.videoId,
-          title:    currentMeta.title,
-          segments: lastSegments,
-          digest:   currentDigest,
-        });
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          console.error('[echo] ensureSaved failed:', errData);
-          return false;
-        }
-
-        // Subtly notify user
-        const prev = statusEl.textContent;
-        setStatus('Saved to library ✓', false);
-        setTimeout(() => { if (statusEl.textContent === 'Saved to library ✓') setStatus(prev, false); }, 2500);
-
-        // Refresh saved list so savedList is up-to-date
-        await loadSaved();
-        return true;
-      } catch (err) {
-        console.error('[echo] ensureSaved network error:', err);
-        return false;
-      }
-    }
-
-    /** POST a new highlight to the backend, update local state, re-render. */
-    async function saveHighlight(text, note) {
-      if (!text || !currentMeta) return;
-      const videoId = currentMeta.videoId;
-
-      const saved = await ensureSaved();
-      if (!saved) {
-        setStatus('Could not save highlight — library save failed.', true);
-        return;
-      }
-
-      try {
-        const res = await Library.addHighlight(videoId, { text: text.trim(), note });
-
-        if (res.status === 404) {
-          setStatus('Highlight failed — video not in library.', true);
-          showToast('warning', 'Highlight failed — video not in library.');
-          return;
-        }
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          handleApiError(errData, 'Could not save highlight.');
-          return;
-        }
-
-        const hl = await res.json();
-        currentHighlights.push(hl);
-        reApplyOverlays();
-        saveSession();
-      } catch (err) {
-        console.error('[echo] saveHighlight network error:', err);
-        setStatus('Network error saving highlight: ' + err.message, true);
-        showToast('error', 'Network error saving highlight: ' + err.message);
-      }
-    }
-
-    /** DELETE a highlight, update local state, re-render. */
-    async function removeHighlight(hlId) {
-      if (!currentMeta) return;
-      const videoId = currentMeta.videoId;
-
-      try {
-        const res = await Library.deleteHighlight(videoId, hlId);
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          handleApiError(errData, 'Could not remove highlight.');
-          return;
-        }
-
-        currentHighlights = currentHighlights.filter(h => String(h.id) !== String(hlId));
-        reApplyOverlays();
-        saveSession();
-      } catch (err) {
-        console.error('[echo] removeHighlight network error:', err);
-        setStatus('Network error removing highlight: ' + err.message, true);
-        showToast('error', 'Network error removing highlight: ' + err.message);
-      }
-    }
-
     /* ==============================================
        FETCH TRANSCRIPT
     =============================================== */
@@ -7502,7 +6562,6 @@
       currentMeta       = null;
       currentDigest     = null;
       currentSegments   = null;
-      currentHighlights = [];
       askThread         = [];
       enrichLog         = []; // per-video reset — a new video starts with an empty Research rail
       renderResearchRail();
@@ -7603,18 +6662,13 @@
         markOnboarded(); // a successful fetch means the user is past first-run
         saveSession();
 
-        // Async: if this video is already saved, load its highlights
-        (function loadHighlightsIfSaved(videoId) {
+        // Async: if this video is already saved, enable the export button
+        (function enableExportIfSaved(videoId) {
           Library.getEntry(videoId)
             .then(r => r.ok ? r.json() : null)
             .then(entry => {
-              if (entry) {
-                if (currentMeta && currentMeta.videoId === videoId) entryExportBtn.disabled = false;
-                if (Array.isArray(entry.highlights) && entry.highlights.length > 0) {
-                  currentHighlights = entry.highlights;
-                  reApplyOverlays();
-                  saveSession();
-                }
+              if (entry && currentMeta && currentMeta.videoId === videoId) {
+                entryExportBtn.disabled = false;
               }
             })
             .catch(() => {});
@@ -8351,14 +7405,11 @@
 
       // --- API search mode: results already ranked by the server ---
       if (savedApiResults !== null) {
-        const { results, mode } = savedApiResults;
+        const { results } = savedApiResults;
         if (countEl) {
-          const modeTag = (mode === 'hybrid' && ECHO.mode === 'local' && ECHO.embeddings)
-            ? '<span class="search-mode-tag" aria-label="Semantic search active">semantic</span>'
-            : '';
           countEl.innerHTML = results.length === 0
             ? 'No results.'
-            : `${results.length} result${results.length === 1 ? '' : 's'}${modeTag}`;
+            : `${results.length} result${results.length === 1 ? '' : 's'}`;
         }
         renderSavedList(results);
         return;
@@ -8381,12 +7432,6 @@
       if (savedSortMode === 'title') {
         items.sort((a, b) =>
           (a.title || a.videoId || '').localeCompare(b.title || b.videoId || ''));
-      } else if (savedSortMode === 'favorites') {
-        items.sort((a, b) => {
-          if (a.favorite && !b.favorite) return -1;
-          if (!a.favorite && b.favorite) return  1;
-          return new Date(b.savedAt) - new Date(a.savedAt);
-        });
       } else {
         items.sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
       }
@@ -8405,21 +7450,6 @@
       }
 
       renderSavedList(items);
-    }
-
-    /** Formats a relative date string for note timestamps. */
-    function formatRelativeDate(iso) {
-      const d = new Date(iso);
-      if (isNaN(d.getTime())) return '';
-      const diff  = Date.now() - d.getTime();
-      const mins  = Math.floor(diff / 60000);
-      const hours = Math.floor(diff / 3600000);
-      const days  = Math.floor(diff / 86400000);
-      if (mins < 2)   return 'just now';
-      if (mins < 60)  return `${mins}m ago`;
-      if (hours < 24) return `${hours}h ago`;
-      if (days < 7)   return `${days}d ago`;
-      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     }
 
     function renderSavedList(entries) {
@@ -8449,15 +7479,6 @@
           ? '<span class="saved-meta-sep" aria-hidden="true">·</span>'
           : '';
 
-        // Star button
-        const isFav  = !!entry.favorite;
-        const starBtn =
-          `<button class="saved-star-btn"
-                   data-videoid="${escapeAttr(entry.videoId)}"
-                   aria-label="${isFav ? 'Remove from favorites' : 'Add to favorites'}"
-                   aria-pressed="${isFav ? 'true' : 'false'}"
-                   title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">${isFav ? '★' : '☆'}</button>`;
-
         // Tag chips
         const tags     = Array.isArray(entry.tags) ? entry.tags : [];
         const chipsHtml = tags.map(tag =>
@@ -8477,15 +7498,6 @@
                    aria-label="Add a tag to ${escapeAttr(title)}">＋ tag</button>`;
         const tagsRow =
           `<div class="saved-tags-row" id="tags-row-${escapeAttr(entry.videoId)}">${chipsHtml}${tagAddBtn}</div>`;
-
-        // Notes toggle button
-        const noteCount  = entry.noteCount || 0;
-        const notesLabel = noteCount > 0 ? `Notes (${noteCount})` : 'Notes';
-        const notesBtn   =
-          `<button class="saved-notes-btn"
-                   data-videoid="${escapeAttr(entry.videoId)}"
-                   aria-label="Toggle notes for ${escapeAttr(title)}"
-                   aria-expanded="false">${escapeHtml(notesLabel)}</button>`;
 
         // Export-to-Markdown button
         const exportBtn  =
@@ -8533,7 +7545,6 @@
           <div class="saved-card-body">
             <div class="saved-card-title-row">
               <div class="saved-card-title">${escapeHtml(title)}</div>
-              ${starBtn}
             </div>
             <div class="saved-card-meta">
               ${dateStr ? `<span class="saved-meta-item">${escapeHtml(dateStr)}</span>` : ''}
@@ -8543,13 +7554,12 @@
             ${entry.snippet ? `<p class="saved-snippet">${escapeHtml(entry.snippet)}</p>` : ''}
             ${tagsRow}
             <div class="saved-card-actions">
-              ${notesBtn}${exportBtn}
+              ${exportBtn}
               <button class="saved-delete-btn"
                       data-videoid="${escapeAttr(entry.videoId)}"
                       aria-label="Delete ${escapeAttr(title)}">✕ Delete</button>
             </div>
           </div>
-          <div class="saved-notes-panel" id="notes-panel-${escapeAttr(entry.videoId)}"></div>
         </div>`;
       }).join('');
 
@@ -8558,12 +7568,9 @@
         card.addEventListener('click', e => {
           if (e.target.closest('.saved-delete-btn'))    return;
           if (e.target.closest('.saved-card-url'))      return;
-          if (e.target.closest('.saved-star-btn'))      return;
           if (e.target.closest('.saved-tag-chip'))      return;
           if (e.target.closest('.saved-tag-add-btn'))   return;
           if (e.target.closest('.saved-tag-input'))     return;
-          if (e.target.closest('.saved-notes-btn'))     return;
-          if (e.target.closest('.saved-notes-panel'))   return;
           if (e.target.closest('.saved-compare-check')) return;
           if (e.target.closest('.saved-export-btn'))    return;
           openSavedEntry(card.dataset.videoid);
@@ -8581,14 +7588,6 @@
         btn.addEventListener('click', e => {
           e.stopPropagation();
           deleteSavedEntry(btn.dataset.videoid);
-        });
-      });
-
-      // Star buttons
-      savedOutput.querySelectorAll('.saved-star-btn').forEach(btn => {
-        btn.addEventListener('click', e => {
-          e.stopPropagation();
-          toggleSavedFavorite(btn.dataset.videoid);
         });
       });
 
@@ -8629,14 +7628,6 @@
         btn.addEventListener('click', e => {
           e.stopPropagation();
           showSavedTagInput(btn.dataset.videoid, btn);
-        });
-      });
-
-      // Notes toggle buttons
-      savedOutput.querySelectorAll('.saved-notes-btn').forEach(btn => {
-        btn.addEventListener('click', e => {
-          e.stopPropagation();
-          toggleSavedNotesPanel(btn.dataset.videoid, btn);
         });
       });
 
@@ -8772,169 +7763,6 @@
     });
 
     /* ==============================================
-       CLIPS MODAL (highlight clip reel)
-    =============================================== */
-
-    /** Fetch /api/clips (optionally scoped to one video) and render the modal. */
-    async function openClipsModal(videoId) {
-      if (!clipsOverlay || !clipsContent) return;
-
-      try {
-        const url = videoId ? `/api/clips?videoId=${encodeURIComponent(videoId)}` : '/api/clips';
-        const res  = await fetch(url);
-        const data = await res.json().catch(() => ({}));
-
-        if (!res.ok) {
-          handleApiError(data, 'Could not load clips.');
-          return;
-        }
-
-        currentClips = Array.isArray(data.clips) ? data.clips : [];
-        renderClipsModal();
-        clipsOverlay.hidden = false;
-        clipsCloseBtn?.focus();
-      } catch (err) {
-        console.error('[echo] openClipsModal network error:', err);
-        showToast('error', 'Network error while loading clips: ' + err.message);
-      }
-    }
-
-    /** Render currentClips into #clipsContent, grouped by video in first-seen order. */
-    function renderClipsModal() {
-      if (!clipsContent) return;
-
-      if (currentClips.length === 0) {
-        clipsContent.innerHTML =
-          '<div class="clips-empty">No highlights yet — highlight text in a transcript to build clips.</div>';
-        return;
-      }
-
-      const groups = [];
-      const groupByVideo = new Map();
-      for (const clip of currentClips) {
-        let group = groupByVideo.get(clip.videoId);
-        if (!group) {
-          group = { videoId: clip.videoId, title: clip.title, videoUrl: clip.videoUrl, clips: [] };
-          groupByVideo.set(clip.videoId, group);
-          groups.push(group);
-        }
-        group.clips.push(clip);
-      }
-
-      const html = groups.map(group => {
-        const rows = group.clips.map(clip => {
-          const timeLabel = clip.timeLabel || '▶';
-          const noteHtml  = clip.note
-            ? `<div class="clips-row-note">${escapeHtml(clip.note)}</div>`
-            : '';
-          const mdLine    = clipToMarkdownLine(clip);
-          return (
-            `<div class="clips-row">` +
-              `<a class="clips-row-time" href="${escapeAttr(clip.deepLink)}" target="_blank" rel="noopener noreferrer" ` +
-                 `aria-label="Open clip at ${escapeAttr(timeLabel)}">${escapeHtml(timeLabel)}</a>` +
-              `<div class="clips-row-body">` +
-                `<div class="clips-row-text">${escapeHtml(clip.text)}</div>` +
-                noteHtml +
-              `</div>` +
-              `<button class="mini-btn clips-row-copy" data-clip-copy="${escapeAttr(mdLine)}" aria-label="Copy this clip">Copy</button>` +
-            `</div>`
-          );
-        }).join('');
-
-        return (
-          `<div class="clips-video-group">` +
-            `<a class="clips-video-title" href="${escapeAttr(group.videoUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(group.title)}</a>` +
-            rows +
-          `</div>`
-        );
-      }).join('');
-
-      clipsContent.innerHTML = html;
-
-      clipsContent.querySelectorAll('[data-clip-copy]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          copyToClipboard(btn, btn.getAttribute('data-clip-copy'), 'Copy');
-        });
-      });
-    }
-
-    /** Build a single markdown line for one clip: - [time](link) "text"— note */
-    function clipToMarkdownLine(clip) {
-      const timeLabel = clip.timeLabel || '▶';
-      let line = `- [${timeLabel}](${clip.deepLink}) "${clip.text}"`;
-      if (clip.note) line += `— ${clip.note}`;
-      return line;
-    }
-
-    /** Build a full markdown document of currentClips, grouped by video. */
-    function clipsToMarkdown(clips) {
-      let md = '# Highlight clips — Echo\n\n';
-
-      const groups = [];
-      const groupByVideo = new Map();
-      for (const clip of clips) {
-        let group = groupByVideo.get(clip.videoId);
-        if (!group) {
-          group = { videoId: clip.videoId, title: clip.title, videoUrl: clip.videoUrl, clips: [] };
-          groupByVideo.set(clip.videoId, group);
-          groups.push(group);
-        }
-        group.clips.push(clip);
-      }
-
-      for (const group of groups) {
-        md += `## ${group.title}\n${group.videoUrl}\n\n`;
-        for (const clip of group.clips) {
-          md += clipToMarkdownLine(clip) + '\n';
-        }
-        md += '\n';
-      }
-
-      return md.trim() + '\n';
-    }
-
-    function closeClipsModal() {
-      if (clipsOverlay) clipsOverlay.hidden = true;
-    }
-
-    savedClipsBtn?.addEventListener('click', () => openClipsModal());
-    clipsCloseBtn?.addEventListener('click', closeClipsModal);
-    document.getElementById('clipsBackdrop')?.addEventListener('click', closeClipsModal);
-
-    clipsCopyBtn?.addEventListener('click', () => {
-      if (currentClips.length === 0) return;
-      copyToClipboard(clipsCopyBtn, clipsToMarkdown(currentClips), 'Copy all');
-    });
-
-    clipsExportBtn?.addEventListener('click', () => {
-      if (currentClips.length === 0) return;
-      downloadMd('echo-clips', clipsToMarkdown(currentClips));
-      showToast('success', 'Exported clips');
-    });
-
-    /* ==============================================
-       SAVED LIBRARY — FAVORITES
-    =============================================== */
-    async function toggleSavedFavorite(videoId) {
-      const entry = savedList.find(e => e.videoId === videoId);
-      if (!entry) return;
-      const newFav = !entry.favorite;
-      try {
-        const res = await Library.setFavorite(videoId, newFav);
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          handleApiError(errData, 'Could not update favorite.');
-          return;
-        }
-        entry.favorite = newFav;
-        renderSavedFiltered();
-      } catch (err) {
-        console.error('[echo] toggleSavedFavorite network error:', err);
-        showToast('warning', 'Could not update favorite — network error.');
-      }
-    }
-
-    /* ==============================================
        SAVED LIBRARY — TAGS
     =============================================== */
     async function patchSavedTags(videoId, newTags) {
@@ -9000,173 +7828,6 @@
 
       container.appendChild(input);
       input.focus();
-    }
-
-    /* ==============================================
-       SAVED LIBRARY — NOTES
-    =============================================== */
-    async function toggleSavedNotesPanel(videoId, btn) {
-      const panel = document.getElementById(`notes-panel-${videoId}`);
-      if (!panel) return;
-
-      const isExpanded = panel.classList.contains('expanded');
-      if (isExpanded) {
-        panel.classList.remove('expanded');
-        btn.setAttribute('aria-expanded', 'false');
-        return;
-      }
-
-      panel.classList.add('expanded');
-      btn.setAttribute('aria-expanded', 'true');
-
-      if (!savedNotesCache.has(videoId)) {
-        panel.innerHTML = '<div class="saved-notes-loading">Loading notes…</div>';
-        try {
-          const res = await Library.getEntry(videoId);
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            panel.innerHTML = '<div class="saved-notes-loading">Could not load notes.</div>';
-            handleApiError(errData, 'Could not load notes.');
-            return;
-          }
-          const data = await res.json();
-          savedNotesCache.set(videoId, Array.isArray(data.notes) ? data.notes : []);
-        } catch (err) {
-          console.error('[echo] toggleSavedNotesPanel network error:', err);
-          panel.innerHTML = '<div class="saved-notes-loading">Network error — could not load notes.</div>';
-          showToast('warning', 'Network error loading notes: ' + err.message);
-          return;
-        }
-      }
-
-      renderSavedNotesPanel(videoId, panel, btn);
-    }
-
-    function renderSavedNotesPanel(videoId, panel, notesBtn) {
-      const notes = savedNotesCache.get(videoId) || [];
-      let html = '';
-
-      if (notes.length === 0) {
-        html += '<div class="saved-notes-empty">No notes yet.</div>';
-      } else {
-        notes.forEach(note => {
-          const rel = formatRelativeDate(note.createdAt);
-          html +=
-            `<div class="saved-note-item" data-noteid="${escapeAttr(String(note.id))}">` +
-              `<span class="saved-note-text">${escapeHtml(note.text)}</span>` +
-              (rel ? `<span class="saved-note-date" title="${escapeAttr(note.createdAt)}">${escapeHtml(rel)}</span>` : '') +
-              `<button class="saved-note-delete"
-                       data-videoid="${escapeAttr(videoId)}"
-                       data-noteid="${escapeAttr(String(note.id))}"
-                       aria-label="Delete this note">×</button>` +
-            `</div>`;
-        });
-      }
-
-      html +=
-        `<div class="saved-note-add-row">` +
-          `<textarea class="saved-note-textarea"
-                     placeholder="Add a note… (Enter to save)"
-                     aria-label="Add a note"
-                     rows="2"></textarea>` +
-          `<button class="saved-note-submit"
-                   data-videoid="${escapeAttr(videoId)}"
-                   aria-label="Save note">Add</button>` +
-        `</div>`;
-
-      panel.innerHTML = html;
-
-      // Wire delete buttons
-      panel.querySelectorAll('.saved-note-delete').forEach(btn => {
-        btn.addEventListener('click', e => {
-          e.stopPropagation();
-          deleteSavedNote(videoId, btn.dataset.noteid, notesBtn, panel);
-        });
-      });
-
-      // Wire add row
-      const textarea  = panel.querySelector('.saved-note-textarea');
-      const submitBtn = panel.querySelector('.saved-note-submit');
-
-      if (textarea) {
-        textarea.addEventListener('click',   e => e.stopPropagation());
-        textarea.addEventListener('keydown', e => {
-          e.stopPropagation();
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            addSavedNote(videoId, textarea, submitBtn, notesBtn, panel);
-          }
-        });
-      }
-      if (submitBtn) {
-        submitBtn.addEventListener('click', e => {
-          e.stopPropagation();
-          addSavedNote(videoId, textarea, submitBtn, notesBtn, panel);
-        });
-      }
-    }
-
-    async function addSavedNote(videoId, textarea, submitBtn, notesBtn, panel) {
-      const text = textarea.value.trim();
-      if (!text) return;
-      submitBtn.disabled = true;
-      try {
-        const res = await Library.addNote(videoId, text);
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          handleApiError(errData, 'Could not save note.');
-          return;
-        }
-        const note = await res.json();
-
-        // Update cache
-        const notes = savedNotesCache.get(videoId) || [];
-        notes.push(note);
-        savedNotesCache.set(videoId, notes);
-
-        // Update noteCount in savedList (without full re-render)
-        const entry = savedList.find(e => e.videoId === videoId);
-        if (entry) {
-          entry.noteCount = (entry.noteCount || 0) + 1;
-          const count = entry.noteCount;
-          notesBtn.textContent = `Notes (${count})`;
-        }
-
-        textarea.value     = '';
-        renderSavedNotesPanel(videoId, panel, notesBtn);
-      } catch (err) {
-        console.error('[echo] addSavedNote network error:', err);
-        showToast('warning', 'Could not save note — network error.');
-      } finally {
-        submitBtn.disabled = false;
-      }
-    }
-
-    async function deleteSavedNote(videoId, noteId, notesBtn, panel) {
-      try {
-        const res = await Library.deleteNote(videoId, noteId);
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          handleApiError(errData, 'Could not delete note.');
-          return;
-        }
-
-        // Update cache
-        const notes = (savedNotesCache.get(videoId) || []).filter(n => String(n.id) !== noteId);
-        savedNotesCache.set(videoId, notes);
-
-        // Update noteCount in savedList
-        const entry = savedList.find(e => e.videoId === videoId);
-        if (entry && entry.noteCount > 0) {
-          entry.noteCount--;
-          notesBtn.textContent = entry.noteCount > 0 ? `Notes (${entry.noteCount})` : 'Notes';
-        }
-
-        renderSavedNotesPanel(videoId, panel, notesBtn);
-      } catch (err) {
-        console.error('[echo] deleteSavedNote network error:', err);
-        showToast('warning', 'Could not delete note — network error.');
-      }
     }
 
     /* ==============================================
@@ -9311,9 +7972,6 @@
           setDigestStatus('Digest ready.', false);
         }
 
-        // Load highlights from the saved entry
-        currentHighlights = Array.isArray(entry.highlights) ? entry.highlights : [];
-
         // Render transcript and enable action buttons
         resetFind();
         renderSegments(lastSegments);
@@ -9351,7 +8009,6 @@
           handleApiError(errData, 'Failed to delete saved video.');
           return;
         }
-        savedNotesCache.delete(videoId);
         loadSaved();
       } catch (err) {
         console.error('[echo] deleteSavedEntry network error:', err);
@@ -9402,7 +8059,6 @@
       const searchInp   = document.getElementById('savedSearchInput');
       const sortSel     = document.getElementById('savedSortSelect');
       const exportBtn   = document.getElementById('savedExportBtn');
-      const reindexBtn  = document.getElementById('savedReindexBtn');
 
       /**
        * Perform a debounced API search.
@@ -9415,7 +8071,7 @@
           renderSavedFiltered();
           return;
         }
-        // Web mode has no per-user server-side embeddings/search index —
+        // Web mode has no per-user server-side search index —
         // always fall back to the existing client-side text filter.
         if (ECHO.mode === 'web') {
           savedApiResults  = null;
@@ -9474,51 +8130,7 @@
       if (exportBtn) {
         exportBtn.addEventListener('click', exportSavedLibrary);
       }
-
-      if (reindexBtn) {
-        reindexBtn.addEventListener('click', async () => {
-          // Web mode has no per-user embeddings/reindex — defensive no-op
-          // (the button is also kept hidden in web mode; see checkEmbeddingsStatus).
-          if (ECHO.mode === 'web') return;
-          reindexBtn.disabled = true;
-          reindexBtn.textContent = 'Indexing…';
-          try {
-            const r = await fetch('/api/search/reindex', { method: 'POST' });
-            const d = await r.json();
-            if (d.ok) {
-              showToast('info', `Semantic index built: ${d.indexed} new, ${d.skipped} already indexed.`);
-            } else {
-              showToast('warning', 'Semantic index unavailable.', d.reason || '');
-            }
-          } catch (err) {
-            showToast('error', 'Reindex failed: ' + err.message);
-          } finally {
-            reindexBtn.disabled = false;
-            reindexBtn.textContent = 'Semantic index';
-          }
-        });
-      }
     })();
-
-    /**
-     * Check /api/search/status once per session and show the reindex button
-     * if embeddings are available on this server.
-     */
-    async function checkEmbeddingsStatus() {
-      // Web mode has no per-user embeddings; keep the reindex button hidden
-      // and never hit /api/search/status.
-      if (ECHO.mode === 'web') return;
-      if (embeddingsChecked) return;
-      embeddingsChecked = true;
-      try {
-        const r = await fetch('/api/search/status');
-        const d = await r.json();
-        const btn = document.getElementById('savedReindexBtn');
-        if (btn && d.embeddingsAvailable) btn.hidden = false;
-      } catch {
-        // Status check is best-effort — ignore failures silently
-      }
-    }
 
     /* ==============================================
        LOADING SKELETON
@@ -9946,9 +8558,6 @@
 
     function openShortcutsOverlay() {
       if (!shortcutsOverlayEl) return;
-      // Belt-and-suspenders: hide any open popovers before showing modal
-      if (!hlCreatePopover.hidden) hideHighlightCreatePopover();
-      if (!hlViewPopover.hidden)   hideHighlightViewPopover();
       shortcutsOverlayEl.hidden = false;
       document.getElementById('shortcutsClose')?.focus();
     }
@@ -10013,9 +8622,6 @@
 
     function openSettingsModal() {
       if (!settingsOverlayEl) return;
-      // Belt-and-suspenders: hide any open popovers before showing modal
-      if (!hlCreatePopover.hidden) hideHighlightCreatePopover();
-      if (!hlViewPopover.hidden)   hideHighlightViewPopover();
       if (apiKeyInputEl) apiKeyInputEl.value = getApiKey();
       setKeyStatus('', '');
       if (autoDigestToggleEl) autoDigestToggleEl.checked = getAutoDigest();
@@ -10165,12 +8771,6 @@
       return true;
     }
 
-    // Clips' backend route (/api/clips) 503s in web mode — hide the entry
-    // point entirely rather than let users hit a broken button (Task 1).
-    if (ECHO.mode === 'web' && savedClipsBtn) {
-      savedClipsBtn.hidden = true;
-    }
-
     /* ==============================================
        FIRST-RUN ONBOARDING CARD (Task 2)
        Shown once on the initial empty state, before any transcript has ever
@@ -10237,7 +8837,7 @@
         title: 'Privacy',
         body:
           '<p>Echo does not create an account or store your data on its servers in hosted mode — ' +
-          'your library (saved transcripts, digests, highlights) lives entirely in your own browser ' +
+          'your library (saved transcripts, digests) lives entirely in your own browser ' +
           '(IndexedDB).</p>' +
           '<p>Your Anthropic API key is stored only in your browser’s localStorage. It is sent to ' +
           'this app’s server solely to relay your AI requests to Anthropic on your behalf — it is ' +
@@ -10351,7 +8951,7 @@
     /* ==============================================
        SESSION RESTORE — snapshot the working session to
        sessionStorage so refreshing the page doesn't lose the
-       loaded transcript / digest / Ask thread / highlights.
+       loaded transcript / digest / Ask thread.
     =============================================== */
     const SESSION_KEY = 'echo-session-v1';
 
@@ -10368,7 +8968,6 @@
           ? usageStatsEl.innerHTML
           : '',
         askThread:  askThread,
-        highlights: currentHighlights,
         enrichLog:  enrichLog,
         savedFlag:  Array.isArray(savedList) && savedList.some(e => e.videoId === currentMeta.videoId),
         viewMode:   getMode(),
@@ -10441,7 +9040,6 @@
         currentSegments   = snap.segments;
         currentMeta       = { videoId: snap.videoId, url: snap.url, title: snap.title };
         currentDigest     = snap.digest || null;
-        currentHighlights = Array.isArray(snap.highlights) ? snap.highlights : [];
         urlInput.value = snap.url;
 
         if (snap.viewMode) {

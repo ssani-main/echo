@@ -23,10 +23,11 @@ a native WebView2 window.
     5. on window close / app exit  — kill the sidecar child process
 ```
 
-The backend code is completely unmodified except for one additive,
-backward-compatible line in `embeddings.js` (see below). The frontend
-(`public/`) is untouched — the desktop window simply loads it over HTTP
-from the local Node server, exactly like a browser tab does today.
+The backend code is unchanged. The frontend (`public/`) is untouched — the desktop window
+simply loads it over HTTP from the local Node server, exactly like a browser tab does today.
+
+**Note:** Semantic search / embeddings were removed 2026-07-06 (`embeddings.js` deleted,
+`@xenova/transformers` dep removed). The code snippet and table below are now historical.
 
 ## What was added
 
@@ -43,28 +44,16 @@ from the local Node server, exactly like a browser tab does today.
   from `C:\node\node.exe`; re-copy it if that directory is cleaned.
 - `package.json` — added `@tauri-apps/cli` / `@tauri-apps/api`
   devDependencies and `tauri:dev` / `tauri:build` npm scripts.
-- `embeddings.js` — one additive line: the model cache directory now
-  reads `process.env.ECHO_MODELS_DIR` first, falling back to the
-  existing `data/models` path when unset (so `npm start` behavior is
-  unchanged). The Tauri launcher sets `ECHO_MODELS_DIR` to a writable
-  app-data directory, because the bundled resource folder is read-only
-  once packaged.
-
-  ```diff
-  - const MODEL_CACHE = join(__dirname, 'data', 'models');
-  + const MODEL_CACHE = process.env.ECHO_MODELS_DIR || join(__dirname, 'data', 'models');
-  ```
 
 ## Writable paths at runtime
 
 | Data              | Env var           | Set by Tauri launcher to                          |
 |-------------------|--------------------|----------------------------------------------------|
 | SQLite library DB | `ECHO_DB_PATH`     | `<app-data dir>/library.db` (already supported by `store.js`) |
-| Embedding model cache | `ECHO_MODELS_DIR` | `<app-data dir>/models` |
 
 `<app-data dir>` is resolved via Tauri's `app.path().app_data_dir()`
 (Windows: `%APPDATA%/com.echo.reader`, per the `identifier` in
-`tauri.conf.json`). Both directories are created on startup if missing.
+`tauri.conf.json`). The directory is created on startup if missing.
 
 ## LLM provider
 

@@ -118,15 +118,7 @@ const GATED_ROUTES = [
   ['POST', '/api/saved'],
   ['DELETE', '/api/saved/some-video-id'],
   ['PATCH', '/api/saved/some-video-id/tags'],
-  ['PATCH', '/api/saved/some-video-id/favorite'],
-  ['POST', '/api/saved/some-video-id/notes'],
-  ['DELETE', '/api/saved/some-video-id/notes/some-note-id'],
-  ['PUT', '/api/saved/some-video-id/highlights'],
-  ['POST', '/api/saved/some-video-id/highlights'],
-  ['DELETE', '/api/saved/some-video-id/highlights/some-highlight-id'],
-  ['GET', '/api/clips'],
   ['GET', '/api/search'],
-  ['POST', '/api/search/reindex'],
   ['POST', '/api/playlist'],
 ];
 

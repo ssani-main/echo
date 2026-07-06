@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 // Desktop is "optional BYOK" local mode: it reads X-Echo-Api-Key and allows
 // POST /api/validate-key, but does NOT force a key (keyless requests fall
 // through to the CLI provider) and otherwise behaves exactly like local mode
-// (server-side library routes work, no rate limiting, embeddings on).
+// (server-side library routes work, no rate limiting).
 //
 // server.js reads ECHO_MODE at import time, so — same rationale as
 // web-mode-gating.test.js — this file boots server.js in a separate child
@@ -114,11 +114,10 @@ const { buildInjectedHtml } = await import('../server.js');
 
 const SAMPLE_HTML = '<!DOCTYPE html>\n<html><head><title>t</title></head><body></body></html>';
 
-test('buildInjectedHtml: desktop mode injects mode:"desktop" and embeddings:true (desktop keeps embeddings, unlike web)', () => {
+test('buildInjectedHtml: desktop mode injects mode:"desktop"', () => {
   const html = buildInjectedHtml(SAMPLE_HTML, 'desktop');
   assert.match(html, /window\.__ECHO__=/);
   assert.match(html, /"mode":"desktop"/);
-  assert.match(html, /"embeddings":true/);
 });
 
 // ---------------------------------------------------------------------------

@@ -43,7 +43,7 @@ You've been there: you find a great video, but you'd rather *read* it than sit t
 |---|---|---|
 | 📥 | **Transcript fetching** | Works with `watch?v=`, `youtu.be/`, `/shorts/`, `/embed/`, or a bare video ID; pick your caption language from available tracks |
 | 📋 | **Paste-to-fetch** | Paste a YouTube link into the input field and it auto-loads the transcript—no click needed |
-| 🧹 | **Readable mode** | Glues captions into proper sentences & paragraphs; find-in-transcript with live match counter and Prev/Next navigation; highlight passages, attach notes, and copy/download as Markdown — all persists across sessions |
+| 🧹 | **Readable mode** | Glues captions into proper sentences & paragraphs; find-in-transcript with live match counter and Prev/Next navigation; copy/download as Markdown — all persists across sessions |
 | 🎛️ | **Shared reading controls** | Font size (A−/A+) and column width (Narrow/Medium/Wide: ~620 / 760 / 940 px) apply to both Transcript and Digest lenses, share one preference, and scale the reading column responsively. Digest AI output is typeset as a readable article |
 | ⏱️ | **Timecoded mode** | Subtitle-editor style with monospace timecode gutter; every timestamp deep-links YouTube (`&t=<sec>s`); same highlight & note features as Readable mode |
 | 💾 | **Session restore** | Refreshing the page restores the current transcript, digest, Ask thread, highlights, view mode, lens, and Library state via sessionStorage—no re-fetch |
@@ -53,7 +53,7 @@ You've been there: you find a great video, but you'd rather *read* it than sit t
 | 📑 | **Reader & Library** | Transcript and Digest are underlined lens tabs—two views of the current video. Saved videos open from a **Library** button in the header (with count). AI Workspace has its own sub-nav to jump between tools |
 | 🟢 | **Live status indicator** | Fixed pill shows "AI is working…" → "Ready ✓" as it processes; click to jump to the Digest pane |
 | 📊 | **Usage readouts** | Today's total Claude Code cost + tokens (via **ccusage**), plus per-digest stats and session totals |
-| ⭐ | **Library & organization** | Click ★ to save videos with transcripts; search, sort (Recently saved / Title A–Z / Favorites first), tag with chips, add per-video notes, and mark favorites; export your whole library as a ZIP of Markdown files or a JSON backup |
+| ⭐ | **Library & organization** | Click ★ to save videos with transcripts; search, sort (Recently saved / Title A–Z), tag with chips; export your whole library as a ZIP of Markdown files or a JSON backup |
 | 📺 | **Playlist mode** | Paste a playlist URL (`list=`) to browse and load any video's transcript |
 | ⌨️ | **Keyboard shortcuts** | Press `?` for the overlay; `/` focus find, `1`/`2` switch Transcript & Digest lenses, `3` open Library, `t` toggle dark mode, `Esc` close — all paused while typing |
 | 🎨 | **Dark mode & fonts** | Crisp dark theme, Inter for reading, JetBrains Mono for code; loading skeletons respect reduced-motion |
@@ -132,8 +132,7 @@ Public web mode with no authentication. Each visitor:
 - Library stored in browser's **IndexedDB** — each visitor's library is isolated, no user accounts
 
 **Web-mode limits:**
-- Server-side library API disabled (HTTP 503): `/api/saved*`, `/api/clips`, `/api/search*` — library in IndexedDB only
-- Semantic search disabled (falls back to client-side text filtering)
+- Server-side library API disabled (HTTP 503): `/api/saved*` — library in IndexedDB only
 - Per-IP rate limiting: 20 requests / 60s on AI and transcript routes
 - Transcript and AI payload size caps
 - Batch playlist digest unavailable
@@ -179,7 +178,6 @@ docker run -e PORT=3000 -e ECHO_MODE=web -p 3000:3000 echo
 | `ECHO_PROVIDER` | _(CLI)_ | Set to `api` to use Anthropic API instead of CLI. Web-mode per-request `X-Echo-Api-Key` also selects API provider. |
 | `ANTHROPIC_API_KEY` | _(unset)_ | API key used when no per-request key is supplied |
 | `ECHO_DB_PATH` | `data/library.db` | SQLite library database path |
-| `ECHO_MODELS_DIR` | `data/models` | Embeddings model cache directory |
 | `ECHO_MAX_TRANSCRIPT_CHARS` | `200000` | Web-mode transcript character limit |
 | `ECHO_MAX_AI_PAYLOAD_CHARS` | `200000` | Web-mode AI payload character limit |
 
@@ -231,12 +229,6 @@ echo/
 | `POST` | `/api/saved` | `{ url, videoId, title, segments, digest }` | saved entry metadata (upsert by `videoId`) |
 | `DELETE` | `/api/saved/:videoId` | _(none)_ | `{ ok: true }` |
 | `PATCH` | `/api/saved/:videoId/tags` | `{ tags }` | updated entry |
-| `PATCH` | `/api/saved/:videoId/favorite` | `{ favorite }` | updated entry |
-| `POST` | `/api/saved/:videoId/notes` | `{ text }` | created note |
-| `DELETE` | `/api/saved/:videoId/notes/:noteId` | _(none)_ | `{ ok: true }` |
-| `PUT` | `/api/saved/:videoId/highlights` | `{ highlights }` | updated entry |
-| `POST` | `/api/saved/:videoId/highlights` | `{ text, note?, color? }` | created highlight |
-| `DELETE` | `/api/saved/:videoId/highlights/:highlightId` | _(none)_ | `{ ok: true }` |
 
 ## ⚠️ Good to know
 

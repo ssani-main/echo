@@ -82,17 +82,15 @@ test('rateLimitHit: tracks separate keys independently', () => {
 
 const SAMPLE_HTML = '<!DOCTYPE html>\n<html><head><title>t</title></head><body></body></html>';
 
-test('buildInjectedHtml: web mode injects mode:"web" and embeddings:false', () => {
+test('buildInjectedHtml: web mode injects mode:"web"', () => {
   const html = buildInjectedHtml(SAMPLE_HTML, 'web');
   assert.match(html, /window\.__ECHO__=/);
   assert.match(html, /"mode":"web"/);
-  assert.match(html, /"embeddings":false/);
 });
 
-test('buildInjectedHtml: local mode injects mode:"local" and embeddings:true (client search-status decides the real value)', () => {
+test('buildInjectedHtml: local mode injects mode:"local"', () => {
   const html = buildInjectedHtml(SAMPLE_HTML, 'local');
   assert.match(html, /"mode":"local"/);
-  assert.match(html, /"embeddings":true/);
 });
 
 test('buildInjectedHtml: injected script is placed immediately before </head> and other markup is untouched', () => {

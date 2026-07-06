@@ -107,10 +107,10 @@ test('saveEntry twice with the same videoId upserts instead of duplicating', asy
 });
 
 // ---------------------------------------------------------------------------
-// Tags / favorite / notes / highlights
+// Tags
 // ---------------------------------------------------------------------------
 
-test('setTags, setFavorite, addNote, deleteNote, addHighlight, deleteHighlight mutate the entry as expected', async () => {
+test('setTags mutates the entry as expected', async () => {
   await store.saveEntry({
     videoId: 'vid003',
     url: 'https://www.youtube.com/watch?v=vid003',
@@ -122,37 +122,6 @@ test('setTags, setFavorite, addNote, deleteNote, addHighlight, deleteHighlight m
   await store.setTags('vid003', ['tag-a', 'tag-b', 'tag-a']); // dedup
   let entry = await store.getEntry('vid003');
   assert.deepEqual(entry.tags.sort(), ['tag-a', 'tag-b']);
-
-  // Favorite
-  await store.setFavorite('vid003', true);
-  entry = await store.getEntry('vid003');
-  assert.equal(entry.favorite, true);
-
-  // Notes
-  const note = await store.addNote('vid003', 'my note text');
-  assert.ok(note.id);
-  entry = await store.getEntry('vid003');
-  assert.equal(entry.notes.length, 1);
-  assert.equal(entry.notes[0].text, 'my note text');
-  assert.equal(entry.notes[0].id, note.id);
-
-  const deleteNoteResult = await store.deleteNote('vid003', note.id);
-  assert.equal(deleteNoteResult, true);
-  entry = await store.getEntry('vid003');
-  assert.equal(entry.notes.length, 0);
-
-  // Highlights
-  const highlight = await store.addHighlight('vid003', { text: 'my highlight' });
-  assert.ok(highlight.id);
-  entry = await store.getEntry('vid003');
-  assert.equal(entry.highlights.length, 1);
-  assert.equal(entry.highlights[0].text, 'my highlight');
-  assert.equal(entry.highlights[0].id, highlight.id);
-
-  const deleteHighlightResult = await store.deleteHighlight('vid003', highlight.id);
-  assert.equal(deleteHighlightResult, true);
-  entry = await store.getEntry('vid003');
-  assert.equal(entry.highlights.length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -168,16 +137,11 @@ test('listEntries returns metadata with correct counts, tags, and favorite', asy
     tags: ['x', 'y'],
     favorite: true,
   });
-  await store.addNote('vid004', 'note one');
-  await store.addNote('vid004', 'note two');
-  await store.addHighlight('vid004', { text: 'hl one' });
 
   const all = await store.listEntries();
   const meta = all.find((e) => e.videoId === 'vid004');
   assert.ok(meta);
   assert.equal(meta.segmentCount, 2);
-  assert.equal(meta.noteCount, 2);
-  assert.equal(meta.highlightCount, 1);
   assert.deepEqual(meta.tags.sort(), ['x', 'y']);
   assert.equal(meta.favorite, true);
 });

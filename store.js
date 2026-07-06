@@ -46,22 +46,6 @@ db.exec(`
     UNIQUE(videoId, tag)
   );
 
-  CREATE TABLE IF NOT EXISTS notes (
-    id        TEXT PRIMARY KEY,
-    videoId   TEXT NOT NULL REFERENCES videos(videoId) ON DELETE CASCADE,
-    text      TEXT NOT NULL,
-    createdAt TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS highlights (
-    id        TEXT PRIMARY KEY,
-    videoId   TEXT NOT NULL REFERENCES videos(videoId) ON DELETE CASCADE,
-    text      TEXT NOT NULL,
-    note      TEXT,
-    color     TEXT,
-    createdAt TEXT NOT NULL
-  );
-
   CREATE VIRTUAL TABLE IF NOT EXISTS videos_fts USING fts5(
     videoId UNINDEXED,
     title,
@@ -101,33 +85,6 @@ db.exec(`
   }
 })();
 
-// Embeddings persistence table — added separately to avoid touching the existing
-// schema block.  FK ON DELETE CASCADE keeps it tidy when a video is removed.
-db.exec(`
-  CREATE TABLE IF NOT EXISTS embeddings (
-    videoId   TEXT PRIMARY KEY REFERENCES videos(videoId) ON DELETE CASCADE,
-    vector    TEXT NOT NULL,
-    dim       INTEGER NOT NULL,
-    updatedAt TEXT NOT NULL
-  )
-`);
-
-// ---------------------------------------------------------------------------
-// Monotonic ID generator — same semantics as the original file-based store.js
-// ---------------------------------------------------------------------------
-
-let _idCounter = 0;
-
-/**
- * Generate a collision-safe ID string: "<timestamp>-<counter>".
- * Uses Date.now() plus a per-process counter so rapid successive calls
- * never produce the same value.
- */
-function generateId() {
-  _idCounter += 1;
-  return `${Date.now()}-${_idCounter}`;
-}
-
 // ---------------------------------------------------------------------------
 // Internal DB helpers
 // ---------------------------------------------------------------------------
@@ -144,14 +101,6 @@ function fetchFullEntry(videoId) {
     'SELECT tag FROM tags WHERE videoId = ? ORDER BY rowid'
   ).all(videoId);
 
-  const notes = db.prepare(
-    'SELECT id, text, createdAt FROM notes WHERE videoId = ? ORDER BY createdAt'
-  ).all(videoId);
-
-  const highlights = db.prepare(
-    'SELECT id, text, note, color, createdAt FROM highlights WHERE videoId = ? ORDER BY createdAt'
-  ).all(videoId);
-
   return {
     videoId:    row.videoId,
     url:        row.url,
@@ -162,14 +111,6 @@ function fetchFullEntry(videoId) {
     digest:     row.digest ?? null,
     favorite:   row.favorite === 1,
     tags:       tags.map((t) => t.tag),
-    notes:      notes.map((n) => ({ id: n.id, text: n.text, createdAt: n.createdAt })),
-    highlights: highlights.map((h) => {
-      // Omit note/color entirely when null — matches sanitizeHighlight's undefined semantics
-      const obj = { id: h.id, text: h.text, createdAt: h.createdAt };
-      if (h.note  != null) obj.note  = h.note;
-      if (h.color != null) obj.color = h.color;
-      return obj;
-    }),
   };
 }
 
@@ -187,25 +128,6 @@ function toMeta(entry) {
     segmentCount:   entry.segments?.length || 0,
     tags:           Array.isArray(entry.tags)       ? entry.tags             : [],
     favorite:       typeof entry.favorite === 'boolean' ? entry.favorite     : false,
-    noteCount:      Array.isArray(entry.notes)      ? entry.notes.length     : 0,
-    highlightCount: Array.isArray(entry.highlights) ? entry.highlights.length : 0,
-  };
-}
-
-/**
- * Sanitize a single raw highlight object into the canonical shape.
- * Assigns id and createdAt if missing; requires text to be a non-empty string.
- * Returns null if text is absent or empty.
- */
-function sanitizeHighlight(raw) {
-  const text = String(raw?.text ?? '').trim();
-  if (!text) return null;
-  return {
-    id:        raw.id    ?? generateId(),
-    text,
-    note:      raw.note  != null ? String(raw.note)  : undefined,
-    color:     raw.color != null ? String(raw.color) : undefined,
-    createdAt: raw.createdAt ?? new Date().toISOString(),
   };
 }
 
@@ -257,12 +179,6 @@ function syncFts(videoId) {
   const insertTag = db.prepare(
     'INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)'
   );
-  const insertNote = db.prepare(
-    'INSERT OR IGNORE INTO notes (id, videoId, text, createdAt) VALUES (?, ?, ?, ?)'
-  );
-  const insertHighlight = db.prepare(
-    'INSERT OR IGNORE INTO highlights (id, videoId, text, note, color, createdAt) VALUES (?, ?, ?, ?, ?, ?)'
-  );
 
   // node:sqlite's DatabaseSync has no transaction() wrapper — use raw SQL.
   let migrated = 0;
@@ -288,16 +204,6 @@ function syncFts(videoId) {
       const sanitizedTags = [...new Set(rawTags.map((t) => String(t).trim()).filter(Boolean))].slice(0, 20);
       for (const tag of sanitizedTags) {
         insertTag.run(entry.videoId, tag);
-      }
-
-      for (const note of (Array.isArray(entry.notes) ? entry.notes : [])) {
-        if (!note.id || !note.text) continue;
-        insertNote.run(note.id, entry.videoId, note.text, note.createdAt ?? new Date().toISOString());
-      }
-
-      for (const h of (Array.isArray(entry.highlights) ? entry.highlights : [])) {
-        if (!h.id || !h.text) continue;
-        insertHighlight.run(h.id, entry.videoId, h.text, h.note ?? null, h.color ?? null, h.createdAt ?? new Date().toISOString());
       }
 
       syncFts(entry.videoId);
@@ -326,8 +232,6 @@ export async function listEntries() {
 
   // Batch-load related data in three queries instead of N per-video lookups
   const allTags        = db.prepare('SELECT videoId, tag FROM tags ORDER BY videoId, rowid').all();
-  const noteCounts     = db.prepare('SELECT videoId, COUNT(*) as n FROM notes GROUP BY videoId').all();
-  const highlightCounts = db.prepare('SELECT videoId, COUNT(*) as n FROM highlights GROUP BY videoId').all();
 
   /** @type {Record<string, string[]>} */
   const tagsByVideo = {};
@@ -335,8 +239,6 @@ export async function listEntries() {
     if (!tagsByVideo[t.videoId]) tagsByVideo[t.videoId] = [];
     tagsByVideo[t.videoId].push(t.tag);
   }
-  const noteCountMap       = Object.fromEntries(noteCounts.map((r) => [r.videoId, r.n]));
-  const highlightCountMap  = Object.fromEntries(highlightCounts.map((r) => [r.videoId, r.n]));
 
   return rows.map((row) => ({
     videoId:        row.videoId,
@@ -347,8 +249,6 @@ export async function listEntries() {
     segmentCount:   row.segment_count || 0,
     tags:           tagsByVideo[row.videoId]       || [],
     favorite:       row.favorite === 1,
-    noteCount:      noteCountMap[row.videoId]      || 0,
-    highlightCount: highlightCountMap[row.videoId] || 0,
   }));
 }
 
@@ -361,11 +261,11 @@ export async function getEntry(videoId) {
 
 /**
  * Upsert an entry by videoId.
- * Preserves existing digest, tags, favorite, notes, highlights when the
+ * Preserves existing digest, tags, favorite when the
  * incoming payload omits them.
  * Returns the metadata object for the saved entry.
  */
-export async function saveEntry({ url, videoId, title, segments, digest, tags, favorite, notes, highlights }) {
+export async function saveEntry({ url, videoId, title, segments, digest, tags, favorite }) {
   const now      = new Date().toISOString();
   const existing = db.prepare('SELECT * FROM videos WHERE videoId = ?').get(videoId);
   const safeUrl  = safeHttpUrl(url);
@@ -389,19 +289,6 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
     const initTags = Array.isArray(tags) ? tags : [];
     for (const tag of [...new Set(initTags.map((t) => String(t).trim()).filter(Boolean))].slice(0, 20)) {
       db.prepare('INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)').run(videoId, tag);
-    }
-
-    for (const n of (Array.isArray(notes) ? notes : [])) {
-      if (!n.id || !n.text) continue;
-      db.prepare('INSERT OR IGNORE INTO notes (id, videoId, text, createdAt) VALUES (?, ?, ?, ?)')
-        .run(n.id, videoId, n.text, n.createdAt ?? now);
-    }
-
-    for (const h of (Array.isArray(highlights) ? highlights : [])) {
-      const s = sanitizeHighlight(h);
-      if (!s) continue;
-      db.prepare('INSERT OR IGNORE INTO highlights (id, videoId, text, note, color, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(s.id, videoId, s.text, s.note ?? null, s.color ?? null, s.createdAt);
     }
   } else {
     // ---- Existing entry — preserve savedAt and extension fields not in payload ----
@@ -431,27 +318,6 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
         db.prepare('INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)').run(videoId, tag);
       }
     }
-
-    // Replace notes only if a notes array was explicitly provided
-    if (Array.isArray(notes)) {
-      db.prepare('DELETE FROM notes WHERE videoId = ?').run(videoId);
-      for (const n of notes) {
-        if (!n.id || !n.text) continue;
-        db.prepare('INSERT OR IGNORE INTO notes (id, videoId, text, createdAt) VALUES (?, ?, ?, ?)')
-          .run(n.id, videoId, n.text, n.createdAt ?? now);
-      }
-    }
-
-    // Replace highlights only if a highlights array was explicitly provided
-    if (Array.isArray(highlights)) {
-      db.prepare('DELETE FROM highlights WHERE videoId = ?').run(videoId);
-      for (const h of highlights) {
-        const s = sanitizeHighlight(h);
-        if (!s) continue;
-        db.prepare('INSERT OR IGNORE INTO highlights (id, videoId, text, note, color, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(s.id, videoId, s.text, s.note ?? null, s.color ?? null, s.createdAt);
-      }
-    }
   }
 
   syncFts(videoId);
@@ -466,7 +332,7 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
 export async function deleteEntry(videoId) {
   const result = db.prepare('DELETE FROM videos WHERE videoId = ?').run(videoId);
   if (result.changes === 0) return false;
-  // FK ON DELETE CASCADE removes tags/notes/highlights; clean up FTS manually.
+  // FK ON DELETE CASCADE removes tags; clean up FTS manually.
   db.prepare('DELETE FROM videos_fts WHERE videoId = ?').run(videoId);
   return true;
 }
@@ -494,117 +360,6 @@ export async function setTags(videoId, tags) {
   db.prepare('UPDATE videos SET updatedAt = ? WHERE videoId = ?').run(new Date().toISOString(), videoId);
 
   return fetchFullEntry(videoId);
-}
-
-// ---------------------------------------------------------------------------
-// Favorite
-// ---------------------------------------------------------------------------
-
-/**
- * Set the favorite boolean for an entry.
- * Returns the updated full entry, or null if videoId not found.
- */
-export async function setFavorite(videoId, favorite) {
-  if (!db.prepare('SELECT videoId FROM videos WHERE videoId = ?').get(videoId)) return null;
-
-  db.prepare('UPDATE videos SET favorite = ?, updatedAt = ? WHERE videoId = ?').run(
-    Boolean(favorite) ? 1 : 0,
-    new Date().toISOString(),
-    videoId,
-  );
-
-  return fetchFullEntry(videoId);
-}
-
-// ---------------------------------------------------------------------------
-// Notes
-// ---------------------------------------------------------------------------
-
-/**
- * Append a new note to an entry's notes array.
- * Returns the created note object (not the full entry), or null if not found.
- */
-export async function addNote(videoId, text) {
-  if (!db.prepare('SELECT videoId FROM videos WHERE videoId = ?').get(videoId)) return null;
-
-  const note = {
-    id:        generateId(),
-    text:      String(text ?? '').trim(),
-    createdAt: new Date().toISOString(),
-  };
-
-  db.prepare('INSERT INTO notes (id, videoId, text, createdAt) VALUES (?, ?, ?, ?)')
-    .run(note.id, videoId, note.text, note.createdAt);
-
-  return note;
-}
-
-/**
- * Remove a note by id from an entry.
- * Returns true if the note was found and removed, false if the note didn't
- * exist (but the entry did), or null if the videoId wasn't found.
- */
-export async function deleteNote(videoId, noteId) {
-  if (!db.prepare('SELECT videoId FROM videos WHERE videoId = ?').get(videoId)) return null;
-
-  const result = db.prepare('DELETE FROM notes WHERE id = ? AND videoId = ?').run(noteId, videoId);
-  return result.changes > 0;
-}
-
-// ---------------------------------------------------------------------------
-// Highlights
-// ---------------------------------------------------------------------------
-
-/**
- * Replace the highlights array for an entry.
- * Sanitizes each highlight (must have text; assigns id/createdAt if missing).
- * Drops any highlight missing a text value.
- * Returns the updated full entry, or null if videoId not found.
- */
-export async function setHighlights(videoId, highlights) {
-  if (!db.prepare('SELECT videoId FROM videos WHERE videoId = ?').get(videoId)) return null;
-
-  const sanitized = Array.isArray(highlights)
-    ? highlights.map(sanitizeHighlight).filter(Boolean)
-    : [];
-
-  db.prepare('DELETE FROM highlights WHERE videoId = ?').run(videoId);
-  for (const h of sanitized) {
-    db.prepare('INSERT INTO highlights (id, videoId, text, note, color, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(h.id, videoId, h.text, h.note ?? null, h.color ?? null, h.createdAt);
-  }
-  db.prepare('UPDATE videos SET updatedAt = ? WHERE videoId = ?').run(new Date().toISOString(), videoId);
-
-  return fetchFullEntry(videoId);
-}
-
-/**
- * Append a single highlight to an entry's highlights array.
- * Returns the created highlight object, or null if videoId not found.
- * Throws if text is empty (same behaviour as original store.js).
- */
-export async function addHighlight(videoId, { text, note, color } = {}) {
-  const highlight = sanitizeHighlight({ text, note, color });
-  if (!highlight) throw new Error('highlight.text is required and must be a non-empty string');
-
-  if (!db.prepare('SELECT videoId FROM videos WHERE videoId = ?').get(videoId)) return null;
-
-  db.prepare('INSERT INTO highlights (id, videoId, text, note, color, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(highlight.id, videoId, highlight.text, highlight.note ?? null, highlight.color ?? null, highlight.createdAt);
-
-  return highlight;
-}
-
-/**
- * Remove a highlight by id from an entry.
- * Returns true if the highlight was found and removed, false if the highlight
- * didn't exist (but the entry did), or null if the videoId wasn't found.
- */
-export async function deleteHighlight(videoId, highlightId) {
-  if (!db.prepare('SELECT videoId FROM videos WHERE videoId = ?').get(videoId)) return null;
-
-  const result = db.prepare('DELETE FROM highlights WHERE id = ? AND videoId = ?').run(highlightId, videoId);
-  return result.changes > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -637,57 +392,3 @@ export async function searchLibrary(query, limit = 20) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Embeddings persistence
-// ---------------------------------------------------------------------------
-
-/**
- * Retrieve a stored embedding for a videoId.
- * Returns { vector: number[], dim: number } or null if not found.
- * These are synchronous because node:sqlite is synchronous.
- * @param {string} videoId
- * @returns {{ vector: number[], dim: number } | null}
- */
-export function getEmbedding(videoId) {
-  const row = db.prepare('SELECT vector, dim FROM embeddings WHERE videoId = ?').get(videoId);
-  if (!row) return null;
-  try {
-    return { vector: JSON.parse(row.vector), dim: row.dim };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Upsert an embedding for a videoId.
- * @param {string} videoId
- * @param {number[]} vector
- * @param {number}   dim
- */
-export function setEmbedding(videoId, vector, dim) {
-  db.prepare(`
-    INSERT INTO embeddings (videoId, vector, dim, updatedAt)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(videoId) DO UPDATE SET
-      vector    = excluded.vector,
-      dim       = excluded.dim,
-      updatedAt = excluded.updatedAt
-  `).run(videoId, JSON.stringify(vector), dim, new Date().toISOString());
-}
-
-/**
- * Return all stored embeddings as an array of { videoId, vector: number[], dim }.
- * Used for in-memory cosine similarity scoring at query time.
- * @returns {Array<{ videoId: string, vector: number[], dim: number }>}
- */
-export function allEmbeddings() {
-  return db.prepare('SELECT videoId, vector, dim FROM embeddings').all()
-    .map((row) => {
-      try {
-        return { videoId: row.videoId, vector: JSON.parse(row.vector), dim: row.dim };
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
-}

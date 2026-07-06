@@ -16,31 +16,10 @@ import {
   saveEntry,
   deleteEntry,
   setTags,
-  setFavorite,
-  addNote,
-  deleteNote,
-  setHighlights,
-  addHighlight,
-  deleteHighlight,
   searchLibrary,
-  getEmbedding,
-  setEmbedding,
-  allEmbeddings,
 } from './store.js';
 import { entryToMarkdown } from './markdown.js';
-import { buildClips } from './clips.js';
 import { startPlaylistDigest, getJob, cancelJob } from './playlistJob.js';
-import {
-  initEmbeddings,
-  isAvailable,
-  getFailureReason,
-  embedText,
-  cosineSimilarity,
-} from './embeddings.js';
-
-// Start loading embedding model in background — safe to ignore the promise;
-// isAvailable() will stay false until (and unless) the load succeeds.
-initEmbeddings().catch(() => {});
 import {
   generateDigest,
   askVideoQuestion,
@@ -60,7 +39,7 @@ const __dirname = dirname(__filename);
 // (Tauri app). Every web-only branch below is gated on `isWeb` so local/
 // desktop behavior stays byte-for-byte identical to today. Desktop mode is
 // otherwise identical to local (full server-side library, no rate limits,
-// no payload caps, embeddings on) — it only additionally allows optional
+// no payload caps) — it only additionally allows optional
 // BYOK via `readApiKey`/`/api/validate-key`, purely as a fallback when the
 // local `claude` CLI isn't installed/authenticated.
 // ---------------------------------------------------------------------------
@@ -152,17 +131,8 @@ app.use((_req, res, next) => {
 // memory, rather than re-reading + re-injecting on every request. Trade-off:
 // editing public/index.html during local development requires a server
 // restart to pick up changes (it did not before this change).
-//
-// `embeddings` flag: initEmbeddings() runs in the background (see below) and
-// isAvailable() is essentially always false at this synchronous startup
-// point, even when the model will successfully load moments later. Reporting
-// that here would be misleading, so in local mode we default `embeddings` to
-// `true` and let the client's existing GET /api/search/status call determine
-// the real state at runtime. In web mode, server-side embeddings are not
-// offered at all, so it is always `false`.
 function buildInjectedHtml(rawHtml, mode) {
-  const isWebMode = mode === 'web';
-  const injected = { mode, embeddings: isWebMode ? false : true };
+  const injected = { mode };
   const script = `<script>window.__ECHO__=${JSON.stringify(injected)}</script>\n</head>`;
   return rawHtml.replace('</head>', script);
 }
@@ -757,86 +727,6 @@ app.patch('/api/saved/:videoId/tags', blockInWeb, async (req, res) => {
   }
 });
 
-app.patch('/api/saved/:videoId/favorite', blockInWeb, async (req, res) => {
-  try {
-    const { favorite } = req.body;
-    if (favorite === undefined || favorite === null) {
-      return sendError(res, 'INTERNAL', 'favorite is required.', '', 400);
-    }
-    const entry = await setFavorite(req.params.videoId, Boolean(favorite));
-    if (!entry) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
-    res.json(entry);
-  } catch (err) {
-    sendCaughtError(res, err);
-  }
-});
-
-app.post('/api/saved/:videoId/notes', blockInWeb, async (req, res) => {
-  try {
-    const { text } = req.body;
-    if (!requireText(res, text, 'text is required.')) return;
-    const note = await addNote(req.params.videoId, text);
-    if (note === null) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
-    res.status(201).json(note);
-  } catch (err) {
-    sendCaughtError(res, err);
-  }
-});
-
-app.delete('/api/saved/:videoId/notes/:noteId', blockInWeb, async (req, res) => {
-  try {
-    const result = await deleteNote(req.params.videoId, req.params.noteId);
-    if (result === null) return sendError(res, 'INTERNAL', 'Entry not found.', '', 404);
-    if (result === false) return sendError(res, 'INTERNAL', 'Note not found.', '', 404);
-    res.json({ ok: true });
-  } catch (err) {
-    sendCaughtError(res, err);
-  }
-});
-
-app.put('/api/saved/:videoId/highlights', blockInWeb, async (req, res) => {
-  try {
-    const { highlights } = req.body;
-    if (!Array.isArray(highlights)) {
-      return sendError(res, 'INTERNAL', 'highlights must be an array.', '', 400);
-    }
-    const entry = await setHighlights(req.params.videoId, highlights);
-    if (!entry) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
-    res.json(entry);
-  } catch (err) {
-    sendCaughtError(res, err);
-  }
-});
-
-app.post('/api/saved/:videoId/highlights', blockInWeb, async (req, res) => {
-  try {
-    const { text, note, color } = req.body;
-    let highlight;
-    try {
-      highlight = await addHighlight(req.params.videoId, { text, note, color });
-    } catch (innerErr) {
-      // addHighlight throws on empty text
-      return sendError(res, 'INTERNAL', innerErr.message, '', 400);
-    }
-    if (highlight === null) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
-    res.status(201).json(highlight);
-  } catch (err) {
-    sendCaughtError(res, err);
-  }
-});
-
-app.delete('/api/saved/:videoId/highlights/:highlightId', blockInWeb, async (req, res) => {
-  try {
-    const result = await deleteHighlight(req.params.videoId, req.params.highlightId);
-    if (result === null || result === false) {
-      return sendError(res, 'INTERNAL', 'Not found.', '', 404);
-    }
-    res.json({ ok: true });
-  } catch (err) {
-    sendCaughtError(res, err);
-  }
-});
-
 app.get('/api/saved/:videoId', blockInWeb, async (req, res) => {
   try {
     const e = await getEntry(req.params.videoId);
@@ -861,28 +751,6 @@ app.get('/api/saved/:videoId/export.md', blockInWeb, async (req, res) => {
     res.set('Content-Type', 'text/markdown; charset=utf-8');
     res.set('Content-Disposition', `attachment; filename="${slug}.md"`);
     res.send(md);
-  } catch (err) {
-    sendCaughtError(res, err);
-  }
-});
-
-app.get('/api/clips', blockInWeb, async (req, res) => {
-  try {
-    const { videoId } = req.query;
-    let entries;
-
-    if (videoId) {
-      const entry = await getEntry(videoId);
-      if (!entry) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
-      entries = [entry];
-    } else {
-      const meta = await listEntries();
-      entries = (await Promise.all(meta.map((m) => getEntry(m.videoId)))).filter(Boolean);
-    }
-
-    const clips = buildClips(entries);
-    const videoCount = new Set(clips.map((c) => c.videoId)).size;
-    res.json({ clips, count: clips.length, videoCount });
   } catch (err) {
     sendCaughtError(res, err);
   }
@@ -1022,89 +890,14 @@ function buildSnippet(entry, query) {
   return text.slice(0, 240).replace(/\s+/g, ' ').trim() + (text.length > 240 ? '…' : '');
 }
 
-/**
- * Build the text that represents an entry for embedding purposes:
- * title + first 1000 chars of transcript + first 400 chars of digest.
- * @param {{ title?: string, segments?: Array<{text:string}>, digest?: string }} entry
- * @returns {string}
- */
-function buildEmbedText(entry) {
-  const title  = entry.title || '';
-  const segTxt = Array.isArray(entry.segments)
-    ? entry.segments.map((s) => String(s.text || '')).join(' ').slice(0, 1000)
-    : '';
-  const digest = entry.digest ? entry.digest.slice(0, 400) : '';
-  return [title, segTxt, digest].filter(Boolean).join('. ');
-}
-
 // ---------------------------------------------------------------------------
-// Hybrid / semantic search routes
+// Search route
 // ---------------------------------------------------------------------------
-
-/**
- * GET /api/search/status
- * Reports whether the semantic embedding layer is available.
- */
-app.get('/api/search/status', (_req, res) => {
-  res.json({
-    embeddingsAvailable: isAvailable(),
-    failureReason:       getFailureReason() ?? null,
-    mode:                isAvailable() ? 'hybrid' : 'keyword',
-  });
-});
-
-/**
- * POST /api/search/reindex
- * Computes and stores embeddings for all library entries that don't have one yet.
- * Returns { ok, indexed, skipped, total } or a note if embeddings are disabled.
- */
-app.post('/api/search/reindex', blockInWeb, async (_req, res) => {
-  // Ensure model init has run (idempotent and fast if already done)
-  await initEmbeddings();
-
-  if (!isAvailable()) {
-    return res.json({
-      ok:      false,
-      note:    'Semantic search is disabled on this server.',
-      reason:  getFailureReason() ?? 'Model failed to load.',
-      indexed: 0,
-      skipped: 0,
-      total:   0,
-    });
-  }
-
-  try {
-    const metas      = await listEntries();
-    const existing   = new Set(allEmbeddings().map((e) => e.videoId));
-    let indexed = 0;
-    let skipped = 0;
-
-    for (const meta of metas) {
-      if (existing.has(meta.videoId)) { skipped++; continue; }
-
-      const full = await getEntry(meta.videoId);
-      if (!full) { skipped++; continue; }
-
-      const text = buildEmbedText(full);
-      if (!text.trim()) { skipped++; continue; }
-
-      const vector = await embedText(text);
-      if (!vector)  { skipped++; continue; }
-
-      setEmbedding(meta.videoId, vector, vector.length);
-      indexed++;
-    }
-
-    return res.json({ ok: true, indexed, skipped, total: metas.length });
-  } catch (err) {
-    return sendCaughtError(res, err);
-  }
-});
 
 /**
  * GET /api/search?q=...&limit=...
- * FTS5 keyword search, upgraded to hybrid when embeddings are available.
- * Response shape is always { results: [...], mode: 'keyword'|'hybrid' }.
+ * FTS5 keyword search.
+ * Response shape is always { results: [...], mode: 'keyword' }.
  * Each result: { videoId, title, url, snippet, tags, favorite }.
  */
 app.get('/api/search', blockInWeb, async (req, res) => {
@@ -1115,8 +908,7 @@ app.get('/api/search', blockInWeb, async (req, res) => {
   if (!q) return res.json({ results: [], mode: 'keyword' });
 
   try {
-    // FTS5 — always available; fetch more rows than needed for hybrid blending
-    const ftsEntries = await searchLibrary(q, limit * 2);
+    const ftsEntries = await searchLibrary(q, limit);
 
     /** Map a full entry to the slim search-result shape */
     const toResult = (entry) => ({
@@ -1128,59 +920,9 @@ app.get('/api/search', blockInWeb, async (req, res) => {
       favorite: Boolean(entry.favorite),
     });
 
-    // ---- Keyword-only path (no embeddings) ----
-    if (!isAvailable()) {
-      const results = ftsEntries.slice(0, limit).map(toResult);
-      logEvent('search', { qLen: q.length, mode: 'keyword', results: results.length, ok: true, ms: Date.now() - t0 });
-      return res.json({ results, mode: 'keyword' });
-    }
-
-    // ---- Hybrid path ----
-    const queryVec = await embedText(q);
-    if (!queryVec) {
-      // embedText failed silently — degrade gracefully to keyword
-      const results = ftsEntries.slice(0, limit).map(toResult);
-      logEvent('search', { qLen: q.length, mode: 'keyword', results: results.length, ok: true, ms: Date.now() - t0 });
-      return res.json({ results, mode: 'keyword' });
-    }
-
-    const storedEmbs   = allEmbeddings();
-    const semScoreMap  = new Map(
-      storedEmbs.map(({ videoId, vector }) => [videoId, cosineSimilarity(queryVec, vector)])
-    );
-
-    // Build merged candidate set starting from FTS results
-    const byId = new Map();
-    ftsEntries.forEach((entry, i) => {
-      const ftsScore = ftsEntries.length > 1 ? 1 - i / (ftsEntries.length - 1) : 1;
-      byId.set(entry.videoId, {
-        entry,
-        ftsScore,
-        semScore: semScoreMap.get(entry.videoId) ?? 0,
-      });
-    });
-
-    // Pull in semantic-only hits above threshold (catches synonym / paraphrase matches)
-    const SEM_THRESHOLD = 0.35;
-    for (const [videoId, semScore] of semScoreMap.entries()) {
-      if (!byId.has(videoId) && semScore >= SEM_THRESHOLD) {
-        const full = await getEntry(videoId);
-        if (full) byId.set(videoId, { entry: full, ftsScore: 0, semScore });
-      }
-    }
-
-    // Blend: 60 % FTS relevance + 40 % cosine similarity
-    const ranked = [...byId.values()]
-      .map(({ entry, ftsScore, semScore }) => ({
-        entry,
-        score: 0.6 * ftsScore + 0.4 * semScore,
-      }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit);
-
-    const results = ranked.map(({ entry }) => toResult(entry));
-    logEvent('search', { qLen: q.length, mode: 'hybrid', results: results.length, ok: true, ms: Date.now() - t0 });
-    return res.json({ results, mode: 'hybrid' });
+    const results = ftsEntries.slice(0, limit).map(toResult);
+    logEvent('search', { qLen: q.length, mode: 'keyword', results: results.length, ok: true, ms: Date.now() - t0 });
+    return res.json({ results, mode: 'keyword' });
   } catch (err) {
     logEvent('search', { qLen: q.length, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);

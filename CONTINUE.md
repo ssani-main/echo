@@ -1,5 +1,7 @@
 # Echo — Continuation / Handoff
 
+**Status: OBSOLETE. All work merged. Several features mentioned below (semantic search, clips, notes, highlights, favorites) were removed 2026-07-06 — see PLAN.md.**
+
 This file captures in-progress work on branch `feat/sqlite-and-features` so any future
 session can resume with zero context loss. Delete it once all remaining tasks are merged.
 
