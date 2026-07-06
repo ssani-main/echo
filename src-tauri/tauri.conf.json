@@ -49,6 +49,9 @@
       "../playlistJob.js": "playlistJob.js",
       "../sanitize.js": "sanitize.js",
       "../usage.js": "usage.js",
+      "../discovery.js": "discovery.js",
+      "../usagelog.js": "usagelog.js",
+      "../websearch.js": "websearch.js",
       "../package.json": "package.json",
       "../public": "public",
       "dist-deps/node_modules": "node_modules"
