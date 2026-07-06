@@ -44,10 +44,8 @@ initEmbeddings().catch(() => {});
 import {
   generateDigest,
   askVideoQuestion,
-  extractChapters,
-  extractQuotes,
-  factCheck,
   generateCrossDigest,
+  enrich,
 } from './digest.js';
 import { getTodayUsage } from './usage.js';
 
@@ -580,55 +578,16 @@ app.post('/api/chat', webLimit(20, 60_000), async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Chapters
+// Enrich (explain / background / factcheck a highlighted selection)
 // ---------------------------------------------------------------------------
 
-app.post('/api/chapters', webLimit(20, 60_000), async (req, res) => {
-  const { segments } = req.body;
-  if (!Array.isArray(segments) || segments.length === 0) {
-    return sendError(res, 'INTERNAL', 'segments must be a non-empty array.', '', 400);
-  }
-  if (rejectOversizeAiPayload(res, { segments })) return;
+app.post('/api/enrich', webLimit(20, 60_000), async (req, res) => {
+  const { selection, context, mode, language } = req.body;
+  if (!requireText(res, selection, 'selection is required.')) return;
+  if (rejectOversizeAiPayload(res, { text: (selection || '') + (context || '') })) return;
   if (requireWebKey(req, res)) return;
   try {
-    const result = await extractChapters(segments, { apiKey: readApiKey(req) });
-    return res.json(result);
-  } catch (err) {
-    return sendCaughtError(res, err);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Quotes
-// ---------------------------------------------------------------------------
-
-app.post('/api/quotes', webLimit(20, 60_000), async (req, res) => {
-  const { segments } = req.body;
-  if (!Array.isArray(segments) || segments.length === 0) {
-    return sendError(res, 'INTERNAL', 'segments must be a non-empty array.', '', 400);
-  }
-  if (rejectOversizeAiPayload(res, { segments })) return;
-  if (requireWebKey(req, res)) return;
-  try {
-    const result = await extractQuotes(segments, { apiKey: readApiKey(req) });
-    return res.json(result);
-  } catch (err) {
-    return sendCaughtError(res, err);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Fact-check
-// ---------------------------------------------------------------------------
-
-app.post('/api/factcheck', webLimit(20, 60_000), async (req, res) => {
-  const { text, language, lang, langCode } = req.body;
-  if (!requireText(res, text, 'text is required.')) return;
-  if (rejectOversizeAiPayload(res, { text })) return;
-  if (requireWebKey(req, res)) return;
-  try {
-    const answerLanguage = language || lang || langCode || undefined;
-    const result = await factCheck(text, { apiKey: readApiKey(req), language: answerLanguage });
+    const result = await enrich(selection, { context, mode, language, apiKey: readApiKey(req) });
     return res.json(result);
   } catch (err) {
     return sendCaughtError(res, err);

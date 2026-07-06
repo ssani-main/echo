@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { getProvider } from './providers.js';
+import { searchWeb } from './websearch.js';
 
 // ---------------------------------------------------------------------------
 // Shared constants
@@ -364,7 +365,7 @@ export function chunkSegments(segments, budgetChars = CHUNK_CONTENT_CHARS) {
   let currentChars = 0;
 
   for (const seg of segments) {
-    // Mirror how the prompt formats each line (see extractChapters / extractQuotes).
+    // Mirror how a timecoded "[seconds] text" prompt line would be formatted.
     const lineLen = `[${Math.round(seg.offset)}] ${seg.text}\n`.length;
     if (currentChars + lineLen > budgetChars && current.length > 0) {
       chunks.push(current);
@@ -526,322 +527,6 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
   }
 
   return { digest, usage: mergeUsage(usages) };
-}
-
-/**
- * Map-reduce for extractChapters.
- * Map: extract candidate chapter boundaries per chunk (using real global offsets).
- * Reduce: done in code — merge all candidates, sort by startSec, deduplicate
- *         chapters that start within 60 s of each other, then trim to 4–12.
- *
- * @param {Array<Array<{ text: string, offset: number }>>} segmentChunks
- * @param {object} [opts]
- * @returns {Promise<{ chapters: Array<{ title: string, startSec: number }>, usage: object }>}
- */
-async function chaptersMapReduce(segmentChunks, opts = {}) {
-  const usages = [];
-  const allCandidates = [];
-  const total = segmentChunks.length;
-
-  // --- MAP phase ---
-  for (let i = 0; i < total; i++) {
-    const timecoded = segmentChunks[i]
-      .map((s) => `[${Math.round(s.offset)}] ${s.text}`)
-      .join('\n');
-
-    const mapPrompt =
-      `You are given portion ${i + 1} of ${total} of a timecoded transcript ` +
-      'in the format "[seconds] text". ' +
-      'Identify the natural topic transitions in THIS PORTION ONLY (1 to 5 transitions). ' +
-      'The startSec values MUST be taken directly from the segment offsets shown — do not guess.\n\n' +
-      'Return STRICT JSON and nothing else — no prose before or after, no code fences:\n' +
-      '{"chapters":[{"title":"...","startSec":123}, ...]}\n\n' +
-      `TIMECODED TRANSCRIPT (portion ${i + 1} of ${total}):\n\n` +
-      timecoded;
-
-    const { result, usage } = await callProvider(mapPrompt, opts);
-    usages.push(usage);
-
-    let parsed;
-    try {
-      parsed = parseJsonLoose(result);
-    } catch (err) {
-      throw new Error(
-        `chaptersMapReduce: map chunk ${i + 1}/${total} returned invalid JSON. ${err.message}`
-      );
-    }
-
-    if (!parsed || !Array.isArray(parsed.chapters)) {
-      throw new Error(
-        `chaptersMapReduce: map chunk ${i + 1}/${total} is missing the "chapters" array.`
-      );
-    }
-
-    for (const c of parsed.chapters) {
-      if (typeof c.title === 'string' && typeof c.startSec === 'number') {
-        allCandidates.push({ title: c.title, startSec: c.startSec });
-      }
-    }
-  }
-
-  if (allCandidates.length === 0) {
-    throw new Error(
-      'chaptersMapReduce: map phase produced zero chapter candidates across all chunks.'
-    );
-  }
-
-  // --- REDUCE phase (code) ---
-  // Sort by startSec, then deduplicate chapters that start within 60 s of each
-  // other (keep the first one encountered), then trim to at most 12.
-  allCandidates.sort((a, b) => a.startSec - b.startSec);
-
-  const deduped = [];
-  for (const c of allCandidates) {
-    const last = deduped[deduped.length - 1];
-    if (!last || c.startSec - last.startSec > 60) {
-      deduped.push(c);
-    }
-  }
-
-  const chapters = deduped.slice(0, 12);
-  return { chapters, usage: mergeUsage(usages) };
-}
-
-/**
- * Map-reduce for extractQuotes.
- * Map: extract candidate notable quotes per chunk (using real global offsets).
- * Reduce: Claude call to select the top 5–10 across all candidates.
- *
- * @param {Array<Array<{ text: string, offset: number }>>} segmentChunks
- * @param {object} [opts]
- * @returns {Promise<{ quotes: Array<{ text: string, startSec: number }>, usage: object }>}
- */
-async function quotesMapReduce(segmentChunks, opts = {}) {
-  const usages = [];
-  const allCandidates = [];
-  const total = segmentChunks.length;
-
-  // --- MAP phase ---
-  for (let i = 0; i < total; i++) {
-    const timecoded = segmentChunks[i]
-      .map((s) => `[${Math.round(s.offset)}] ${s.text}`)
-      .join('\n');
-
-    const mapPrompt =
-      `You are given portion ${i + 1} of ${total} of a timecoded transcript ` +
-      'in the format "[seconds] text". ' +
-      'Select 1 to 5 of the most notable or quotable lines from THIS PORTION ONLY. ' +
-      'The startSec values MUST be taken directly from the segment offsets shown.\n\n' +
-      'Return STRICT JSON and nothing else — no prose before or after, no code fences:\n' +
-      '{"quotes":[{"text":"...","startSec":123}, ...]}\n\n' +
-      `TIMECODED TRANSCRIPT (portion ${i + 1} of ${total}):\n\n` +
-      timecoded;
-
-    const { result, usage } = await callProvider(mapPrompt, opts);
-    usages.push(usage);
-
-    let parsed;
-    try {
-      parsed = parseJsonLoose(result);
-    } catch (err) {
-      throw new Error(
-        `quotesMapReduce: map chunk ${i + 1}/${total} returned invalid JSON. ${err.message}`
-      );
-    }
-
-    if (!parsed || !Array.isArray(parsed.quotes)) {
-      throw new Error(
-        `quotesMapReduce: map chunk ${i + 1}/${total} is missing the "quotes" array.`
-      );
-    }
-
-    for (const q of parsed.quotes) {
-      if (typeof q.text === 'string' && typeof q.startSec === 'number') {
-        allCandidates.push({ text: q.text, startSec: q.startSec });
-      }
-    }
-  }
-
-  if (allCandidates.length === 0) {
-    throw new Error(
-      'quotesMapReduce: map phase produced zero quote candidates across all chunks.'
-    );
-  }
-
-  // --- REDUCE phase: Claude selects the top 5–10 from all candidates ---
-  const candidateJson = JSON.stringify({ quotes: allCandidates }, null, 2);
-
-  const reducePrompt =
-    'You are given a list of candidate notable quotes extracted from different portions ' +
-    'of a YouTube video transcript. Each quote has a "text" and "startSec" (seconds from start).\n\n' +
-    'Select the 5 to 10 most notable, insightful, or representative quotes across the whole video. ' +
-    'Preserve the exact "text" and "startSec" values — do not modify them.\n\n' +
-    'Return STRICT JSON and nothing else — no prose before or after, no code fences:\n' +
-    '{"quotes":[{"text":"...","startSec":123}, ...]}\n\n' +
-    'CANDIDATE QUOTES:\n\n' +
-    candidateJson;
-
-  const { result: reduceResult, usage: reduceUsage } = await callProvider(reducePrompt, opts);
-  usages.push(reduceUsage);
-
-  let parsed;
-  try {
-    parsed = parseJsonLoose(reduceResult);
-  } catch (err) {
-    throw new Error(
-      `quotesMapReduce: reduce phase returned invalid JSON. ${err.message}`
-    );
-  }
-
-  if (!parsed || !Array.isArray(parsed.quotes)) {
-    throw new Error('quotesMapReduce: reduce phase is missing the "quotes" array.');
-  }
-
-  const quotes = parsed.quotes.map((q, i) => {
-    if (typeof q.text !== 'string' || typeof q.startSec !== 'number') {
-      throw new Error(
-        `quotesMapReduce: reduced quote[${i}] has invalid shape.`
-      );
-    }
-    return { text: q.text, startSec: q.startSec };
-  });
-
-  return { quotes, usage: mergeUsage(usages) };
-}
-
-/**
- * Map-reduce for factCheck.
- * Map: extract claims per chunk.
- * Reduce: Claude call to merge and deduplicate claims across all chunks.
- *
- * @param {string[]} textChunks
- * @param {object} [opts]  `opts.language` — human-readable language name/code
- *   for the "claim"/"explanation" text; defaults to English when absent/empty.
- * @returns {Promise<{ claims: Array<{ claim: string, assessment: string, confidence: string, explanation: string }>, usage: object }>}
- */
-async function factCheckMapReduce(textChunks, opts = {}) {
-  const usages = [];
-  const allClaims = [];
-  const total = textChunks.length;
-  const { language } = opts;
-  const languageNote =
-    language && language.trim() && language.trim().toLowerCase() !== 'english'
-      ? `Write the "claim" and "explanation" text in ${language.trim()}. `
-      : '';
-
-  const validAssessments = new Set(['supported', 'disputed', 'unverifiable']);
-  const validConfidences = new Set(['low', 'medium', 'high']);
-
-  // --- MAP phase ---
-  for (let i = 0; i < total; i++) {
-    const mapPrompt =
-      'You are given a portion of a YouTube video transcript. ' +
-      'Extract the main factual or checkable claims from THIS PORTION ONLY ' +
-      'and assess each one based ONLY on your training knowledge. ' +
-      'You do NOT have access to the internet or live data.\n\n' +
-      languageNote +
-      'For each claim provide:\n' +
-      '  - "claim": a short summary of the factual assertion\n' +
-      '  - "assessment": one of "supported", "disputed", or "unverifiable"\n' +
-      '  - "confidence": one of "low", "medium", or "high"\n' +
-      '  - "explanation": a concise explanation, noting this is training knowledge only\n\n' +
-      'Return STRICT JSON and nothing else — no prose before or after, no code fences:\n' +
-      '{"claims":[{"claim":"...","assessment":"supported|disputed|unverifiable","confidence":"low|medium|high","explanation":"..."}, ...]}\n\n' +
-      `TRANSCRIPT (portion ${i + 1} of ${total}):\n\n` +
-      textChunks[i];
-
-    const { result, usage } = await callProvider(mapPrompt, opts);
-    usages.push(usage);
-
-    let parsed;
-    try {
-      parsed = parseJsonLoose(result);
-    } catch (err) {
-      throw new Error(
-        `factCheckMapReduce: map chunk ${i + 1}/${total} returned invalid JSON. ${err.message}`
-      );
-    }
-
-    if (!parsed || !Array.isArray(parsed.claims)) {
-      throw new Error(
-        `factCheckMapReduce: map chunk ${i + 1}/${total} is missing the "claims" array.`
-      );
-    }
-
-    for (const c of parsed.claims) {
-      if (
-        typeof c.claim === 'string' &&
-        validAssessments.has(c.assessment) &&
-        validConfidences.has(c.confidence) &&
-        typeof c.explanation === 'string'
-      ) {
-        allClaims.push({
-          claim: c.claim,
-          assessment: c.assessment,
-          confidence: c.confidence,
-          explanation: c.explanation,
-        });
-      }
-    }
-  }
-
-  if (allClaims.length === 0) {
-    throw new Error(
-      'factCheckMapReduce: map phase produced zero claims across all chunks. ' +
-      'The transcript may not contain checkable factual claims.'
-    );
-  }
-
-  // --- REDUCE phase: Claude deduplicates and consolidates claims ---
-  const candidateJson = JSON.stringify({ claims: allClaims }, null, 2);
-
-  const reducePrompt =
-    'You are given a set of factual claims extracted from different portions of a YouTube transcript. ' +
-    'Some claims may be duplicated or closely related across portions. ' +
-    'Merge any duplicate or near-duplicate claims, keeping the best-quality entry. ' +
-    'Preserve the exact assessment/confidence/explanation format.\n\n' +
-    languageNote +
-    'Return STRICT JSON and nothing else — no prose before or after, no code fences:\n' +
-    '{"claims":[{"claim":"...","assessment":"supported|disputed|unverifiable","confidence":"low|medium|high","explanation":"..."}, ...]}\n\n' +
-    'CANDIDATE CLAIMS:\n\n' +
-    candidateJson;
-
-  const { result: reduceResult, usage: reduceUsage } = await callProvider(reducePrompt, opts);
-  usages.push(reduceUsage);
-
-  let parsed;
-  try {
-    parsed = parseJsonLoose(reduceResult);
-  } catch (err) {
-    throw new Error(
-      `factCheckMapReduce: reduce phase returned invalid JSON. ${err.message}`
-    );
-  }
-
-  if (!parsed || !Array.isArray(parsed.claims)) {
-    throw new Error('factCheckMapReduce: reduce phase is missing the "claims" array.');
-  }
-
-  const claims = parsed.claims.map((c, i) => {
-    if (
-      typeof c.claim !== 'string' ||
-      !validAssessments.has(c.assessment) ||
-      !validConfidences.has(c.confidence) ||
-      typeof c.explanation !== 'string'
-    ) {
-      throw new Error(
-        `factCheckMapReduce: reduced claim[${i}] has invalid shape or out-of-range enum values.`
-      );
-    }
-    return {
-      claim: c.claim,
-      assessment: c.assessment,
-      confidence: c.confidence,
-      explanation: c.explanation,
-    };
-  });
-
-  return { claims, usage: mergeUsage(usages) };
 }
 
 /**
@@ -1138,134 +823,6 @@ export async function askVideoQuestion(transcriptText, question, opts = {}) {
 }
 
 /**
- * Divide a timecoded transcript into 4–12 chapters.
- *
- * For long transcripts a map-reduce approach is used: candidate chapters are
- * extracted per chunk (using real global offsets), then merged, deduplicated,
- * and trimmed in code.
- *
- * @param {Array<{ text: string, offset: number }>} segments  offset in seconds
- * @param {object} [opts]
- * @returns {Promise<{ chapters: Array<{ title: string, startSec: number }>, usage: object }>}
- */
-export async function extractChapters(segments, opts = {}) {
-  if (!Array.isArray(segments) || segments.length === 0) {
-    throw new Error('segments must be a non-empty array of { text, offset }.');
-  }
-
-  // Build compact timecoded transcript to measure size.
-  const timecoded = segments
-    .map((s) => `[${Math.round(s.offset)}] ${s.text}`)
-    .join('\n');
-
-  // --- Long-path guard ---
-  if (timecoded.length > LONG_PATH_THRESHOLD_CHARS) {
-    const segChunks = chunkSegments(segments);
-    if (segChunks.length > 1) {
-      return chaptersMapReduce(segChunks, opts);
-    }
-  }
-
-  // --- Fast path (unchanged) ---
-  const prompt =
-    'You are given a timecoded transcript of a YouTube video in the format "[seconds] text". ' +
-    'Divide the video into 4 to 12 sequential chapters. For each chapter provide:\n' +
-    '  - a short descriptive title (under 60 characters)\n' +
-    '  - the start time in seconds taken from the nearest segment offset in the transcript\n\n' +
-    'Return STRICT JSON and nothing else — no prose before or after, no code fences:\n' +
-    '{"chapters":[{"title":"...","startSec":123}, ...]}\n\n' +
-    'TIMECODED TRANSCRIPT:\n\n' +
-    timecoded;
-
-  const { result, usage } = await callProvider(prompt, opts);
-
-  let parsed;
-  try {
-    parsed = parseJsonLoose(result);
-  } catch (err) {
-    throw new Error(`extractChapters: failed to parse Claude response as JSON. ${err.message}`);
-  }
-
-  if (!parsed || !Array.isArray(parsed.chapters)) {
-    throw new Error('extractChapters: Claude response missing "chapters" array.');
-  }
-
-  const chapters = parsed.chapters.map((c, i) => {
-    if (typeof c.title !== 'string' || typeof c.startSec !== 'number') {
-      throw new Error(
-        `extractChapters: chapter[${i}] has invalid shape (expected {title:string, startSec:number}).`
-      );
-    }
-    return { title: c.title, startSec: c.startSec };
-  });
-
-  return { chapters, usage };
-}
-
-/**
- * Extract the 5–10 most notable quotable lines with approximate timecodes.
- *
- * For long transcripts a map-reduce approach is used: candidate quotes are
- * extracted per chunk, then a Claude reduce call selects the top 5–10 across
- * the whole video.
- *
- * @param {Array<{ text: string, offset: number }>} segments  offset in seconds
- * @param {object} [opts]
- * @returns {Promise<{ quotes: Array<{ text: string, startSec: number }>, usage: object }>}
- */
-export async function extractQuotes(segments, opts = {}) {
-  if (!Array.isArray(segments) || segments.length === 0) {
-    throw new Error('segments must be a non-empty array of { text, offset }.');
-  }
-
-  const timecoded = segments
-    .map((s) => `[${Math.round(s.offset)}] ${s.text}`)
-    .join('\n');
-
-  // --- Long-path guard ---
-  if (timecoded.length > LONG_PATH_THRESHOLD_CHARS) {
-    const segChunks = chunkSegments(segments);
-    if (segChunks.length > 1) {
-      return quotesMapReduce(segChunks, opts);
-    }
-  }
-
-  // --- Fast path (unchanged) ---
-  const prompt =
-    'You are given a timecoded transcript of a YouTube video in the format "[seconds] text". ' +
-    'Select the 5 to 10 most notable or quotable lines from the transcript. ' +
-    'For each quote, include the approximate timecode in seconds taken from the nearest segment offset.\n\n' +
-    'Return STRICT JSON and nothing else — no prose before or after, no code fences:\n' +
-    '{"quotes":[{"text":"...","startSec":123}, ...]}\n\n' +
-    'TIMECODED TRANSCRIPT:\n\n' +
-    timecoded;
-
-  const { result, usage } = await callProvider(prompt, opts);
-
-  let parsed;
-  try {
-    parsed = parseJsonLoose(result);
-  } catch (err) {
-    throw new Error(`extractQuotes: failed to parse Claude response as JSON. ${err.message}`);
-  }
-
-  if (!parsed || !Array.isArray(parsed.quotes)) {
-    throw new Error('extractQuotes: Claude response missing "quotes" array.');
-  }
-
-  const quotes = parsed.quotes.map((q, i) => {
-    if (typeof q.text !== 'string' || typeof q.startSec !== 'number') {
-      throw new Error(
-        `extractQuotes: quote[${i}] has invalid shape (expected {text:string, startSec:number}).`
-      );
-    }
-    return { text: q.text, startSec: q.startSec };
-  });
-
-  return { quotes, usage };
-}
-
-/**
  * Generate a single comparative synthesis across multiple saved video entries.
  *
  * Source material preference (controls Claude call cost):
@@ -1352,97 +909,195 @@ export async function generateCrossDigest(entries, options = {}) {
 }
 
 /**
- * Fact-check the main claims in the transcript using the model's own knowledge.
+ * Builds a compact web-search query from a user's highlighted selection,
+ * optionally padded with a couple of salient words from the surrounding
+ * transcript context (helps disambiguate short/ambiguous selections).
  *
- * IMPORTANT: The Claude CLI has NO live web access. Verdicts are based solely on
- * the model's training knowledge and must be treated accordingly.
- *
- * For long transcripts a map-reduce approach is used: claims are extracted per
- * chunk, then a Claude reduce call deduplicates and consolidates them.
- *
- * @param {string} transcriptText
- * @param {{ language?: string }} [opts]  `language` — human-readable language
- *   name/code for the "claim"/"explanation" text; defaults to English when
- *   absent/empty.
- * @returns {Promise<{ claims: Array<{ claim: string, assessment: string, confidence: string, explanation: string }>, caveat: string, usage: object }>}
+ * @param {string} selection
+ * @param {string} context
+ * @returns {string}
  */
-export async function factCheck(transcriptText, opts = {}) {
-  if (!transcriptText || !transcriptText.trim()) {
-    throw new Error('No transcript text provided.');
+function buildSearchQuery(selection, context) {
+  const base = selection.trim().replace(/\s+/g, ' ');
+  const MAX_QUERY_CHARS = 200;
+  if (base.length >= 60 || !context || !context.trim()) {
+    return base.slice(0, MAX_QUERY_CHARS);
   }
 
-  const { language } = opts;
-  const languageNote =
-    language && language.trim() && language.trim().toLowerCase() !== 'english'
-      ? `Write the "claim" and "explanation" text in ${language.trim()}. `
-      : '';
+  // Selection is short — append a couple of salient (longer, non-generic)
+  // words from the context to help disambiguate the search.
+  const stopwords = new Set([
+    'this', 'that', 'these', 'those', 'with', 'from', 'about', 'which',
+    'their', 'there', 'where', 'would', 'could', 'should', 'because',
+    'have', 'been', 'were', 'what', 'when', 'your', 'just', 'like',
+  ]);
+  const selectionWords = new Set(base.toLowerCase().split(/\W+/).filter(Boolean));
+  const contextWords = context
+    .trim()
+    .split(/\W+/)
+    .filter((w) => w.length > 4 && !stopwords.has(w.toLowerCase()) && !selectionWords.has(w.toLowerCase()));
 
-  const caveat =
-    'These assessments are based solely on the model\'s training knowledge ' +
-    'and do NOT reflect live web research or real-time fact verification. ' +
-    'Treat all verdicts as approximate and verify independently for anything consequential.';
+  const extra = contextWords.slice(0, 3).join(' ');
+  const query = extra ? `${base} ${extra}` : base;
+  return query.slice(0, MAX_QUERY_CHARS);
+}
 
-  // --- Long-path guard ---
-  if (transcriptText.length > LONG_PATH_THRESHOLD_CHARS) {
-    const chunks = chunkText(transcriptText);
-    if (chunks.length > 1) {
-      const { claims, usage } = await factCheckMapReduce(chunks, opts);
-      return { claims, caveat, usage };
+/**
+ * Formats a searchWeb() results array as a numbered list for prompt
+ * inclusion. Indexes are 1-based to match how the model is asked to cite
+ * them in "sourceIndexes".
+ *
+ * @param {Array<{title: string, url: string, snippet: string}>} results
+ * @returns {string}
+ */
+function formatWebResults(results) {
+  if (!results.length) return '(no web results were found)';
+  return results
+    .map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\nSnippet: ${r.snippet || '(no snippet)'}`)
+    .join('\n\n');
+}
+
+/**
+ * Maps a model-returned array of 1-based sourceIndexes back to the actual
+ * { title, url } objects from the searchWeb() results array. This is what
+ * guarantees every citation is a real, fetched URL — the model never gets
+ * to emit a raw URL that ends up in the final output. Out-of-range or
+ * non-numeric indexes are silently ignored; duplicates are de-duplicated.
+ *
+ * @param {unknown} sourceIndexes
+ * @param {Array<{title: string, url: string, snippet: string}>} results
+ * @returns {Array<{title: string, url: string}>}
+ */
+function mapSourceIndexes(sourceIndexes, results) {
+  if (!Array.isArray(sourceIndexes)) return [];
+  const seen = new Set();
+  const sources = [];
+  for (const idx of sourceIndexes) {
+    const i = Number(idx);
+    if (!Number.isInteger(i) || i < 1 || i > results.length) continue;
+    if (seen.has(i)) continue;
+    seen.add(i);
+    const r = results[i - 1];
+    sources.push({ title: r.title, url: r.url });
+  }
+  return sources;
+}
+
+/**
+ * Enrich a user's highlighted selection from a transcript with an
+ * explanation, background context, or a fact-check verdict.
+ *
+ * 'explain' is a pure model call over the transcript context + the model's
+ * general knowledge — no web search, no citations.
+ *
+ * 'background' and 'factcheck' perform a RAG pipeline: the SERVER runs a
+ * real web search (see websearch.js) and passes only the fetched
+ * title/url/snippet results into the prompt. The model is instructed to
+ * reason ONLY over those results and the transcript context, and to cite
+ * results ONLY by their numbered index — the final `sources` array is then
+ * built in code from that index, so every URL returned to the caller is a
+ * real URL Echo actually fetched, never one the model invented.
+ *
+ * @param {string} selection - the exact highlighted text
+ * @param {{ context?: string, mode?: 'explain'|'background'|'factcheck', language?: string }} [opts]
+ *   Any additional providerOpts (e.g. apiKey) are forwarded to callProvider unchanged.
+ * @returns {Promise<{ mode: string, text: string, sources: Array<{title:string,url:string}>, usage: object, verdict?: string }>}
+ */
+export async function enrich(selection, opts = {}) {
+  if (!selection || !selection.trim()) {
+    throw new Error('No selection text provided.');
+  }
+
+  const { context = '', mode = 'explain', language = 'English', ...providerOpts } = opts;
+  const trimmedSelection = selection.trim();
+  const trimmedContext = (context || '').trim();
+  const contextBlock = trimmedContext
+    ? `TRANSCRIPT CONTEXT (surrounding the selection):\n\n${trimmedContext}\n\n`
+    : '';
+
+  if (mode === 'explain') {
+    const prompt =
+      'A user is reading a YouTube video transcript and highlighted a piece of text. ' +
+      'Briefly explain or define the highlighted text so they understand it in context. ' +
+      'Use the surrounding transcript context (if provided) plus your general knowledge. ' +
+      'Keep the explanation to 1-3 sentences — no preamble, no headings, just the explanation. ' +
+      languageDirective(language) + '\n\n' +
+      contextBlock +
+      `HIGHLIGHTED TEXT: "${trimmedSelection}"`;
+
+    const { result, usage } = await callProvider(prompt, providerOpts);
+    return { mode: 'explain', text: result.trim(), sources: [], usage };
+  }
+
+  if (mode === 'background' || mode === 'factcheck') {
+    const query = buildSearchQuery(trimmedSelection, trimmedContext);
+    const results = await searchWeb(query);
+    const resultsBlock = formatWebResults(results);
+
+    const groundingRules =
+      'CRITICAL RULES:\n' +
+      '- Use ONLY the WEB RESULTS and TRANSCRIPT CONTEXT below. Never invent facts, sources, or URLs from ' +
+      'your own training knowledge.\n' +
+      '- You may cite a source ONLY by its bracketed index number (e.g. [2]) from the WEB RESULTS list — ' +
+      'never write out a URL yourself.\n' +
+      '- If the WEB RESULTS are empty or do not contain enough information to support a conclusion, say so ' +
+      'plainly instead of guessing.\n\n';
+
+    if (mode === 'factcheck') {
+      const prompt =
+        'A user is reading a YouTube video transcript and highlighted a claim to fact-check. ' +
+        groundingRules +
+        languageDirective(language) + '\n\n' +
+        contextBlock +
+        `HIGHLIGHTED CLAIM: "${trimmedSelection}"\n\n` +
+        `WEB RESULTS:\n\n${resultsBlock}\n\n` +
+        'Return STRICT JSON and nothing else — no prose before or after, no code fences:\n' +
+        '{"verdict":"supported|disputed|unverifiable","explanation":"<=2 sentences","sourceIndexes":[<result index numbers used>]}\n\n' +
+        'The verdict MUST be "unverifiable" if the web results are empty or insufficient to judge the claim.';
+
+      const { result, usage } = await callProvider(prompt, providerOpts);
+
+      let parsed;
+      try {
+        parsed = parseJsonLoose(result);
+      } catch (err) {
+        throw new Error(`enrich: factcheck mode returned invalid JSON. ${err.message}`);
+      }
+
+      const validVerdicts = new Set(['supported', 'disputed', 'unverifiable']);
+      const verdict = validVerdicts.has(parsed?.verdict) ? parsed.verdict : 'unverifiable';
+      const explanation = typeof parsed?.explanation === 'string' ? parsed.explanation : '';
+      const sources = results.length ? mapSourceIndexes(parsed?.sourceIndexes, results) : [];
+
+      return { mode: 'factcheck', verdict, text: explanation, sources, usage };
     }
-  }
 
-  // --- Fast path (unchanged) ---
-  const prompt =
-    'You are given the transcript of a YouTube video. ' +
-    'Extract the main factual or checkable claims made in the video and assess each one ' +
-    'based ONLY on your training knowledge. ' +
-    'You do NOT have access to the internet or live data — be explicit about this limitation in your explanations.\n\n' +
-    languageNote +
-    'For each claim provide:\n' +
-    '  - "claim": a short summary of the factual assertion\n' +
-    '  - "assessment": one of "supported", "disputed", or "unverifiable"\n' +
-    '  - "confidence": one of "low", "medium", or "high"\n' +
-    '  - "explanation": a concise explanation of your assessment, explicitly noting this is ' +
-    'based on training knowledge only and NOT live-web verification\n\n' +
-    'Return STRICT JSON and nothing else — no prose before or after, no code fences:\n' +
-    '{"claims":[{"claim":"...","assessment":"supported|disputed|unverifiable","confidence":"low|medium|high","explanation":"..."}, ...]}\n\n' +
-    'TRANSCRIPT:\n\n' +
-    transcriptText;
+    // mode === 'background'
+    const prompt =
+      'A user is reading a YouTube video transcript and highlighted a piece of text they want more ' +
+      'background/context on. ' +
+      groundingRules +
+      languageDirective(language) + '\n\n' +
+      contextBlock +
+      `HIGHLIGHTED TEXT: "${trimmedSelection}"\n\n` +
+      `WEB RESULTS:\n\n${resultsBlock}\n\n` +
+      'Return STRICT JSON and nothing else — no prose before or after, no code fences:\n' +
+      '{"text":"2-4 sentence background/context","sourceIndexes":[<result index numbers used>]}';
 
-  const { result, usage } = await callProvider(prompt, opts);
+    const { result, usage } = await callProvider(prompt, providerOpts);
 
-  let parsed;
-  try {
-    parsed = parseJsonLoose(result);
-  } catch (err) {
-    throw new Error(`factCheck: failed to parse Claude response as JSON. ${err.message}`);
-  }
-
-  if (!parsed || !Array.isArray(parsed.claims)) {
-    throw new Error('factCheck: Claude response missing "claims" array.');
-  }
-
-  const validAssessments = new Set(['supported', 'disputed', 'unverifiable']);
-  const validConfidences = new Set(['low', 'medium', 'high']);
-
-  const claims = parsed.claims.map((c, i) => {
-    if (
-      typeof c.claim !== 'string' ||
-      !validAssessments.has(c.assessment) ||
-      !validConfidences.has(c.confidence) ||
-      typeof c.explanation !== 'string'
-    ) {
-      throw new Error(
-        `factCheck: claim[${i}] has invalid shape or out-of-range enum values.`
-      );
+    let parsed;
+    try {
+      parsed = parseJsonLoose(result);
+    } catch (err) {
+      throw new Error(`enrich: background mode returned invalid JSON. ${err.message}`);
     }
-    return {
-      claim: c.claim,
-      assessment: c.assessment,
-      confidence: c.confidence,
-      explanation: c.explanation,
-    };
-  });
 
-  return { claims, caveat, usage };
+    const text = typeof parsed?.text === 'string' ? parsed.text : '';
+    const sources = results.length ? mapSourceIndexes(parsed?.sourceIndexes, results) : [];
+
+    return { mode: 'background', text, sources, usage };
+  }
+
+  throw new Error(`enrich: unknown mode "${mode}". Expected 'explain', 'background', or 'factcheck'.`);
 }

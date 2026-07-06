@@ -47,7 +47,9 @@ You've been there: you find a great video, but you'd rather *read* it than sit t
 | 🎛️ | **Shared reading controls** | Font size (A−/A+) and column width (Narrow/Medium/Wide: ~620 / 760 / 940 px) apply to both Transcript and Digest lenses, share one preference, and scale the reading column responsively. Digest AI output is typeset as a readable article |
 | ⏱️ | **Timecoded mode** | Subtitle-editor style with monospace timecode gutter; every timestamp deep-links YouTube (`&t=<sec>s`); same highlight & note features as Readable mode |
 | 💾 | **Session restore** | Refreshing the page restores the current transcript, digest, Ask thread, highlights, view mode, lens, and Library state via sessionStorage—no re-fetch |
-| 🤖 | **AI Workspace** | Five-tab AI assistant grounded in your transcript: **Summary** (short/detailed, bullets/prose, pick output language), **Ask** (chat thread, answers sourced only from the transcript), **Fact-check** (claims assessed with confidence), **Chapters** (AI-generated outline with timecoded jumps), **Quotes** (key excerpts with timestamps) — all without web search |
+| 🤖 | **AI Workspace** | **Summary** (short/detailed, bullets/prose, pick output language) and **Ask** (chat thread, answers sourced only from the transcript) |
+| 🔎 | **Selection-driven lookups** | Select any passage in the Digest to get a floating toolbar — **Explain** it (Claude's own knowledge), get **Background** or **Fact-check** it (live web search with citations), or **Ask** about it (seeds the Ask tab). Results render as an inline card under the passage |
+| 🗂️ | **Research rail** | Every Explain/Background/Fact-check lookup for the current video collects in a slide-in **Research** drawer (header button, with count) — persists across a refresh, resets when you load a new video |
 | 📑 | **Reader & Library** | Transcript and Digest are underlined lens tabs—two views of the current video. Saved videos open from a **Library** button in the header (with count). AI Workspace has its own sub-nav to jump between tools |
 | 🟢 | **Live status indicator** | Fixed pill shows "AI is working…" → "Ready ✓" as it processes; click to jump to the Digest pane |
 | 📊 | **Usage readouts** | Today's total Claude Code cost + tokens (via **ccusage**), plus per-digest stats and session totals |
@@ -60,13 +62,19 @@ You've been there: you find a great video, but you'd rather *read* it than sit t
 
 ## 🤖 About the AI Workspace
 
-The AI Workspace **doesn't need an Anthropic API key or any billing setup.** Instead, Echo shells out to your locally-installed [**Claude Code**](https://claude.com/claude-code) CLI in headless mode, reusing your existing login and subscription quota. Each tool runs the transcript through Claude with a tailored prompt:
+The AI Workspace **doesn't need an Anthropic API key or any billing setup.** Instead, Echo shells out to your locally-installed [**Claude Code**](https://claude.com/claude-code) CLI in headless mode, reusing your existing login and subscription quota. There are two tabs, plus selection-driven lookups on the Digest itself:
 
 - **Summary**: TL;DR, key points, and topic-by-topic breakdown. Choose short or detailed, bullets or prose, and pick your output language (default English).
 - **Ask**: Multi-turn chat grounded in the transcript. Every answer is sourced only from what was said — no outside knowledge mixed in.
-- **Fact-check**: Extracts claims and assesses them as supported, disputed, or unverifiable with confidence levels. ⚠️ **Honest caveat:** assessment is from Claude's training knowledge **with no live web access** — use it as a starting point, but verify important claims yourself via other sources.
-- **Chapters**: Generates a chapter outline from the transcript with AI-generated titles and timecoded jump links to both YouTube and the transcript.
-- **Quotes**: Pulls key quotes directly from the transcript with their timecodes, suitable for reference or sharing.
+
+**Selection-driven lookups on the Digest.** Highlight any passage in a generated Digest and a small toolbar appears with four actions:
+
+- **Explain**: A 1–3 sentence explanation from Claude's own knowledge (no web search) — good for jargon or a quick definition.
+- **Background**: 2–4 sentences of context, grounded in a live web search with linked sources.
+- **Fact-check**: A supported/disputed/unverifiable verdict on the highlighted claim, grounded in a live web search with linked sources. ⚠️ **Honest caveat:** the verdict is only as good as what the web search turns up — always verify anything consequential yourself.
+- **Ask**: Seeds the Ask tab with the highlighted passage so you can ask a follow-up question about it.
+
+Every Explain/Background/Fact-check result also renders as an inline card right under the passage, and collects in the **Research** rail (header button, with count) so you can review everything you've looked up for the current video — it persists across a page refresh and resets when you load a new video.
 
 The prompts live in [`digest.js`](./digest.js) — tweak them if you'd rather have a different model, tone, or analysis approach. Each tool shows its own **tokens · cost · duration**.
 
@@ -154,7 +162,7 @@ A native window wrapper running the same Node backend as a sidecar. Build prereq
 1. **Paste** a YouTube URL, optionally pick a caption language, and hit **Get transcript** — it lands in the **Transcript** tab.
 2. **Read** — toggle between Readable and Timecoded views. Adjust font size (A−/A+) and column width (Narrow/Medium/Wide). Use `/` to search, Prev/Next to navigate, or highlight text and add notes (all saved automatically).
 3. **Copy or download** the transcript or digest as Markdown using the download button.
-4. **AI Workspace** — click any of the five tabs (Summary · Ask · Fact-check · Chapters · Quotes). A fixed status pill shows "AI is working…" and jumps to the Digest pane when ready. _(takes ~10–30s while Claude reads the whole thing)._
+4. **AI Workspace** — click the Summary or Ask tab. A fixed status pill shows "AI is working…" and jumps to the Digest pane when ready. _(takes ~10–30s while Claude reads the whole thing)._ Once a Digest is generated, highlight any passage in it to Explain, get Background, Fact-check, or Ask about it — results collect in the **Research** rail.
 5. **Save** — click **★** to store the video in your library; access saved videos via the **Library** button in the header (keyboard: `3`). Search, sort, tag, and add notes. Export your whole library as a ZIP of Markdown files or JSON backup.
 6. **Playlist mode** — paste a `list=` URL to browse and load videos from a playlist.
 7. **Keyboard help** — press `?` for shortcuts. The **"Claude usage today"** chip shows your total Claude Code usage for the day (cost + tokens).
@@ -185,9 +193,7 @@ echo/
 | `POST` | `/api/playlist` | `{ url }` | `{ playlistTitle, videos: [{ videoId, title }] }` |
 | `POST` | `/api/digest` | `{ text, length?, format?, language? }` | `{ digest, usage }` |
 | `POST` | `/api/chat` | `{ text, question }` | `{ answer, usage }` |
-| `POST` | `/api/chapters` | `{ segments }` | `{ chapters: [{ title, startSec }], usage }` |
-| `POST` | `/api/quotes` | `{ segments }` | `{ quotes: [{ text, startSec }], usage }` |
-| `POST` | `/api/factcheck` | `{ text }` | `{ claims: [{ claim, assessment, confidence, explanation }], caveat, usage }` |
+| `POST` | `/api/enrich` | `{ selection, context?, mode }` (`mode`: `explain`\|`background`\|`factcheck`) | `{ mode, text, sources: [{ title, url }], usage, verdict? }` |
 | `GET` | `/api/usage` | _(none)_ | today's Claude Code totals |
 | `GET` | `/api/saved` | _(none)_ | list of saved entries (metadata incl. tags, favorite, noteCount, highlightCount) |
 | `GET` | `/api/saved/export` | _(none)_ | `{ entries: [ ...full entries... ] }` |
@@ -208,7 +214,7 @@ echo/
 - YouTube occasionally shifts its internals; that's exactly what the `yt-dlp` fallback is there to cover.
 - The **AI Workspace** tools need Claude Code installed and logged in — without it, transcript reading, search, and library features work just fine.
 - Your **saved library** (`data/library.json`) is **gitignored** — it never leaves your machine and doesn't get pushed to any repo.
-- **Fact-check** is grounded in Claude's training knowledge; it has **no live web access**, so verify important claims via other sources.
+- **Explain** is grounded in Claude's own training knowledge with **no live web access**; **Background** and **Fact-check** run a live web search for citations, but always verify anything consequential via other sources.
 - The **usage readouts** show real Claude Code costs and tokens; the **"Claude usage today" chip** is cached ~60s server-side.
 - Library **export to ZIP** loads JSZip from a CDN; if the CDN is unavailable, the app falls back to a single JSON backup file.
 

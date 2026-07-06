@@ -1896,405 +1896,6 @@
     }
 
     /* ==============================================
-       24. FACT-CHECK PANEL
-    =============================================== */
-    /* Static disclaimer — always visible above the Check facts button */
-    .fc-disclaimer {
-      background: var(--warn-soft);
-      border: 1px solid var(--warn-ring);
-      border-radius: var(--radius);
-      padding: 0.5rem 0.85rem;
-      margin-bottom: 0.9rem;
-      font-family: var(--font-serif);
-      font-size: 0.85rem;
-      line-height: 1.6;
-      color: var(--muted);
-    }
-
-    .fc-btn-row {
-      margin-bottom: 1rem;
-    }
-
-    #factCheckBtn {
-      padding: 0.375rem 1rem;
-      font-family: var(--font-sans);
-      font-size: 0.8rem;
-      font-weight: 500;
-      color: var(--accent);
-      background: transparent;
-      border: 1px solid var(--accent);
-      border-radius: 6px;
-      cursor: pointer;
-      white-space: nowrap;
-      outline: none;
-      transition: background 0.15s, color 0.15s;
-    }
-
-    #factCheckBtn:hover:not(:disabled) {
-      background: var(--accent-soft);
-    }
-
-    #factCheckBtn:focus-visible {
-      box-shadow: 0 0 0 3px var(--accent-soft);
-    }
-
-    #factCheckBtn:disabled {
-      color: var(--muted);
-      border-color: var(--rule);
-      opacity: 0.6;
-      cursor: default;
-    }
-
-    .fc-caveat {
-      background: var(--warn-soft);
-      border: 1px solid var(--warn-ring);
-      border-radius: var(--radius);
-      padding: 0.8rem 1rem;
-      margin-bottom: 1.25rem;
-    }
-
-    .fc-caveat-label {
-      font-family: var(--font-sans);
-      font-size: 0.65rem;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--warn);
-      margin-bottom: 0.35rem;
-    }
-
-    .fc-caveat-body {
-      font-family: var(--font-serif);
-      font-size: 0.88rem;
-      line-height: 1.65;
-      color: var(--ink);
-    }
-
-    .fc-claims {
-      display: flex;
-      flex-direction: column;
-      gap: 0.7rem;
-      max-width: var(--reading-measure, 760px);
-    }
-
-    .fc-claim-card {
-      background: var(--surface);
-      border: 1px solid var(--rule);
-      border-radius: var(--radius);
-      padding: 0.9rem 1.1rem;
-    }
-
-    .fc-claim-text {
-      font-family: var(--font-serif);
-      font-size: calc(0.975rem * var(--reading-scale, 1));
-      font-weight: 500;
-      color: var(--ink);
-      line-height: 1.5;
-      margin-bottom: 0.55rem;
-    }
-
-    .fc-claim-header {
-      display: flex;
-      align-items: center;
-      gap: 0.45rem;
-      flex-wrap: wrap;
-      margin-bottom: 0.55rem;
-    }
-
-    /* Assessment badges — all colors via existing tokens, no new tokens needed */
-    .fc-badge {
-      display: inline-flex;
-      align-items: center;
-      padding: 0.12rem 0.55rem;
-      border-radius: 999px;
-      font-family: var(--font-sans);
-      font-size: 0.63rem;
-      font-weight: 700;
-      letter-spacing: 0.07em;
-      text-transform: uppercase;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-
-    .fc-badge.supported {
-      background: var(--accent-soft);
-      color: var(--accent);
-    }
-
-    .fc-badge.disputed {
-      background: var(--warn-soft);
-      color: var(--warn);
-    }
-
-    /* unverifiable: uses rule token as a neutral tinted bg (readable in both themes) */
-    .fc-badge.unverifiable {
-      background: var(--rule);
-      color: var(--muted);
-    }
-
-    .fc-confidence {
-      display: inline-flex;
-      align-items: center;
-      padding: 0.1rem 0.45rem;
-      border-radius: 4px;
-      font-family: var(--font-sans);
-      font-size: 0.65rem;
-      font-weight: 500;
-      letter-spacing: 0.04em;
-      border: 1px solid var(--rule);
-      color: var(--muted);
-      flex-shrink: 0;
-    }
-
-    .fc-explanation {
-      font-family: var(--font-serif);
-      font-size: calc(0.9rem * var(--reading-scale, 1));
-      color: var(--muted);
-      line-height: 1.6;
-    }
-
-    .fc-usage {
-      font-family: var(--font-mono);
-      font-size: 0.68rem;
-      color: var(--muted);
-      margin-top: 1rem;
-      padding-top: 0.65rem;
-      border-top: 1px solid var(--rule);
-      letter-spacing: 0.01em;
-    }
-
-    /* ==============================================
-       25. CHAPTERS PANEL
-    =============================================== */
-    #chaptersBtn {
-      padding: 0.375rem 1rem;
-      font-family: var(--font-sans);
-      font-size: 0.8rem;
-      font-weight: 500;
-      color: var(--accent);
-      background: transparent;
-      border: 1px solid var(--accent);
-      border-radius: 6px;
-      cursor: pointer;
-      white-space: nowrap;
-      outline: none;
-      transition: background 0.15s, color 0.15s;
-    }
-
-    #chaptersBtn:hover:not(:disabled) {
-      background: var(--accent-soft);
-    }
-
-    #chaptersBtn:focus-visible {
-      box-shadow: 0 0 0 3px var(--accent-soft);
-    }
-
-    #chaptersBtn:disabled {
-      color: var(--muted);
-      border-color: var(--rule);
-      opacity: 0.6;
-      cursor: default;
-    }
-
-    .ch-list {
-      display: flex;
-      flex-direction: column;
-      gap: 0.4rem;
-      max-width: var(--reading-measure, 760px);
-    }
-
-    .ch-item {
-      display: flex;
-      align-items: baseline;
-      gap: 0.65rem;
-      background: var(--surface);
-      border: 1px solid var(--rule);
-      border-radius: var(--radius);
-      padding: 0.65rem 1rem;
-    }
-
-    .ch-num {
-      font-family: var(--font-mono);
-      font-size: 0.7rem;
-      font-weight: 500;
-      color: var(--muted);
-      flex-shrink: 0;
-      min-width: 1.7rem;
-      text-align: right;
-    }
-
-    .ch-title {
-      flex: 1;
-      font-family: var(--font-serif);
-      font-size: calc(0.975rem * var(--reading-scale, 1));
-      color: var(--ink);
-      line-height: 1.4;
-    }
-
-    .ch-tc-group {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      flex-shrink: 0;
-    }
-
-    .ch-tc-link {
-      font-family: var(--font-mono);
-      font-size: 0.72rem;
-      font-weight: 500;
-      color: var(--accent);
-      text-decoration: none;
-      letter-spacing: 0.01em;
-    }
-
-    .ch-tc-link:hover {
-      text-decoration: underline;
-    }
-
-    .ch-tc-link:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
-      border-radius: 2px;
-    }
-
-    .ch-jump-btn,
-    .qt-jump-btn {
-      padding: 0.1rem 0.45rem;
-      font-family: var(--font-sans);
-      font-size: 0.68rem;
-      font-weight: 500;
-      color: var(--muted);
-      background: transparent;
-      border: 1px solid var(--rule);
-      border-radius: 4px;
-      cursor: pointer;
-      outline: none;
-      white-space: nowrap;
-      transition: color 0.12s, border-color 0.12s, background 0.12s;
-    }
-
-    .ch-jump-btn:hover,
-    .qt-jump-btn:hover {
-      color: var(--accent);
-      border-color: var(--accent);
-      background: var(--accent-soft);
-    }
-
-    .ch-jump-btn:focus-visible,
-    .qt-jump-btn:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 1px;
-    }
-
-    .ch-usage {
-      font-family: var(--font-mono);
-      font-size: 0.68rem;
-      color: var(--muted);
-      margin-top: 1rem;
-      padding-top: 0.65rem;
-      border-top: 1px solid var(--rule);
-      letter-spacing: 0.01em;
-    }
-
-    /* ==============================================
-       26. QUOTES PANEL
-    =============================================== */
-    #quotesBtn {
-      padding: 0.375rem 1rem;
-      font-family: var(--font-sans);
-      font-size: 0.8rem;
-      font-weight: 500;
-      color: var(--accent);
-      background: transparent;
-      border: 1px solid var(--accent);
-      border-radius: 6px;
-      cursor: pointer;
-      white-space: nowrap;
-      outline: none;
-      transition: background 0.15s, color 0.15s;
-    }
-
-    #quotesBtn:hover:not(:disabled) {
-      background: var(--accent-soft);
-    }
-
-    #quotesBtn:focus-visible {
-      box-shadow: 0 0 0 3px var(--accent-soft);
-    }
-
-    #quotesBtn:disabled {
-      color: var(--muted);
-      border-color: var(--rule);
-      opacity: 0.6;
-      cursor: default;
-    }
-
-    .qt-list {
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-      max-width: var(--reading-measure, 760px);
-    }
-
-    .qt-card {
-      background: var(--surface);
-      border: 1px solid var(--rule);
-      border-radius: var(--radius);
-      padding: 0.9rem 1.1rem;
-    }
-
-    .qt-blockquote {
-      font-family: var(--font-serif);
-      font-size: calc(1rem * var(--reading-scale, 1));
-      line-height: 1.7;
-      color: var(--ink);
-      border-left: 3px solid var(--accent);
-      padding-left: 0.9rem;
-      margin: 0 0 0.65rem 0;
-      font-style: italic;
-    }
-
-    .qt-footer {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .qt-tc-link {
-      font-family: var(--font-mono);
-      font-size: 0.72rem;
-      font-weight: 500;
-      color: var(--accent);
-      text-decoration: none;
-      letter-spacing: 0.01em;
-    }
-
-    .qt-tc-link:hover {
-      text-decoration: underline;
-    }
-
-    .qt-tc-link:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
-      border-radius: 2px;
-    }
-
-    .qt-usage {
-      font-family: var(--font-mono);
-      font-size: 0.68rem;
-      color: var(--muted);
-      margin-top: 1rem;
-      padding-top: 0.65rem;
-      border-top: 1px solid var(--rule);
-      letter-spacing: 0.01em;
-    }
-
-    /* ==============================================
-       27. JUMP-TO-TRANSCRIPT FLASH
-    =============================================== */
-    /* (section 27 content is below — new sections 28-32 follow the closing keyframe) */
-
-    /* ==============================================
        28. SAVED TOOLBAR (search + sort + export)
     =============================================== */
     .saved-toolbar {
@@ -2742,27 +2343,6 @@
     }
 
     /* ==============================================
-       27. JUMP-TO-TRANSCRIPT FLASH (continued)
-    =============================================== */
-    @keyframes ts-flash-anim {
-      0%   { background-color: var(--find-hit-active); }
-      70%  { background-color: var(--find-hit-active); }
-      100% { background-color: transparent; }
-    }
-
-    .ts-line.ts-flash {
-      animation: ts-flash-anim 1.4s ease-out forwards;
-      border-radius: 3px;
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      .ts-line.ts-flash {
-        animation: none;
-        background-color: var(--find-hit-active);
-      }
-    }
-
-    /* ==============================================
        33. READING CONTROLS (font-size + measure)
     =============================================== */
     .reading-controls {
@@ -2973,6 +2553,387 @@
     .hl-note-textarea:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 2px var(--accent-soft);
+    }
+
+    /* ==============================================
+       35b. DIGEST SELECTION ENRICH (toolbar + inline cards)
+    =============================================== */
+    .enrich-toolbar {
+      min-width: unset;
+      max-width: 320px;
+      padding: 0.4rem 0.5rem;
+    }
+
+    .enrich-toolbar .mini-btn {
+      font-size: 0.72rem;
+      padding: 0.26rem 0.55rem;
+    }
+
+    .enrich-card {
+      position: relative;
+      margin: 0.7rem 0;
+      padding: 0.75rem 0.9rem 0.75rem 1rem;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      border-left: 3px solid var(--accent);
+    }
+
+    .enrich-card[data-state="error"] {
+      border-left-color: var(--warn);
+    }
+
+    .enrich-card-header {
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .enrich-card-label {
+      font-family: var(--font-sans);
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--accent);
+      flex: none;
+    }
+
+    .enrich-card-echo {
+      font-family: var(--font-serif);
+      font-size: 0.8rem;
+      font-style: italic;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .enrich-card-dismiss {
+      flex: none;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.8rem;
+      padding: 0.1rem 0.3rem;
+      line-height: 1;
+      border-radius: 4px;
+    }
+
+    .enrich-card-dismiss:hover {
+      background: var(--accent-soft);
+      color: var(--ink);
+    }
+
+    .enrich-card-dismiss:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    .enrich-card-loading {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .enrich-spinner {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 2px solid var(--rule);
+      border-top-color: var(--accent);
+      animation: enrich-spin 0.7s linear infinite;
+      flex: none;
+    }
+
+    @keyframes enrich-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .enrich-spinner {
+        animation: none;
+        border-top-color: var(--rule);
+      }
+    }
+
+    .enrich-card-status {
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .enrich-card-text {
+      font-family: var(--font-serif);
+      font-size: 0.92rem;
+      line-height: 1.6;
+      color: var(--ink);
+      white-space: pre-wrap;
+    }
+
+    .enrich-card-error {
+      font-family: var(--font-sans);
+      font-size: 0.82rem;
+      color: var(--warn);
+      margin-bottom: 0.5rem;
+    }
+
+    .enrich-verdict {
+      display: inline-block;
+      font-family: var(--font-sans);
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      margin-bottom: 0.5rem;
+    }
+
+    .enrich-verdict-supported {
+      background: var(--accent-soft);
+      color: var(--accent-dark);
+    }
+
+    .enrich-verdict-disputed {
+      background: var(--warn-soft);
+      color: var(--warn);
+    }
+
+    .enrich-verdict-unverifiable {
+      background: var(--rule);
+      color: var(--muted);
+    }
+
+    .enrich-sources {
+      margin-top: 0.6rem;
+      padding-top: 0.5rem;
+      border-top: 1px solid var(--rule);
+    }
+
+    .enrich-sources-label {
+      font-family: var(--font-sans);
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin-bottom: 0.3rem;
+    }
+
+    .enrich-sources-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .enrich-sources-list li {
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      overflow-wrap: anywhere;
+    }
+
+    .enrich-sources-list a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .enrich-sources-list a:hover,
+    .enrich-sources-list a:focus-visible {
+      text-decoration: underline;
+    }
+
+    /* ==============================================
+       35c. RESEARCH RAIL — right-side drawer that accumulates every digest
+       enrich lookup (Explain/Background/Fact-check) for the current video.
+       Reuses .enrich-verdict* / .enrich-sources* for per-entry results, and
+       .shortcuts-backdrop-style overlay conventions for the scrim + z-index.
+    =============================================== */
+    .research-btn-attn {
+      animation: research-attn-pulse 1.4s ease-in-out 2;
+    }
+
+    @keyframes research-attn-pulse {
+      0%, 100% { box-shadow: none; }
+      50%      { box-shadow: 0 0 0 3px var(--accent-soft); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .research-btn-attn {
+        animation: none;
+        border-color: var(--accent);
+      }
+    }
+
+    #researchRail {
+      position: fixed;
+      inset: 0;
+      z-index: 18500; /* below shortcuts/settings modals (19000), above topIndicator (8000) */
+    }
+
+    #researchRail[hidden] {
+      display: none;
+    }
+
+    .research-rail-backdrop {
+      position: absolute;
+      inset: 0;
+      background: var(--overlay-backdrop);
+    }
+
+    .research-rail-panel {
+      position: absolute;
+      top: 0;
+      right: 0;
+      height: 100%;
+      width: 380px;
+      max-width: 100%;
+      background: var(--surface);
+      border-left: 1px solid var(--rule);
+      box-shadow: -8px 0 30px var(--shadow-indicator);
+      display: flex;
+      flex-direction: column;
+      animation: research-rail-slide-in 0.22s ease-out;
+    }
+
+    @keyframes research-rail-slide-in {
+      from { transform: translateX(100%); }
+      to   { transform: translateX(0); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .research-rail-panel {
+        animation: none;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .research-rail-panel {
+        width: 100%;
+      }
+    }
+
+    .research-rail-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.9rem 1rem;
+      border-bottom: 1px solid var(--rule);
+      flex: none;
+    }
+
+    .research-rail-title {
+      font-family: var(--font-sans);
+      font-size: 0.9rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--ink);
+    }
+
+    .research-rail-count {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--muted);
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 999px;
+      padding: 0.05rem 0.5rem;
+    }
+
+    .research-rail-header-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .research-rail-body {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      padding: 0.85rem 1rem 1.5rem;
+    }
+
+    .research-rail-empty {
+      font-family: var(--font-serif);
+      font-size: 0.88rem;
+      line-height: 1.6;
+      color: var(--muted);
+      padding: 1.5rem 0.25rem;
+      text-align: center;
+    }
+
+    .research-entry {
+      position: relative;
+      padding: 0.75rem 0.85rem;
+      margin-bottom: 0.7rem;
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      border-left: 3px solid var(--accent);
+    }
+
+    .research-entry-header {
+      display: flex;
+      align-items: baseline;
+      gap: 0.4rem;
+      margin-bottom: 0.4rem;
+    }
+
+    .research-entry-mode {
+      font-family: var(--font-sans);
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--accent);
+      flex: none;
+    }
+
+    .research-entry-dismiss {
+      margin-left: auto;
+      flex: none;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.78rem;
+      padding: 0.05rem 0.3rem;
+      line-height: 1;
+      border-radius: 4px;
+    }
+
+    .research-entry-dismiss:hover {
+      background: var(--accent-soft);
+      color: var(--ink);
+    }
+
+    .research-entry-dismiss:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    .research-entry-selection {
+      font-family: var(--font-serif);
+      font-style: italic;
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-bottom: 0.45rem;
+      line-height: 1.5;
+    }
+
+    .research-entry-text {
+      font-family: var(--font-serif);
+      font-size: 0.86rem;
+      line-height: 1.55;
+      color: var(--ink);
+      white-space: pre-wrap;
     }
 
     /* ==============================================
@@ -3950,6 +3911,24 @@
             <span class="library-btn-label">Library</span>
             <span id="libraryCount" class="library-btn-count">0</span>
           </button>
+          <button
+            id="researchBtn"
+            class="library-btn"
+            type="button"
+            aria-pressed="false"
+            aria-haspopup="dialog"
+            aria-controls="researchRail"
+            title="Open your research rail"
+          >
+            <svg class="library-btn-icon" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true" fill="none">
+              <g stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="7"/>
+                <path d="M21 21l-4.3-4.3"/>
+              </g>
+            </svg>
+            <span class="library-btn-label">Research</span>
+            <span id="researchCount" class="library-btn-count">0</span>
+          </button>
           <div
             id="usageChip"
             class="usage-chip"
@@ -4169,30 +4148,6 @@
           aria-controls="aiPanelAsk"
           tabindex="-1"
         >Ask</button>
-        <button
-          class="ai-subnav-btn"
-          id="aiTabFactcheck"
-          role="tab"
-          aria-selected="false"
-          aria-controls="aiPanelFactcheck"
-          tabindex="-1"
-        >Fact-check</button>
-        <button
-          class="ai-subnav-btn"
-          id="aiTabChapters"
-          role="tab"
-          aria-selected="false"
-          aria-controls="aiPanelChapters"
-          tabindex="-1"
-        >Chapters</button>
-        <button
-          class="ai-subnav-btn"
-          id="aiTabQuotes"
-          role="tab"
-          aria-selected="false"
-          aria-controls="aiPanelQuotes"
-          tabindex="-1"
-        >Quotes</button>
       </div>
 
       <!-- Reading controls (shared with Transcript pane) — same state + localStorage keys,
@@ -4315,47 +4270,6 @@
         <div class="ask-clear-row" id="askClearRow" hidden>
           <button class="mini-btn" id="askClearBtn" aria-label="Clear conversation thread">Clear</button>
         </div>
-      </div>
-
-      <!-- FACT-CHECK PANEL -->
-      <div id="aiPanelFactcheck" role="tabpanel" aria-labelledby="aiTabFactcheck" hidden>
-        <p class="fc-disclaimer">Heads-up: claims are assessed from the model's training knowledge only (no live web search) — verify important claims yourself before relying on them.</p>
-        <div class="answer-lang-row">
-          <label class="answer-lang-label" for="fcLangSelect">Answer language</label>
-          <select id="fcLangSelect" class="answer-lang-select" aria-label="Answer language">
-            <option value="">Auto (match video)</option>
-            <option value="English">English</option>
-            <option value="Spanish">Spanish</option>
-            <option value="French">French</option>
-            <option value="German">German</option>
-            <option value="Portuguese">Portuguese</option>
-            <option value="Hindi">Hindi</option>
-            <option value="Japanese">Japanese</option>
-          </select>
-        </div>
-        <div class="fc-btn-row">
-          <button id="factCheckBtn" aria-label="Run AI fact-check on this transcript">Check facts</button>
-        </div>
-        <div id="fcInlineStatus" class="ai-inline-status" aria-live="polite" aria-atomic="true"></div>
-        <div id="fcResults"></div>
-      </div>
-
-      <!-- CHAPTERS PANEL -->
-      <div id="aiPanelChapters" role="tabpanel" aria-labelledby="aiTabChapters" hidden>
-        <div class="fc-btn-row">
-          <button id="chaptersBtn" aria-label="Generate chapter outline from this transcript">Generate chapters</button>
-        </div>
-        <div id="chInlineStatus" class="ai-inline-status" aria-live="polite" aria-atomic="true"></div>
-        <div id="chResults"></div>
-      </div>
-
-      <!-- QUOTES PANEL -->
-      <div id="aiPanelQuotes" role="tabpanel" aria-labelledby="aiTabQuotes" hidden>
-        <div class="fc-btn-row">
-          <button id="quotesBtn" aria-label="Pull key quotes from this transcript">Pull key quotes</button>
-        </div>
-        <div id="qtInlineStatus" class="ai-inline-status" aria-live="polite" aria-atomic="true"></div>
-        <div id="qtResults"></div>
       </div>
 
     </div>
@@ -4552,6 +4466,36 @@
     <div class="hl-popover-actions">
       <button class="mini-btn" id="hlViewRemoveBtn" aria-label="Remove this highlight">Remove</button>
       <button class="mini-btn" id="hlViewClose" aria-label="Close" title="Close (Esc)">✕</button>
+    </div>
+  </div>
+
+  <!-- DIGEST SELECTION ENRICH TOOLBAR (shown when the user selects text inside the AI digest) -->
+  <div id="enrichToolbar" class="hl-popover enrich-toolbar" role="toolbar"
+       aria-label="Look up selected text" hidden>
+    <div class="hl-popover-actions">
+      <button class="mini-btn" id="enrichBtnExplain" aria-label="Explain this passage">💡 Explain</button>
+      <button class="mini-btn" id="enrichBtnBackground" aria-label="Get background on this passage">🔎 Background</button>
+      <button class="mini-btn" id="enrichBtnFactcheck" aria-label="Fact-check this passage">✓ Fact-check</button>
+      <button class="mini-btn" id="enrichBtnAsk" aria-label="Ask about this passage">💬 Ask</button>
+    </div>
+  </div>
+
+  <!-- RESEARCH RAIL — right-side drawer accumulating every digest enrich lookup
+       (Explain/Background/Fact-check) for the current video. Non-modal
+       (aria-modal="false"): the scrim closes it but underlying content stays
+       reachable via Esc/close button, same as the highlight popovers above. -->
+  <div id="researchRail" role="dialog" aria-modal="false" aria-label="Research" hidden>
+    <div class="research-rail-backdrop" id="researchRailBackdrop"></div>
+    <div class="research-rail-panel">
+      <div class="research-rail-header">
+        <span class="research-rail-title">Research</span>
+        <span id="researchRailCount" class="research-rail-count">0</span>
+        <div class="research-rail-header-actions">
+          <button class="mini-btn" id="researchRailClearBtn" aria-label="Clear all research entries">Clear</button>
+          <button class="shortcuts-close-btn" id="researchRailClose" aria-label="Close research rail" title="Close (Esc)">✕</button>
+        </div>
+      </div>
+      <div id="researchRailBody" class="research-rail-body" aria-live="polite"></div>
     </div>
   </div>
 
@@ -5086,8 +5030,6 @@
     let indicatorTimer = null;
     let currentMeta    = null;  // { videoId, url, title }
     let currentDigest  = null;  // string | null
-    let lastChapters   = null;  // cached chapters array from last /api/chapters call
-    let lastQuotes     = null;  // cached quotes array from last /api/quotes call
 
     // Saved library state
     let savedList           = [];     // full fetched list from /api/saved
@@ -5121,6 +5063,10 @@
     // Session-restore state (see SESSION RESTORE section near init)
     let askThread        = [];    // [{q, a}] mirrors qaThread DOM, for session-restore snapshots
     let sessionRestoring = false; // true while replaying a restored session (suppresses re-writes)
+
+    // Research rail state — every successful digest enrich lookup (Explain/Background/
+    // Fact-check) for the CURRENT video, newest-first. See "DIGEST SELECTION ENRICH" below.
+    let enrichLog = []; // [{id, mode, selection, verdict, text, sources, ts}]
 
     // Reading controls state
     const READING_SCALES = [0.9, 1.0, 1.15, 1.3];
@@ -5198,26 +5144,10 @@
     // AI workspace — sub-nav tabs
     const aiTabSummary   = document.getElementById('aiTabSummary');
     const aiTabAsk       = document.getElementById('aiTabAsk');
-    const aiTabFactcheck = document.getElementById('aiTabFactcheck');
-    const aiTabChapters  = document.getElementById('aiTabChapters');
-    const aiTabQuotes    = document.getElementById('aiTabQuotes');
 
     // AI workspace — panels
     const aiPanelSummary   = document.getElementById('aiPanelSummary');
     const aiPanelAsk       = document.getElementById('aiPanelAsk');
-    const aiPanelFactcheck = document.getElementById('aiPanelFactcheck');
-    const aiPanelChapters  = document.getElementById('aiPanelChapters');
-    const aiPanelQuotes    = document.getElementById('aiPanelQuotes');
-
-    // Chapters panel
-    const chaptersBtn    = document.getElementById('chaptersBtn');
-    const chInlineStatus = document.getElementById('chInlineStatus');
-    const chResults      = document.getElementById('chResults');
-
-    // Quotes panel
-    const quotesBtn      = document.getElementById('quotesBtn');
-    const qtInlineStatus = document.getElementById('qtInlineStatus');
-    const qtResults      = document.getElementById('qtResults');
 
     // Summary panel controls
     const digestRegenBtn  = document.getElementById('digestRegenBtn');
@@ -5231,12 +5161,6 @@
     const askClearRow      = document.getElementById('askClearRow');
     const askClearBtn      = document.getElementById('askClearBtn');
     const askLangSelect    = document.getElementById('askLangSelect');
-
-    // Fact-check panel
-    const factCheckBtn   = document.getElementById('factCheckBtn');
-    const fcInlineStatus = document.getElementById('fcInlineStatus');
-    const fcResults      = document.getElementById('fcResults');
-    const fcLangSelect   = document.getElementById('fcLangSelect');
 
     /* ==============================================
        TAB SWITCHING
@@ -5491,6 +5415,14 @@
         topIndicator.innerHTML = 'Digest failed';
         // Auto-dismiss after 2500ms
         indicatorTimer = setTimeout(() => setTopIndicator('idle'), 2500);
+
+      } else if (state === 'working') {
+        // Generic "an AI lookup is in flight" state — used by digest selection
+        // enrich cards (Explain/Background/Fact-check), which can run several
+        // lookups concurrently. No auto-dismiss timer: the caller is expected
+        // to call setTopIndicator('done'|'error'|'idle') once its own lookup settles.
+        topIndicator.classList.add('digesting');
+        topIndicator.innerHTML = '<span class="indicator-dot" aria-hidden="true"></span>AI is working…';
       }
     }
 
@@ -6093,8 +6025,8 @@
       // #tabBar, #paneTranscript and #paneDigest) so --reading-measure
       // inherits down to every reader-column element — content header,
       // lens tabs, reader toolbars, transcript output AND the digest pane
-      // (digestOutput, qaThread, fcResults, chResults, qtResults) — keeping
-      // them all aligned to the same reading measure. --reading-scale is
+      // (digestOutput, qaThread) — keeping them all aligned to the same
+      // reading measure. --reading-scale is
       // only consumed inside #output/#digestOutput/.qa-answer, but setting
       // it at the same level is harmless and keeps this one function the
       // single source of truth — see FEATURE A/C shared-state note.
@@ -6447,6 +6379,7 @@
       clipsOverlay:       closeClipsModal,
       crossDigestOverlay: closeCrossDigestModal,
       settingsOverlay:    closeSettingsModal,
+      researchRail:       closeResearchRail,
     };
     document.addEventListener('keydown', e => {
       if (e.key !== 'Escape') return;
@@ -6473,6 +6406,596 @@
           hideHighlightViewPopover();
         }
       }
+    });
+
+    /* ==============================================
+       DIGEST SELECTION ENRICH — floating toolbar (Explain / Background /
+       Fact-check / Ask) shown when the user selects text inside #digestOutput,
+       plus the inline "researching… → result" cards those actions produce.
+       This is a parallel feature to the transcript highlight popover above —
+       it does not touch #output / highlight state at all.
+    =============================================== */
+    const enrichToolbar        = document.getElementById('enrichToolbar');
+    const enrichBtnExplain     = document.getElementById('enrichBtnExplain');
+    const enrichBtnBackground  = document.getElementById('enrichBtnBackground');
+    const enrichBtnFactcheck   = document.getElementById('enrichBtnFactcheck');
+    const enrichBtnAsk         = document.getElementById('enrichBtnAsk');
+
+    // Captured at the moment the toolbar is shown, since the DOM selection
+    // itself is often lost/collapsed by the time a toolbar button is clicked.
+    let enrichPending = null; // { text, context, endBlockEl }
+
+    const ENRICH_MODE_LABEL = {
+      explain:    'Explain',
+      background: 'Background',
+      factcheck:  'Fact-check',
+    };
+
+    const ENRICH_MODE_GERUND = {
+      explain:    'Explaining',
+      background: 'Finding background on',
+      factcheck:  'Fact-checking',
+    };
+
+    const ENRICH_VERDICT_LABEL = {
+      supported:    'Supported',
+      disputed:     'Disputed',
+      unverifiable: 'Unverifiable',
+    };
+
+    const ENRICH_BLOCK_SELECTOR = 'p, li, h1, h2, h3, h4, blockquote';
+
+    /** True if `node` (Text or Element) sits inside an enrich card or the toolbar itself. */
+    function isInsideEnrichUi(node) {
+      const el = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement);
+      return !!(el && el.closest && (el.closest('.enrich-card') || el.closest('#enrichToolbar')));
+    }
+
+    /** Nearest block-level ancestor of `node` within `containerEl`, or null. */
+    function findEnrichBlockAncestor(node, containerEl) {
+      if (!node) return null;
+      let el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+      while (el && el !== containerEl) {
+        if (el.matches && el.matches(ENRICH_BLOCK_SELECTOR)) return el;
+        el = el.parentElement;
+      }
+      return null;
+    }
+
+    /**
+     * Context text for an enrich lookup: the textContent of the nearest block
+     * ancestor of the selection (capped ~700 chars), falling back to up to
+     * ~300 chars of the surrounding element's text if no block is found.
+     */
+    function computeEnrichContext(range) {
+      const block = findEnrichBlockAncestor(range.commonAncestorContainer, digestOutput);
+      if (block) {
+        const t = (block.textContent || '').trim();
+        return t.length > 700 ? t.slice(0, 700).trim() + '…' : t;
+      }
+      const node = range.commonAncestorContainer;
+      const el   = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+      const t    = ((el && el.textContent) || range.toString() || '').trim();
+      return t.length > 300 ? t.slice(0, 300).trim() + '…' : t;
+    }
+
+    function hideEnrichToolbar() {
+      enrichToolbar.hidden           = true;
+      enrichToolbar.style.visibility = '';
+      enrichPending                  = null;
+    }
+
+    /**
+     * Measures the toolbar's REAL rendered size (width/height depend on its
+     * content and can change with viewport width — e.g. wrapping to two rows
+     * on narrow mobile screens — so hardcoded estimates are unreliable) and
+     * positions it with position:fixed so it never overlaps the selection:
+     *   - preferred: above the selection, its bottom edge `margin` above rect.top
+     *   - falls back to below the selection if that would clip the viewport top
+     *   - horizontally centered on the selection, clamped to stay on-screen
+     */
+    function positionEnrichToolbar(rect) {
+      // The toolbar may have been hidden again (e.g. Esc, or a new selection)
+      // between the rAF being scheduled and it firing — bail out rather than
+      // reposition and re-show a stale toolbar.
+      if (enrichToolbar.hidden) return;
+
+      // Fixed positioning: getBoundingClientRect() is already viewport-relative —
+      // do NOT add window.scrollY/scrollX.
+      const toolRect = enrichToolbar.getBoundingClientRect();
+      const toolW    = toolRect.width;
+      const toolH    = toolRect.height;
+      const margin   = 8;
+      const vw       = window.innerWidth;
+      const vh       = window.innerHeight;
+
+      // Prefer ABOVE the selection; fall back to BELOW only if that would
+      // clip the top of the viewport. Either way the toolbar sits fully
+      // outside the selection's vertical span, so it never overlaps it.
+      let top;
+      if (rect.top - margin - toolH >= margin) {
+        top = rect.top - margin - toolH;
+      } else {
+        top = rect.bottom + margin;
+      }
+      top = Math.max(margin, Math.min(top, vh - toolH - margin));
+
+      // Center horizontally on the selection midpoint, then clamp on-screen.
+      const center = rect.left + rect.width / 2;
+      let left = center - toolW / 2;
+      left = Math.max(margin, Math.min(left, vw - toolW - margin));
+
+      enrichToolbar.style.top        = top  + 'px';
+      enrichToolbar.style.left       = left + 'px';
+      enrichToolbar.style.visibility = '';
+    }
+
+    function showEnrichToolbar(rect, text, context, endBlockEl) {
+      enrichPending = { text, context, endBlockEl };
+
+      // Unhide but keep it visually hidden (still takes layout, so
+      // getBoundingClientRect() below reports its REAL rendered size) until
+      // positionEnrichToolbar() has placed it — avoids a visible flash at
+      // a stale/default position before the real coordinates are known.
+      enrichToolbar.style.visibility = 'hidden';
+      enrichToolbar.hidden           = false;
+      requestAnimationFrame(() => positionEnrichToolbar(rect));
+    }
+
+    /* --- Selection listener → show enrich toolbar --- */
+    function handleDigestSelectionEnd() {
+      setTimeout(() => {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed || !sel.rangeCount) {
+          if (!enrichToolbar.hidden) hideEnrichToolbar();
+          return;
+        }
+
+        const text = sel.toString().trim();
+        if (!text || text.length < 3) {
+          if (!enrichToolbar.hidden) hideEnrichToolbar();
+          return;
+        }
+
+        // Both ends of the selection must be inside #digestOutput and outside
+        // any existing enrich card / the toolbar itself.
+        const anchorOk = digestOutput.contains(sel.anchorNode) && !isInsideEnrichUi(sel.anchorNode);
+        const focusOk  = digestOutput.contains(sel.focusNode)  && !isInsideEnrichUi(sel.focusNode);
+        if (!anchorOk || !focusOk) {
+          if (!enrichToolbar.hidden) hideEnrichToolbar();
+          return;
+        }
+
+        const range = sel.getRangeAt(0);
+        const rect  = range.getBoundingClientRect();
+        if (!rect || (rect.width === 0 && rect.height === 0)) return;
+
+        const context    = computeEnrichContext(range);
+        const endBlockEl = findEnrichBlockAncestor(range.endContainer, digestOutput);
+        showEnrichToolbar(rect, text, context, endBlockEl);
+      }, 0);
+    }
+
+    digestOutput.addEventListener('mouseup',  handleDigestSelectionEnd);
+    digestOutput.addEventListener('touchend', handleDigestSelectionEnd);
+
+    /* --- Dismiss: click elsewhere, Esc, scroll --- */
+    document.addEventListener('click', e => {
+      if (!enrichToolbar.hidden &&
+          !enrichToolbar.contains(e.target) &&
+          !digestOutput.contains(e.target)) {
+        hideEnrichToolbar();
+      }
+    });
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && !enrichToolbar.hidden) hideEnrichToolbar();
+    });
+
+    // Capture phase so scrolling any nested scrollable ancestor also dismisses.
+    window.addEventListener('scroll', () => {
+      if (!enrichToolbar.hidden) hideEnrichToolbar();
+    }, true);
+
+    /* --- Inline enrich card: loading / error / result rendering --- */
+    function renderEnrichLoading(body) {
+      body.innerHTML = '';
+      const wrap = document.createElement('div');
+      wrap.className = 'enrich-card-loading';
+
+      const spinner = document.createElement('div');
+      spinner.className = 'enrich-spinner';
+      spinner.setAttribute('aria-hidden', 'true');
+      wrap.appendChild(spinner);
+
+      const msg = document.createElement('span');
+      msg.className = 'enrich-card-status';
+      msg.textContent = 'Researching…';
+      wrap.appendChild(msg);
+
+      body.appendChild(wrap);
+    }
+
+    function renderEnrichError(body, message, onRetry) {
+      body.innerHTML = '';
+
+      const msg = document.createElement('div');
+      msg.className = 'enrich-card-error';
+      msg.textContent = message;
+      body.appendChild(msg);
+
+      const retryBtn = document.createElement('button');
+      retryBtn.type      = 'button';
+      retryBtn.className = 'mini-btn enrich-retry-btn';
+      retryBtn.textContent = 'Retry';
+      retryBtn.addEventListener('click', onRetry);
+      body.appendChild(retryBtn);
+    }
+
+    /**
+     * Builds a `.enrich-sources` list element (used by both the inline enrich
+     * card and the Research rail entries). All model-derived strings (source
+     * titles) are inserted via textContent only — never innerHTML — and
+     * links are only given an href when the URL is actually http(s),
+     * matching the app's existing URL-href XSS guard.
+     */
+    function buildEnrichSourcesEl(sources) {
+      const sourcesWrap = document.createElement('div');
+      sourcesWrap.className = 'enrich-sources';
+
+      const sourcesLabel = document.createElement('div');
+      sourcesLabel.className = 'enrich-sources-label';
+      sourcesLabel.textContent = 'Sources';
+      sourcesWrap.appendChild(sourcesLabel);
+
+      const list = document.createElement('ul');
+      list.className = 'enrich-sources-list';
+      sources.forEach(src => {
+        const li    = document.createElement('li');
+        const title = (src && typeof src.title === 'string' && src.title) ||
+                      (src && typeof src.url === 'string' && src.url) || '';
+        const url   = src && typeof src.url === 'string' ? src.url : '';
+        if (/^https?:\/\//i.test(url)) {
+          const a = document.createElement('a');
+          a.href         = url;
+          a.target       = '_blank';
+          a.rel          = 'noopener noreferrer';
+          a.textContent  = title;
+          li.appendChild(a);
+        } else {
+          const span = document.createElement('span');
+          span.textContent = title;
+          li.appendChild(span);
+        }
+        list.appendChild(li);
+      });
+      sourcesWrap.appendChild(list);
+      return sourcesWrap;
+    }
+
+    /**
+     * Renders a successful /api/enrich response. All model-derived strings
+     * (data.text, source titles) are inserted via textContent only — never
+     * innerHTML — and source links are only given an href when the URL is
+     * actually http(s), matching the app's existing URL-href XSS guard.
+     */
+    function renderEnrichResult(body, data) {
+      body.innerHTML = '';
+
+      if (data.mode === 'factcheck' && data.verdict) {
+        const badge = document.createElement('span');
+        badge.className = 'enrich-verdict enrich-verdict-' + data.verdict;
+        badge.textContent = ENRICH_VERDICT_LABEL[data.verdict] || data.verdict;
+        body.appendChild(badge);
+      }
+
+      const textEl = document.createElement('div');
+      textEl.className = 'enrich-card-text';
+      textEl.textContent = data.text || '';
+      body.appendChild(textEl);
+
+      const sources = Array.isArray(data.sources) ? data.sources : [];
+      if (sources.length && (data.mode === 'background' || data.mode === 'factcheck')) {
+        body.appendChild(buildEnrichSourcesEl(sources));
+      }
+
+      if (data.usage) {
+        const usageEl = document.createElement('div');
+        usageEl.className = 'qa-usage';
+        const parts = [formatTokens(data.usage.totalTokens) + ' tokens'];
+        const cost  = formatCostUsd(data.usage.costUsd);
+        if (cost) parts.push(cost);
+        usageEl.textContent = parts.join(' · ');
+        body.appendChild(usageEl);
+      }
+    }
+
+    /** Fires the /api/enrich request for a card and renders whichever state settles. */
+    async function runEnrichLookup(mode, selection, context, card, body) {
+      card.dataset.state = 'loading';
+      renderEnrichLoading(body);
+      setTopIndicator('working');
+
+      try {
+        const res  = await aiFetch('/api/enrich', { selection, context, mode });
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          card.dataset.state = 'error';
+          renderEnrichError(body, apiErrorMessage(data, 'Lookup failed.'),
+            () => runEnrichLookup(mode, selection, context, card, body));
+          setTopIndicator('error');
+          return;
+        }
+
+        card.dataset.state = 'done';
+        renderEnrichResult(body, data);
+        setTopIndicator('done');
+
+        // Log to the Research rail — the permanent record for this video.
+        // Dismissing the inline card above must NOT remove this entry.
+        addResearchEntry(mode, selection, data);
+
+      } catch (err) {
+        console.error('[echo] enrich network error:', err);
+        card.dataset.state = 'error';
+        renderEnrichError(body, 'Network error — could not reach the server.',
+          () => runEnrichLookup(mode, selection, context, card, body));
+        setTopIndicator('error');
+      }
+    }
+
+    /** Inserts `card` right after `endBlockEl` (and after any enrich cards already
+     *  chained onto it), or appends to the end of #digestOutput as a fallback. */
+    function insertEnrichCard(card, endBlockEl) {
+      if (endBlockEl && digestOutput.contains(endBlockEl)) {
+        let anchor = endBlockEl;
+        while (anchor.nextElementSibling && anchor.nextElementSibling.classList.contains('enrich-card')) {
+          anchor = anchor.nextElementSibling;
+        }
+        anchor.insertAdjacentElement('afterend', card);
+      } else {
+        digestOutput.appendChild(card);
+      }
+    }
+
+    /** Builds the inline enrich card DOM, inserts it, and kicks off the lookup. */
+    function createEnrichCard(mode, text, context, endBlockEl) {
+      const card = document.createElement('div');
+      card.className     = 'enrich-card';
+      card.dataset.mode  = mode;
+      card.dataset.state = 'loading';
+
+      const header = document.createElement('div');
+      header.className = 'enrich-card-header';
+
+      const label = document.createElement('span');
+      label.className = 'enrich-card-label';
+      label.textContent = ENRICH_MODE_LABEL[mode] || mode;
+      header.appendChild(label);
+
+      const echoSpan = document.createElement('span');
+      echoSpan.className = 'enrich-card-echo';
+      const trimmedEcho = text.length > 60 ? text.slice(0, 60) + '…' : text;
+      echoSpan.textContent = (ENRICH_MODE_GERUND[mode] || (ENRICH_MODE_LABEL[mode] || mode)) + ': "' + trimmedEcho + '"';
+      header.appendChild(echoSpan);
+
+      const dismissBtn = document.createElement('button');
+      dismissBtn.type = 'button';
+      dismissBtn.className = 'enrich-card-dismiss';
+      dismissBtn.setAttribute('aria-label', 'Dismiss this card');
+      dismissBtn.textContent = '✕';
+      dismissBtn.addEventListener('click', () => card.remove());
+      header.appendChild(dismissBtn);
+
+      card.appendChild(header);
+
+      const body = document.createElement('div');
+      body.className = 'enrich-card-body';
+      card.appendChild(body);
+
+      insertEnrichCard(card, endBlockEl);
+      runEnrichLookup(mode, text, context, card, body);
+
+      return card;
+    }
+
+    function enrichButtonClick(mode) {
+      const pending = enrichPending;
+      hideEnrichToolbar();
+      if (!pending) return;
+      createEnrichCard(mode, pending.text, pending.context, pending.endBlockEl);
+    }
+
+    enrichBtnExplain?.addEventListener('click', () => enrichButtonClick('explain'));
+    enrichBtnBackground?.addEventListener('click', () => enrichButtonClick('background'));
+    enrichBtnFactcheck?.addEventListener('click', () => enrichButtonClick('factcheck'));
+
+    enrichBtnAsk?.addEventListener('click', () => {
+      const pending = enrichPending;
+      hideEnrichToolbar();
+      if (!pending) return;
+
+      switchTab('digest');
+      switchAiTool('ask');
+
+      const seeded = 'About this part — "' + pending.text + '": ';
+      askInputEl.value = seeded;
+
+      const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      aiPanelAsk.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' });
+
+      askInputEl.focus();
+      askInputEl.setSelectionRange(seeded.length, seeded.length);
+    });
+
+    /* ==============================================
+       RESEARCH RAIL — right-side drawer that accumulates every successful
+       digest enrich lookup (Explain/Background/Fact-check) for the current
+       video. Non-modal overlay: mirrors the shortcuts/settings overlay's
+       backdrop + Esc-to-close conventions (see DIALOG_CLOSE_FNS above), and
+       reuses the header Library button's styling/count-badge pattern for
+       its own toggle button. Persisted via saveSession()/restoreSession()
+       and reset per-video alongside askThread/currentHighlights.
+    =============================================== */
+    const researchBtn          = document.getElementById('researchBtn');
+    const researchCountEl      = document.getElementById('researchCount');
+    const researchRailEl       = document.getElementById('researchRail');
+    const researchRailBody     = document.getElementById('researchRailBody');
+    const researchRailCountEl  = document.getElementById('researchRailCount');
+    const researchRailClose    = document.getElementById('researchRailClose');
+    const researchRailBackdrop = document.getElementById('researchRailBackdrop');
+    const researchRailClearBtn = document.getElementById('researchRailClearBtn');
+    let researchRailLastFocus  = null;
+
+    const ENRICH_MODE_ICON = { explain: '💡', background: '🔎', factcheck: '✓' };
+
+    /** Keeps both the header badge and the in-drawer count in sync with enrichLog. */
+    function updateResearchCount() {
+      const n = String(enrichLog.length);
+      if (researchCountEl)     researchCountEl.textContent     = n;
+      if (researchRailCountEl) researchRailCountEl.textContent = n;
+    }
+
+    /**
+     * Builds one Research rail entry. All model-derived strings (entry.text,
+     * entry.selection, source titles via buildEnrichSourcesEl) are inserted
+     * via textContent only — never innerHTML.
+     */
+    function buildResearchEntryEl(entry) {
+      const el = document.createElement('div');
+      el.className   = 'research-entry';
+      el.dataset.id   = entry.id;
+      el.dataset.mode = entry.mode;
+
+      const header = document.createElement('div');
+      header.className = 'research-entry-header';
+
+      const modeLabel = document.createElement('span');
+      modeLabel.className = 'research-entry-mode';
+      modeLabel.textContent =
+        (ENRICH_MODE_ICON[entry.mode] || '') + ' ' + (ENRICH_MODE_LABEL[entry.mode] || entry.mode);
+      header.appendChild(modeLabel);
+
+      const dismissBtn = document.createElement('button');
+      dismissBtn.type = 'button';
+      dismissBtn.className = 'research-entry-dismiss';
+      dismissBtn.setAttribute('aria-label', 'Remove this research entry');
+      dismissBtn.textContent = '✕';
+      dismissBtn.addEventListener('click', () => removeResearchEntry(entry.id));
+      header.appendChild(dismissBtn);
+
+      el.appendChild(header);
+
+      const selectionEl = document.createElement('div');
+      selectionEl.className = 'research-entry-selection';
+      const selection = entry.selection || '';
+      const truncatedSel = selection.length > 120 ? selection.slice(0, 120) + '…' : selection;
+      selectionEl.textContent = '"' + truncatedSel + '"';
+      el.appendChild(selectionEl);
+
+      if (entry.mode === 'factcheck' && entry.verdict) {
+        const badge = document.createElement('span');
+        badge.className = 'enrich-verdict enrich-verdict-' + entry.verdict;
+        badge.textContent = ENRICH_VERDICT_LABEL[entry.verdict] || entry.verdict;
+        el.appendChild(badge);
+      }
+
+      const textEl = document.createElement('div');
+      textEl.className = 'research-entry-text';
+      textEl.textContent = entry.text || '';
+      el.appendChild(textEl);
+
+      const sources = Array.isArray(entry.sources) ? entry.sources : [];
+      if (sources.length) el.appendChild(buildEnrichSourcesEl(sources));
+
+      return el;
+    }
+
+    /** Re-renders the full rail body from enrichLog (newest-first order already stored). */
+    function renderResearchRail() {
+      if (!researchRailBody) return;
+      researchRailBody.innerHTML = '';
+
+      if (enrichLog.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'research-rail-empty';
+        empty.textContent =
+          'Select text in the digest and choose Explain, Background, or Fact-check — your lookups collect here.';
+        researchRailBody.appendChild(empty);
+        return;
+      }
+
+      enrichLog.forEach(entry => researchRailBody.appendChild(buildResearchEntryEl(entry)));
+    }
+
+    /** Called from runEnrichLookup on every successful /api/enrich response. */
+    function addResearchEntry(mode, selection, data) {
+      const entry = {
+        id:       'enr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+        mode,
+        selection: selection || '',
+        verdict:  data.verdict || null,
+        text:     data.text || '',
+        sources:  Array.isArray(data.sources) ? data.sources : [],
+        ts:       Date.now(),
+      };
+      enrichLog.unshift(entry); // newest-first
+      renderResearchRail();
+      updateResearchCount();
+      saveSession();
+
+      // Attention cue if the drawer isn't open to see the new entry land.
+      if (researchRailEl.hidden) {
+        researchBtn?.classList.add('research-btn-attn');
+        setTimeout(() => researchBtn?.classList.remove('research-btn-attn'), 3000);
+      }
+    }
+
+    function removeResearchEntry(id) {
+      enrichLog = enrichLog.filter(e => e.id !== id);
+      renderResearchRail();
+      updateResearchCount();
+      saveSession();
+    }
+
+    function openResearchRail() {
+      if (!researchRailEl) return;
+      researchRailLastFocus = document.activeElement;
+      researchBtn?.classList.remove('research-btn-attn');
+      renderResearchRail();
+      researchRailEl.hidden = false;
+      researchBtn?.setAttribute('aria-pressed', 'true');
+      researchRailClose?.focus();
+    }
+
+    function closeResearchRail() {
+      if (!researchRailEl || researchRailEl.hidden) return;
+      researchRailEl.hidden = true;
+      researchBtn?.setAttribute('aria-pressed', 'false');
+      if (researchRailLastFocus && typeof researchRailLastFocus.focus === 'function') {
+        researchRailLastFocus.focus();
+      }
+      researchRailLastFocus = null;
+    }
+
+    function toggleResearchRail() {
+      if (!researchRailEl) return;
+      if (researchRailEl.hidden) openResearchRail(); else closeResearchRail();
+    }
+
+    researchBtn?.addEventListener('click', toggleResearchRail);
+    researchRailClose?.addEventListener('click', closeResearchRail);
+    researchRailBackdrop?.addEventListener('click', closeResearchRail);
+
+    researchRailClearBtn?.addEventListener('click', () => {
+      if (enrichLog.length === 0) return;
+      const ok = confirm('Clear all research entries for this video? This cannot be undone.');
+      if (!ok) return;
+      enrichLog = [];
+      renderResearchRail();
+      updateResearchCount();
+      saveSession();
     });
 
     /* --- Auto-save video to library before persisting a highlight --- */
@@ -6592,6 +7115,9 @@
       currentSegments   = null;
       currentHighlights = [];
       askThread         = [];
+      enrichLog         = []; // per-video reset — a new video starts with an empty Research rail
+      renderResearchRail();
+      updateResearchCount();
       clearSession(); // new fetch in flight — drop any stale prior-video snapshot
       updateNowReading();
       syncDigestExportRow();
@@ -6620,20 +7146,6 @@
       askClearRow.hidden           = true;
       askInlineStatus.textContent  = '';
       askInlineStatus.className    = 'ai-inline-status';
-      // Reset Fact-check panel
-      fcResults.innerHTML          = '';
-      fcInlineStatus.textContent   = '';
-      fcInlineStatus.className     = 'ai-inline-status';
-      // Reset Chapters panel
-      lastChapters                 = null;
-      chResults.innerHTML          = '';
-      chInlineStatus.textContent   = '';
-      chInlineStatus.className     = 'ai-inline-status';
-      // Reset Quotes panel
-      lastQuotes                   = null;
-      qtResults.innerHTML          = '';
-      qtInlineStatus.textContent   = '';
-      qtInlineStatus.className     = 'ai-inline-status';
       // Return to Summary sub-tab
       switchAiTool('summary');
       switchTab('transcript');
@@ -7053,25 +7565,24 @@
       return LANG_CODE_TO_NAME[base] || '';
     }
 
-    // Initialize both selects from the shared preference and keep them in sync.
-    [askLangSelect, fcLangSelect].forEach(sel => {
-      if (!sel) return;
-      sel.value = getAnswerLangPref();
-      sel.addEventListener('change', () => {
-        setAnswerLangPref(sel.value);
-        [askLangSelect, fcLangSelect].forEach(other => {
-          if (other && other !== sel) other.value = sel.value;
-        });
+    // Initialize the Ask answer-language select from the shared preference.
+    // (Previously also synced with the Fact-check panel's own select before
+    // that panel was removed in Phase 4 — kept as a single-element case so
+    // the shared localStorage preference still applies if either returns.)
+    if (askLangSelect) {
+      askLangSelect.value = getAnswerLangPref();
+      askLangSelect.addEventListener('change', () => {
+        setAnswerLangPref(askLangSelect.value);
       });
-    });
+    }
 
     /* ==============================================
        AI SUB-NAV SWITCHING
     =============================================== */
     function switchAiTool(name) {
-      const tools    = ['summary', 'ask', 'factcheck', 'chapters', 'quotes'];
-      const tabEls   = [aiTabSummary, aiTabAsk, aiTabFactcheck, aiTabChapters, aiTabQuotes];
-      const panelEls = [aiPanelSummary, aiPanelAsk, aiPanelFactcheck, aiPanelChapters, aiPanelQuotes];
+      const tools    = ['summary', 'ask'];
+      const tabEls   = [aiTabSummary, aiTabAsk];
+      const panelEls = [aiPanelSummary, aiPanelAsk];
 
       tools.forEach((t, i) => {
         const active = t === name;
@@ -7082,8 +7593,8 @@
     }
 
     // Sub-nav click + arrow-key roving focus
-    const aiSubTabBtns  = [aiTabSummary, aiTabAsk, aiTabFactcheck, aiTabChapters, aiTabQuotes];
-    const aiSubTabNames = ['summary', 'ask', 'factcheck', 'chapters', 'quotes'];
+    const aiSubTabBtns  = [aiTabSummary, aiTabAsk];
+    const aiSubTabNames = ['summary', 'ask'];
     aiSubTabBtns.forEach((btn, i) => {
       btn.addEventListener('click', () => switchAiTool(aiSubTabNames[i]));
       btn.addEventListener('keydown', e => {
@@ -7340,324 +7851,6 @@
       askInputEl.focus();
       saveSession();
     });
-
-    /* ==============================================
-       FACT-CHECK HANDLER
-    =============================================== */
-    async function submitFactCheck() {
-      const text = getTranscriptText();
-      if (!text) {
-        fcInlineStatus.textContent = 'Load a transcript first.';
-        fcInlineStatus.className   = 'ai-inline-status error';
-        return;
-      }
-      if (!requireApiKey()) return;
-
-      factCheckBtn.disabled      = true;
-      fcInlineStatus.textContent = 'Checking facts — this may take a moment…';
-      fcInlineStatus.className   = 'ai-inline-status';
-      fcResults.innerHTML        = '';
-
-      try {
-        const res  = await aiFetch('/api/factcheck', { text, language: resolveAnswerLanguage(fcLangSelect) });
-        const data = await res.json();
-
-        if (!res.ok) {
-          fcInlineStatus.textContent = apiErrorMessage(data, 'Failed to fact-check.');
-          fcInlineStatus.className   = 'ai-inline-status error';
-          handleApiError(data, 'Failed to fact-check.');
-          return;
-        }
-
-        fcInlineStatus.textContent = '';
-        fcInlineStatus.className   = 'ai-inline-status';
-
-        let html = '';
-
-        // Caveat banner — PROMINENT; tells user this is model knowledge, not live web
-        if (data.caveat) {
-          html +=
-            '<div class="fc-caveat">' +
-              '<div class="fc-caveat-label">Important note</div>' +
-              '<div class="fc-caveat-body">' + escapeHtml(data.caveat) + '</div>' +
-            '</div>';
-        }
-
-        if (Array.isArray(data.claims) && data.claims.length > 0) {
-          html += '<div class="fc-claims">';
-          data.claims.forEach(claim => {
-            const assess = (claim.assessment || '').toLowerCase();
-            const conf   = (claim.confidence  || '').toLowerCase();
-            const badgeLabels = { supported: 'Supported', disputed: 'Disputed', unverifiable: 'Unverifiable' };
-            const badgeLabel  = badgeLabels[assess] || assess;
-            html +=
-              '<div class="fc-claim-card">' +
-                '<div class="fc-claim-text">' + escapeHtml(claim.claim) + '</div>' +
-                '<div class="fc-claim-header">' +
-                  '<span class="fc-badge ' + escapeAttr(assess) + '">' + escapeHtml(badgeLabel) + '</span>' +
-                  '<span class="fc-confidence">' + escapeHtml(conf) + ' confidence</span>' +
-                '</div>' +
-                '<div class="fc-explanation">' + escapeHtml(claim.explanation) + '</div>' +
-              '</div>';
-          });
-          html += '</div>';
-        } else {
-          html += '<p class="digest-empty-state">No specific claims were identified to check.</p>';
-        }
-
-        // Usage (shown subtly below results)
-        if (data.usage) {
-          const parts = [formatTokens(data.usage.totalTokens) + ' tokens'];
-          const cost  = formatCostUsd(data.usage.costUsd);
-          if (cost) parts.push(cost);
-          html += '<div class="fc-usage">' + parts.join(' · ') + '</div>';
-        }
-
-        fcResults.innerHTML = html;
-        setTimeout(loadUsageChip, 2000);
-
-      } catch (err) {
-        console.error('[echo] submitFactCheck network error:', err);
-        fcInlineStatus.textContent = 'Network error — could not reach the server.';
-        fcInlineStatus.className   = 'ai-inline-status error';
-        showToast('error', 'Network error: ' + err.message);
-      } finally {
-        factCheckBtn.disabled = false;
-      }
-    }
-
-    factCheckBtn.addEventListener('click', submitFactCheck);
-
-    /* ==============================================
-       JUMP-TO-TRANSCRIPT HELPER
-       Shared by Chapters and Quotes panels.
-       Switches to Transcript tab, ensures Timecoded
-       view, finds nearest segment by offset, scrolls
-       to it, and briefly flashes it.
-    =============================================== */
-    function jumpToTranscriptAt(sec) {
-      if (!currentSegments || currentSegments.length === 0) return;
-
-      // 1. Switch to the transcript tab
-      switchTab('transcript');
-
-      // 2. Ensure timecoded view is active so .ts-line elements exist
-      const timestampRadio = [...radios].find(r => r.value === 'timestamps');
-      if (timestampRadio && !timestampRadio.checked) {
-        timestampRadio.checked = true;
-        syncToggleActive();
-        renderSegments(currentSegments);
-        reApplyOverlays();
-      }
-
-      // 3. Find the nearest segment by offset (absolute time difference)
-      let nearestIdx = 0;
-      let minDiff    = Infinity;
-      currentSegments.forEach((seg, i) => {
-        const diff = Math.abs(seg.offset - sec);
-        if (diff < minDiff) { minDiff = diff; nearestIdx = i; }
-      });
-
-      // 4. Scroll to the corresponding .ts-line DOM element and flash it
-      const tsLines = outputEl.querySelectorAll('.ts-line');
-      const target  = tsLines[nearestIdx];
-      if (!target) return;
-
-      const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-      target.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' });
-
-      // Restart animation even if already flashing
-      target.classList.remove('ts-flash');
-      void target.offsetWidth; // force reflow so the animation restarts
-      target.classList.add('ts-flash');
-      setTimeout(() => target.classList.remove('ts-flash'), 1500);
-    }
-
-    /* ==============================================
-       CHAPTERS HANDLER
-    =============================================== */
-    async function submitChapters() {
-      if (!currentSegments || currentSegments.length === 0) {
-        chInlineStatus.textContent = 'Load a transcript first.';
-        chInlineStatus.className   = 'ai-inline-status error';
-        return;
-      }
-      if (!requireApiKey()) return;
-
-      chaptersBtn.disabled       = true;
-      chInlineStatus.textContent = 'Generating chapters — this may take a moment…';
-      chInlineStatus.className   = 'ai-inline-status';
-      chResults.innerHTML        = '';
-
-      try {
-        const res  = await aiFetch('/api/chapters', { segments: currentSegments });
-        const data = await res.json();
-
-        if (!res.ok) {
-          chInlineStatus.textContent = apiErrorMessage(data, 'Failed to extract chapters.');
-          chInlineStatus.className   = 'ai-inline-status error';
-          handleApiError(data, 'Failed to extract chapters.');
-          return;
-        }
-
-        chInlineStatus.textContent = '';
-        chInlineStatus.className   = 'ai-inline-status';
-
-        if (!Array.isArray(data.chapters) || data.chapters.length === 0) {
-          chResults.innerHTML = '<p class="digest-empty-state">No chapters were identified.</p>';
-          lastChapters = [];
-          return;
-        }
-
-        // Cache and render
-        lastChapters = data.chapters;
-        const vid    = currentMeta?.videoId || null;
-        let html     = '<div class="ch-list">';
-        data.chapters.forEach((ch, i) => {
-          const num  = String(i + 1).padStart(2, '0');
-          const tc   = formatTime(ch.startSec);
-          const sec  = Math.floor(ch.startSec);
-          const ytHref = vid
-            ? `https://www.youtube.com/watch?v=${escapeAttr(vid)}&t=${sec}s`
-            : null;
-          const tcLink = ytHref
-            ? `<a class="ch-tc-link"
-                  href="${ytHref}"
-                  target="_blank" rel="noopener noreferrer"
-                  aria-label="Open YouTube at ${escapeAttr(tc)}">${tc}</a>`
-            : `<span class="ch-tc-link">${tc}</span>`;
-          html +=
-            `<div class="ch-item">` +
-              `<span class="ch-num">${num}</span>` +
-              `<span class="ch-title">${escapeHtml(ch.title)}</span>` +
-              `<span class="ch-tc-group">` +
-                tcLink +
-                `<button class="ch-jump-btn" data-sec="${sec}"` +
-                  ` aria-label="Jump to ${escapeAttr(tc)} in transcript">&#8615; Go to</button>` +
-              `</span>` +
-            `</div>`;
-        });
-        html += '</div>';
-
-        if (data.usage) {
-          const parts = [formatTokens(data.usage.totalTokens) + ' tokens'];
-          const cost  = formatCostUsd(data.usage.costUsd);
-          if (cost) parts.push(cost);
-          html += '<div class="ch-usage">' + parts.join(' · ') + '</div>';
-        }
-
-        chResults.innerHTML = html;
-
-        // Wire up jump buttons
-        chResults.querySelectorAll('.ch-jump-btn').forEach(btn => {
-          btn.addEventListener('click', () => jumpToTranscriptAt(Number(btn.dataset.sec)));
-        });
-
-        setTimeout(loadUsageChip, 2000);
-
-      } catch (err) {
-        console.error('[echo] submitChapters network error:', err);
-        chInlineStatus.textContent = 'Network error — could not reach the server.';
-        chInlineStatus.className   = 'ai-inline-status error';
-        showToast('error', 'Network error: ' + err.message);
-      } finally {
-        chaptersBtn.disabled = false;
-      }
-    }
-
-    chaptersBtn.addEventListener('click', submitChapters);
-
-    /* ==============================================
-       QUOTES HANDLER
-    =============================================== */
-    async function submitQuotes() {
-      if (!currentSegments || currentSegments.length === 0) {
-        qtInlineStatus.textContent = 'Load a transcript first.';
-        qtInlineStatus.className   = 'ai-inline-status error';
-        return;
-      }
-      if (!requireApiKey()) return;
-
-      quotesBtn.disabled         = true;
-      qtInlineStatus.textContent = 'Pulling key quotes — this may take a moment…';
-      qtInlineStatus.className   = 'ai-inline-status';
-      qtResults.innerHTML        = '';
-
-      try {
-        const res  = await aiFetch('/api/quotes', { segments: currentSegments });
-        const data = await res.json();
-
-        if (!res.ok) {
-          qtInlineStatus.textContent = apiErrorMessage(data, 'Failed to extract quotes.');
-          qtInlineStatus.className   = 'ai-inline-status error';
-          handleApiError(data, 'Failed to extract quotes.');
-          return;
-        }
-
-        qtInlineStatus.textContent = '';
-        qtInlineStatus.className   = 'ai-inline-status';
-
-        if (!Array.isArray(data.quotes) || data.quotes.length === 0) {
-          qtResults.innerHTML = '<p class="digest-empty-state">No key quotes were identified.</p>';
-          lastQuotes = [];
-          return;
-        }
-
-        // Cache and render
-        lastQuotes = data.quotes;
-        const vid  = currentMeta?.videoId || null;
-        let html   = '<div class="qt-list">';
-        data.quotes.forEach(qt => {
-          const tc   = formatTime(qt.startSec);
-          const sec  = Math.floor(qt.startSec);
-          const ytHref = vid
-            ? `https://www.youtube.com/watch?v=${escapeAttr(vid)}&t=${sec}s`
-            : null;
-          const tcLink = ytHref
-            ? `<a class="qt-tc-link"
-                  href="${ytHref}"
-                  target="_blank" rel="noopener noreferrer"
-                  aria-label="Open YouTube at ${escapeAttr(tc)}">${tc}</a>`
-            : `<span class="qt-tc-link">${tc}</span>`;
-          html +=
-            `<div class="qt-card">` +
-              `<blockquote class="qt-blockquote">${escapeHtml(qt.text)}</blockquote>` +
-              `<div class="qt-footer">` +
-                tcLink +
-                `<button class="qt-jump-btn" data-sec="${sec}"` +
-                  ` aria-label="Jump to ${escapeAttr(tc)} in transcript">&#8615; Go to</button>` +
-              `</div>` +
-            `</div>`;
-        });
-        html += '</div>';
-
-        if (data.usage) {
-          const parts = [formatTokens(data.usage.totalTokens) + ' tokens'];
-          const cost  = formatCostUsd(data.usage.costUsd);
-          if (cost) parts.push(cost);
-          html += '<div class="qt-usage">' + parts.join(' · ') + '</div>';
-        }
-
-        qtResults.innerHTML = html;
-
-        // Wire up jump buttons
-        qtResults.querySelectorAll('.qt-jump-btn').forEach(btn => {
-          btn.addEventListener('click', () => jumpToTranscriptAt(Number(btn.dataset.sec)));
-        });
-
-        setTimeout(loadUsageChip, 2000);
-
-      } catch (err) {
-        console.error('[echo] submitQuotes network error:', err);
-        qtInlineStatus.textContent = 'Network error — could not reach the server.';
-        qtInlineStatus.className   = 'ai-inline-status error';
-        showToast('error', 'Network error: ' + err.message);
-      } finally {
-        quotesBtn.disabled = false;
-      }
-    }
-
-    quotesBtn.addEventListener('click', submitQuotes);
 
     /* ==============================================
        SAVE BUTTON HANDLER
@@ -8706,25 +8899,15 @@
         usageStatsEl.innerHTML   = '';
         digestDot.style.display  = 'none';
         setTopIndicator('idle');
-        // Reset Ask and Fact-check panels
+        // Reset Ask panel
         qaThread.innerHTML           = '';
         askThread                    = [];
+        enrichLog                    = []; // per-video reset — opening a saved entry starts a fresh rail
+        renderResearchRail();
+        updateResearchCount();
         askClearRow.hidden           = true;
         askInlineStatus.textContent  = '';
         askInlineStatus.className    = 'ai-inline-status';
-        fcResults.innerHTML          = '';
-        fcInlineStatus.textContent   = '';
-        fcInlineStatus.className     = 'ai-inline-status';
-        // Reset Chapters panel
-        lastChapters                 = null;
-        chResults.innerHTML          = '';
-        chInlineStatus.textContent   = '';
-        chInlineStatus.className     = 'ai-inline-status';
-        // Reset Quotes panel
-        lastQuotes                   = null;
-        qtResults.innerHTML          = '';
-        qtInlineStatus.textContent   = '';
-        qtInlineStatus.className     = 'ai-inline-status';
         switchAiTool('summary');
 
         // Restore digest content if it was saved
@@ -9613,6 +9796,7 @@
           : '',
         askThread:  askThread,
         highlights: currentHighlights,
+        enrichLog:  enrichLog,
         savedFlag:  Array.isArray(savedList) && savedList.some(e => e.videoId === currentMeta.videoId),
         viewMode:   getMode(),
         activeTab:  !paneDigest.hidden ? 'digest'
@@ -9667,6 +9851,10 @@
 
       sessionRestoring = true;
       try {
+        enrichLog         = Array.isArray(snap.enrichLog) ? snap.enrichLog : [];
+        renderResearchRail();
+        updateResearchCount();
+
         if (snap.segmentsDropped || !Array.isArray(snap.segments) || snap.segments.length === 0) {
           // Segments were dropped (quota) or never captured — ask the user to
           // re-fetch rather than guessing at transcript content.
@@ -9681,7 +9869,6 @@
         currentMeta       = { videoId: snap.videoId, url: snap.url, title: snap.title };
         currentDigest     = snap.digest || null;
         currentHighlights = Array.isArray(snap.highlights) ? snap.highlights : [];
-
         urlInput.value = snap.url;
 
         if (snap.viewMode) {
