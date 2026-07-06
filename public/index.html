@@ -1911,7 +1911,8 @@
       min-width: 130px;
     }
 
-    #savedSearchInput {
+    #savedSearchInput,
+    #discoverySearchInput {
       width: 100%;
       padding: 0.35rem 0.75rem;
       font-family: var(--font-sans);
@@ -1924,17 +1925,20 @@
       transition: border-color 0.15s, box-shadow 0.15s;
     }
 
-    #savedSearchInput::placeholder {
+    #savedSearchInput::placeholder,
+    #discoverySearchInput::placeholder {
       color: var(--muted);
       opacity: 1;
     }
 
-    #savedSearchInput:focus {
+    #savedSearchInput:focus,
+    #discoverySearchInput:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 3px var(--accent-soft);
     }
 
-    #savedSearchInput::-webkit-search-cancel-button {
+    #savedSearchInput::-webkit-search-cancel-button,
+    #discoverySearchInput::-webkit-search-cancel-button {
       -webkit-appearance: none;
     }
 
@@ -2056,6 +2060,12 @@
       background: rgba(0, 0, 0, 0.72);
       border-radius: 4px;
       padding: 0.08rem 0.4rem;
+    }
+
+    .discovery-loadmore-wrap {
+      display: flex;
+      justify-content: center;
+      margin-top: 1.15rem;
     }
 
     /* ==============================================
@@ -4457,8 +4467,12 @@
         <button class="discovery-chip" type="button" data-topic="Health">Health</button>
       </div>
       <div id="discoverySubtitle" class="discovery-subtitle" aria-live="polite" aria-atomic="true"></div>
+      <div id="discoveryResultCount" class="saved-result-count" aria-live="polite" aria-atomic="true"></div>
       <div id="discoveryStatusMsg" class="saved-status-msg" aria-live="polite" aria-atomic="true"></div>
       <div id="discoveryResults" class="discovery-results"></div>
+      <div class="discovery-loadmore-wrap">
+        <button id="discoveryLoadMoreBtn" class="mini-btn" hidden>Load more</button>
+      </div>
     </div>
 
   </div><!-- /.container -->
@@ -5249,6 +5263,8 @@
     const discoverySubtitleEl     = document.getElementById('discoverySubtitle');
     const discoveryStatusMsgEl    = document.getElementById('discoveryStatusMsg');
     const discoveryResultsEl      = document.getElementById('discoveryResults');
+    const discoveryResultCountEl  = document.getElementById('discoveryResultCount');
+    const discoveryLoadMoreBtn    = document.getElementById('discoveryLoadMoreBtn');
     const savedCompareBtn    = document.getElementById('savedCompareBtn');
     const compareBar         = document.getElementById('compareBar');
     const compareCountLabel  = document.getElementById('compareCountLabel');
@@ -10095,6 +10111,11 @@
     =============================================== */
     let discoveryInitialised = false; // guards the first-open lazy-load
 
+    /** Client-side pagination state for Discovery results — yt-dlp search has
+     *  no page tokens, so we fetch a larger batch once and page through it
+     *  locally via a "Load more" button. */
+    let discoveryPageState = { items: [], shown: 0, pageSize: 12 };
+
     /** Formats a raw view count into a compact label, e.g. 1234567 -> "1.2M views". */
     function formatViews(n) {
       if (n == null || isNaN(n)) return '';
@@ -10106,59 +10127,62 @@
       return `${label} view${num === 1 ? '' : 's'}`;
     }
 
-    /** Renders an array of Discovery Card objects into #discoveryResults,
-     *  reusing the .saved-card visual language from the Library grid. */
-    function renderDiscoveryResults(results) {
-      if (!Array.isArray(results) || results.length === 0) {
-        discoveryResultsEl.innerHTML = '';
-        return;
-      }
+    /** Builds the .saved-card HTML markup for a single Discovery Card
+     *  object, reusing the visual language from the Library grid. */
+    function discoveryCardHtml(card) {
+      const title    = card.title || card.videoId || 'Untitled';
+      const channel  = card.channel || '';
+      const viewsStr = formatViews(card.views);
+      const durBadge = card.durationText
+        ? `<span class="discovery-duration-badge">${escapeHtml(card.durationText)}</span>`
+        : '';
+      const safeUrl  = safeHttpUrl(card.url);
+      const thumbHtml = (card.thumbnail && safeHttpUrl(card.thumbnail))
+        ? `<img class="saved-card-thumb"
+                src="${escapeAttr(card.thumbnail)}"
+                alt="" loading="lazy"
+                onerror="this.remove()">`
+        : '';
 
-      discoveryResultsEl.innerHTML = results.map(card => {
-        const title    = card.title || card.videoId || 'Untitled';
-        const channel  = card.channel || '';
-        const viewsStr = formatViews(card.views);
-        const durBadge = card.durationText
-          ? `<span class="discovery-duration-badge">${escapeHtml(card.durationText)}</span>`
-          : '';
-        const safeUrl  = safeHttpUrl(card.url);
-        const thumbHtml = (card.thumbnail && safeHttpUrl(card.thumbnail))
-          ? `<img class="saved-card-thumb"
-                  src="${escapeAttr(card.thumbnail)}"
-                  alt="" loading="lazy"
-                  onerror="this.remove()">`
-          : '';
-
-        return `<div class="saved-card"
-                     data-url="${escapeAttr(safeUrl || card.url || '')}"
-                     tabindex="0"
-                     role="button"
-                     aria-label="Load ${escapeAttr(title)}">
-          <div class="saved-card-thumb-wrap">
-            <div class="saved-card-thumb-fallback" aria-hidden="true">
-              <svg width="34" height="34" viewBox="0 0 24 24" fill="none"
-                   stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
-                <rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/>
-                <path d="M10 8.75 15 12l-5 3.25z" fill="currentColor" stroke="none"/>
-              </svg>
-            </div>
-            ${thumbHtml}
-            ${durBadge}
+      return `<div class="saved-card"
+                   data-url="${escapeAttr(safeUrl || card.url || '')}"
+                   tabindex="0"
+                   role="button"
+                   aria-label="Load ${escapeAttr(title)}">
+        <div class="saved-card-thumb-wrap">
+          <div class="saved-card-thumb-fallback" aria-hidden="true">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+              <rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/>
+              <path d="M10 8.75 15 12l-5 3.25z" fill="currentColor" stroke="none"/>
+            </svg>
           </div>
-          <div class="saved-card-body">
-            <div class="saved-card-title-row">
-              <div class="saved-card-title">${escapeHtml(title)}</div>
-            </div>
-            <div class="saved-card-meta">
-              ${channel ? `<span class="saved-meta-item">${escapeHtml(channel)}</span>` : ''}
-              ${(channel && viewsStr) ? '<span class="saved-meta-sep" aria-hidden="true">·</span>' : ''}
-              ${viewsStr ? `<span class="saved-meta-item">${escapeHtml(viewsStr)}</span>` : ''}
-            </div>
+          ${thumbHtml}
+          ${durBadge}
+        </div>
+        <div class="saved-card-body">
+          <div class="saved-card-title-row">
+            <div class="saved-card-title">${escapeHtml(title)}</div>
           </div>
-        </div>`;
-      }).join('');
+          <div class="saved-card-meta">
+            ${channel ? `<span class="saved-meta-item">${escapeHtml(channel)}</span>` : ''}
+            ${(channel && viewsStr) ? '<span class="saved-meta-sep" aria-hidden="true">·</span>' : ''}
+            ${viewsStr ? `<span class="saved-meta-item">${escapeHtml(viewsStr)}</span>` : ''}
+          </div>
+        </div>
+      </div>`;
+    }
 
-      discoveryResultsEl.querySelectorAll('.saved-card').forEach(card => {
+    /** Appends a page of Discovery Card objects to #discoveryResults
+     *  (does NOT clear existing cards) and wires up click/keydown handling
+     *  on just the newly-added cards. */
+    function appendDiscoveryCards(cards) {
+      if (!Array.isArray(cards) || cards.length === 0) return;
+      discoveryResultsEl.insertAdjacentHTML('beforeend', cards.map(discoveryCardHtml).join(''));
+
+      const allCards = discoveryResultsEl.querySelectorAll('.saved-card');
+      const newCards = Array.from(allCards).slice(allCards.length - cards.length);
+      newCards.forEach(card => {
         card.addEventListener('click', () => loadDiscoveryCard(card.dataset.url));
         card.addEventListener('keydown', e => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -10167,6 +10191,61 @@
           }
         });
       });
+    }
+
+    /** Updates the "Showing N of M" count label and the Load more button's
+     *  visibility to match the current discoveryPageState. */
+    function updateDiscoveryPagingUI() {
+      const { items, shown } = discoveryPageState;
+      if (!discoveryResultCountEl || !discoveryLoadMoreBtn) return;
+      if (items.length === 0) {
+        discoveryResultCountEl.textContent = '';
+        discoveryLoadMoreBtn.hidden = true;
+        return;
+      }
+      discoveryResultCountEl.textContent = `Showing ${shown} of ${items.length}`;
+      discoveryLoadMoreBtn.hidden = shown >= items.length;
+    }
+
+    /** Renders an array of Discovery Card objects into #discoveryResults,
+     *  resetting pagination and showing the first page. */
+    function renderDiscoveryResults(results) {
+      discoveryResultsEl.innerHTML = '';
+      discoveryPageState.items = Array.isArray(results) ? results : [];
+      discoveryPageState.shown = 0;
+
+      if (discoveryPageState.items.length === 0) {
+        updateDiscoveryPagingUI();
+        return;
+      }
+
+      const firstPage = discoveryPageState.items.slice(0, discoveryPageState.pageSize);
+      appendDiscoveryCards(firstPage);
+      discoveryPageState.shown = firstPage.length;
+      updateDiscoveryPagingUI();
+    }
+
+    /** Appends the next page of already-fetched Discovery results. */
+    function loadMoreDiscoveryResults() {
+      const { items, shown, pageSize } = discoveryPageState;
+      if (shown >= items.length) return;
+      const nextPage = items.slice(shown, shown + pageSize);
+      appendDiscoveryCards(nextPage);
+      discoveryPageState.shown = shown + nextPage.length;
+      updateDiscoveryPagingUI();
+    }
+
+    /** Clears the Discovery grid and pagination state — used before a new
+     *  search/chip/For You load, and on empty/error states. */
+    function resetDiscoveryPaging() {
+      discoveryResultsEl.innerHTML = '';
+      discoveryPageState.items = [];
+      discoveryPageState.shown = 0;
+      updateDiscoveryPagingUI();
+    }
+
+    if (discoveryLoadMoreBtn) {
+      discoveryLoadMoreBtn.addEventListener('click', loadMoreDiscoveryResults);
     }
 
     /** Loads a Discovery result into the reader — the exact same sequence
@@ -10190,15 +10269,16 @@
       if (!query) return;
       discoverySubtitleEl.textContent = '';
       setDiscoveryStatus('Searching…', false);
-      discoveryResultsEl.innerHTML = '';
+      resetDiscoveryPaging();
       try {
-        const res  = await fetch(`/api/discovery/search?q=${encodeURIComponent(query)}&n=20`);
+        const res  = await fetch(`/api/discovery/search?q=${encodeURIComponent(query)}&n=36`);
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           const msg = data && data.echoCode === 'YTDLP_MISSING'
             ? "Couldn't reach YouTube. Is yt-dlp installed?"
             : (data && data.error) || 'Search failed.';
           setDiscoveryStatus(msg, true);
+          resetDiscoveryPaging();
           return;
         }
         const results = Array.isArray(data.results) ? data.results : [];
@@ -10211,6 +10291,7 @@
         renderDiscoveryResults(results);
       } catch (e) {
         setDiscoveryStatus("Couldn't reach YouTube. Is yt-dlp installed?", true);
+        resetDiscoveryPaging();
       }
     }
 
@@ -10220,7 +10301,7 @@
     async function loadDiscoveryForYou() {
       setDiscoveryStatus('Loading suggestions…', false);
       discoverySubtitleEl.textContent = '';
-      discoveryResultsEl.innerHTML = '';
+      resetDiscoveryPaging();
       try {
         const res  = await fetch('/api/discovery/foryou');
         const data = await res.json().catch(() => ({}));
@@ -10229,6 +10310,7 @@
             ? "Couldn't reach YouTube. Is yt-dlp installed?"
             : (data && data.error) || 'Could not load suggestions.';
           setDiscoveryStatus(msg, true);
+          resetDiscoveryPaging();
           return;
         }
         const results = Array.isArray(data.results) ? data.results : [];
@@ -10247,6 +10329,7 @@
         renderDiscoveryResults(results);
       } catch (e) {
         setDiscoveryStatus("Couldn't reach YouTube. Is yt-dlp installed?", true);
+        resetDiscoveryPaging();
       }
     }
 
