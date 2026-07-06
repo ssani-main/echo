@@ -48,6 +48,7 @@ import {
   enrich,
 } from './digest.js';
 import { getTodayUsage } from './usage.js';
+import { logEvent, errLabel } from './usagelog.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -433,6 +434,7 @@ app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
     );
   }
 
+  const t0 = Date.now();
   try {
     const segments = await fetchTranscript(videoId, { lang });
     const title = await getVideoTitle(videoId);
@@ -453,8 +455,11 @@ app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
       }
     }
 
+    const chars = segments.reduce((sum, s) => sum + String(s.text || '').length, 0);
+    logEvent('transcript', { videoId, chars, langCode, ok: true, ms: Date.now() - t0 });
     return res.json({ videoId, url: req.body.url, title, segments, langCode });
   } catch (err) {
+    logEvent('transcript', { videoId, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);
   }
 });
@@ -515,8 +520,10 @@ app.post('/api/playlist/digest', (req, res) => {
   if (!url || typeof url !== 'string' || !url.trim()) {
     return sendError(res, 'INVALID_URL', 'A playlist URL is required.', '', 400);
   }
+  const t0 = Date.now();
   try {
     const { jobId } = startPlaylistDigest(url, { length, format, language, lang, skipExisting });
+    logEvent('playlist-digest', { ok: true, ms: Date.now() - t0 });
     return res.status(202).json({ jobId });
   } catch (err) {
     return sendCaughtError(res, err);
@@ -543,17 +550,30 @@ app.post('/api/playlist/digest/cancel', (req, res) => {
 // ---------------------------------------------------------------------------
 
 app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
-  const { text, length, format, language, title } = req.body;
+  const { text, length, format, language, title, videoId } = req.body;
 
   if (!requireText(res, text, 'No transcript text provided.', 'Load a transcript before generating a digest.')) return;
 
   if (rejectOversizeAiPayload(res, { text })) return;
   if (requireWebKey(req, res)) return;
 
+  const t0 = Date.now();
   try {
     const result = await generateDigest(text, { length, format, language, title, apiKey: readApiKey(req) });
+    logEvent('digest', {
+      videoId: videoId || null,
+      chars: (text || '').length,
+      length, format, language,
+      strategy: result.strategy,
+      model: 'sonnet',
+      costUsd: result.usage && result.usage.costUsd,
+      tokIn: result.usage && result.usage.inputTokens,
+      tokOut: result.usage && result.usage.outputTokens,
+      ok: true, ms: Date.now() - t0,
+    });
     return res.json(result);
   } catch (err) {
+    logEvent('digest', { videoId: videoId || null, chars: (text || '').length, length, format, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);
   }
 });
@@ -563,16 +583,25 @@ app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
 // ---------------------------------------------------------------------------
 
 app.post('/api/chat', webLimit(20, 60_000), async (req, res) => {
-  const { text, question, language, lang, langCode } = req.body;
+  const { text, question, language, lang, langCode, videoId } = req.body;
   if (!requireText(res, text, 'text is required.')) return;
   if (!requireText(res, question, 'question is required.')) return;
   if (rejectOversizeAiPayload(res, { text })) return;
   if (requireWebKey(req, res)) return;
+  const t0 = Date.now();
   try {
     const answerLanguage = language || lang || langCode || undefined;
     const result = await askVideoQuestion(text, question, { apiKey: readApiKey(req), language: answerLanguage });
+    logEvent('ask', {
+      videoId: videoId || null,
+      chars: (text || '').length,
+      qLen: (question || '').length,
+      costUsd: result.usage && result.usage.costUsd,
+      ok: true, ms: Date.now() - t0,
+    });
     return res.json(result);
   } catch (err) {
+    logEvent('ask', { videoId: videoId || null, qLen: (question || '').length, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);
   }
 });
@@ -582,14 +611,27 @@ app.post('/api/chat', webLimit(20, 60_000), async (req, res) => {
 // ---------------------------------------------------------------------------
 
 app.post('/api/enrich', webLimit(20, 60_000), async (req, res) => {
-  const { selection, context, mode, language } = req.body;
+  const { selection, context, mode, language, videoId } = req.body;
   if (!requireText(res, selection, 'selection is required.')) return;
   if (rejectOversizeAiPayload(res, { text: (selection || '') + (context || '') })) return;
   if (requireWebKey(req, res)) return;
+  const t0 = Date.now();
   try {
     const result = await enrich(selection, { context, mode, language, apiKey: readApiKey(req) });
+    logEvent('enrich', {
+      videoId: videoId || null,
+      mode: result.mode || mode,
+      selLen: (selection || '').length,
+      results: result.results,
+      sources: Array.isArray(result.sources) ? result.sources.length : 0,
+      grounded: result.results == null ? undefined : result.results > 0,
+      verdict: result.verdict,
+      costUsd: result.usage && result.usage.costUsd,
+      ok: true, ms: Date.now() - t0,
+    });
     return res.json(result);
   } catch (err) {
+    logEvent('enrich', { videoId: videoId || null, mode: mode || 'explain', selLen: (selection || '').length, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);
   }
 });
@@ -780,12 +822,14 @@ app.get('/api/clips', blockInWeb, async (req, res) => {
 });
 
 app.post('/api/saved', blockInWeb, async (req, res) => {
+  const t0 = Date.now();
   try {
     const { url, videoId, title, segments, digest } = req.body;
     if (!videoId || !Array.isArray(segments) || segments.length === 0) {
       return sendError(res, 'INTERNAL', 'videoId and segments are required.', '', 400);
     }
     const meta = await saveEntry({ url, videoId, title, segments, digest });
+    logEvent('save', { videoId, hadDigest: Boolean(digest), ok: true, ms: Date.now() - t0 });
     res.json(meta);
   } catch (err) {
     sendCaughtError(res, err);
@@ -793,9 +837,11 @@ app.post('/api/saved', blockInWeb, async (req, res) => {
 });
 
 app.delete('/api/saved/:videoId', blockInWeb, async (req, res) => {
+  const t0 = Date.now();
   try {
     const ok = await deleteEntry(req.params.videoId);
     if (!ok) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
+    logEvent('unsave', { videoId: req.params.videoId, ok: true, ms: Date.now() - t0 });
     res.json({ ok: true });
   } catch (err) {
     sendCaughtError(res, err);
@@ -864,10 +910,13 @@ app.post('/api/cross-digest', webLimit(20, 60_000), async (req, res) => {
 
   if (requireWebKey(req, res)) return;
 
+  const t0 = Date.now();
   try {
     const { digest, usage } = await generateCrossDigest(entries, { ...(options || {}), apiKey: readApiKey(req) });
+    logEvent('cross-digest', { nVideos: entries.length, costUsd: usage && usage.costUsd, ok: true, ms: Date.now() - t0 });
     return res.json({ digest, stats: usage });
   } catch (err) {
+    logEvent('cross-digest', { nVideos: entries.length, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);
   }
 });
@@ -994,6 +1043,7 @@ app.post('/api/search/reindex', blockInWeb, async (_req, res) => {
 app.get('/api/search', blockInWeb, async (req, res) => {
   const q     = String(req.query.q || '').trim();
   const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
+  const t0 = Date.now();
 
   if (!q) return res.json({ results: [], mode: 'keyword' });
 
@@ -1013,14 +1063,18 @@ app.get('/api/search', blockInWeb, async (req, res) => {
 
     // ---- Keyword-only path (no embeddings) ----
     if (!isAvailable()) {
-      return res.json({ results: ftsEntries.slice(0, limit).map(toResult), mode: 'keyword' });
+      const results = ftsEntries.slice(0, limit).map(toResult);
+      logEvent('search', { qLen: q.length, mode: 'keyword', results: results.length, ok: true, ms: Date.now() - t0 });
+      return res.json({ results, mode: 'keyword' });
     }
 
     // ---- Hybrid path ----
     const queryVec = await embedText(q);
     if (!queryVec) {
       // embedText failed silently — degrade gracefully to keyword
-      return res.json({ results: ftsEntries.slice(0, limit).map(toResult), mode: 'keyword' });
+      const results = ftsEntries.slice(0, limit).map(toResult);
+      logEvent('search', { qLen: q.length, mode: 'keyword', results: results.length, ok: true, ms: Date.now() - t0 });
+      return res.json({ results, mode: 'keyword' });
     }
 
     const storedEmbs   = allEmbeddings();
@@ -1057,8 +1111,11 @@ app.get('/api/search', blockInWeb, async (req, res) => {
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
 
-    return res.json({ results: ranked.map(({ entry }) => toResult(entry)), mode: 'hybrid' });
+    const results = ranked.map(({ entry }) => toResult(entry));
+    logEvent('search', { qLen: q.length, mode: 'hybrid', results: results.length, ok: true, ms: Date.now() - t0 });
+    return res.json({ results, mode: 'hybrid' });
   } catch (err) {
+    logEvent('search', { qLen: q.length, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);
   }
 });

@@ -526,7 +526,7 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
     );
   }
 
-  return { digest, usage: mergeUsage(usages) };
+  return { digest, usage: mergeUsage(usages), strategy: 'mapreduce' };
 }
 
 /**
@@ -771,7 +771,7 @@ export async function generateDigest(transcriptText, opts = {}) {
         transcriptText;
 
   const { result, usage } = await callProvider(prompt, opts);
-  return { digest: result, usage };
+  return { digest: result, usage, strategy: 'single' };
 }
 
 /**
@@ -1026,7 +1026,7 @@ export async function enrich(selection, opts = {}) {
       `HIGHLIGHTED TEXT: "${trimmedSelection}"`;
 
     const { result, usage } = await callProvider(prompt, providerOpts);
-    return { mode: 'explain', text: result.trim(), sources: [], usage };
+    return { mode: 'explain', text: result.trim(), sources: [], usage, results: null };
   }
 
   if (mode === 'background' || mode === 'factcheck') {
@@ -1069,7 +1069,7 @@ export async function enrich(selection, opts = {}) {
       const explanation = typeof parsed?.explanation === 'string' ? parsed.explanation : '';
       const sources = results.length ? mapSourceIndexes(parsed?.sourceIndexes, results) : [];
 
-      return { mode: 'factcheck', verdict, text: explanation, sources, usage };
+      return { mode: 'factcheck', verdict, text: explanation, sources, usage, results: results.length };
     }
 
     // mode === 'background'
@@ -1096,7 +1096,7 @@ export async function enrich(selection, opts = {}) {
     const text = typeof parsed?.text === 'string' ? parsed.text : '';
     const sources = results.length ? mapSourceIndexes(parsed?.sourceIndexes, results) : [];
 
-    return { mode: 'background', text, sources, usage };
+    return { mode: 'background', text, sources, usage, results: results.length };
   }
 
   throw new Error(`enrich: unknown mode "${mode}". Expected 'explain', 'background', or 'factcheck'.`);

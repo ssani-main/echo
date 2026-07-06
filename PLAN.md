@@ -41,7 +41,16 @@ Soft cut: **tags** (one tag, ~25% coverage — not a tagger). Cheap to keep.
 fact-check, Ask, quotes, chapters, cross-digest, playlist-batch leave no trace. Strong
 inference they're unused, but decide on real numbers — see action logging below.
 
-## Action logging (do first)
+## Action logging (do first) — ✅ SHIPPED 2026-07-06
+
+Implemented in `usagelog.js` (local-only, fire-and-forget) + `usage_stats.mjs` analyzer;
+`logEvent` wired into `server.js` (transcript, digest, ask, enrich, cross-digest,
+playlist-digest, save, unsave, search). `digest.js` now surfaces `strategy`
+(single/mapreduce) and enrich `results` (web-hit count). Frontend sends `videoId` with
+digest/chat/enrich so the funnel correlates. Writes `data/usage-events.jsonl` (gitignored).
+Runtime-verified end-to-end. **Run ~1 week, then `node usage_stats.mjs` and finalize cuts.**
+
+Original design (for reference):
 
 Add fire-and-forget action telemetry so decisions rest on data, not inference:
 
@@ -75,7 +84,7 @@ Add fire-and-forget action telemetry so decisions rest on data, not inference:
 
 ## Next-session playbook (ordered)
 
-1. Ship action logging first — instrument before cutting anything unmeasured.
+1. ~~Ship action logging first~~ ✅ DONE (2026-07-06) — instrument before cutting anything unmeasured.
 2. Cut the 5 confirmed-dead now (safe): backend module deletes first (clips.js, embeddings.js),
    then carefully remove UI from index.html + QA. Keep FTS5.
 3. While in `digest.js`, check whether map-reduce ever fires; cut if not.

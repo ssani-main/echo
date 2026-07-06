@@ -6717,7 +6717,7 @@
       setTopIndicator('working');
 
       try {
-        const res  = await aiFetch('/api/enrich', { selection, context, mode });
+        const res  = await aiFetch('/api/enrich', { selection, context, mode, videoId: (currentMeta && currentMeta.videoId) || undefined });
         const data = await res.json().catch(() => ({}));
 
         if (!res.ok) {
@@ -7693,7 +7693,7 @@
       startDigestTimer(isLargeTranscript);
 
       try {
-        const res  = await aiFetch('/api/digest', { text: plainText, length: lengthOpt, format: formatOpt, language: langOpt, title: (currentMeta && currentMeta.title) || '' });
+        const res  = await aiFetch('/api/digest', { text: plainText, length: lengthOpt, format: formatOpt, language: langOpt, title: (currentMeta && currentMeta.title) || '', videoId: (currentMeta && currentMeta.videoId) || undefined });
         const data = await res.json();
 
         if (!res.ok) {
@@ -7778,7 +7778,7 @@
 
       const t0 = Date.now();
       try {
-        const res  = await aiFetch('/api/chat', { text, question, language: resolveAnswerLanguage(askLangSelect) });
+        const res  = await aiFetch('/api/chat', { text, question, language: resolveAnswerLanguage(askLangSelect), videoId: (currentMeta && currentMeta.videoId) || undefined });
         const data = await res.json();
         const elapsed = Date.now() - t0;
 
