@@ -495,6 +495,30 @@ app.get('/api/languages', webLimit(20, 60_000), async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Video meta (lightweight, keyless oEmbed lookup — used to backfill channel
+// info on saved library entries created before channelUrl was stored)
+// ---------------------------------------------------------------------------
+
+app.get('/api/video-meta', webLimit(20, 60_000), async (req, res) => {
+  const { videoId: rawId, url: rawUrl } = req.query;
+  const videoId = extractVideoId(rawId || rawUrl);
+  if (!videoId) {
+    return sendError(
+      res,
+      'INVALID_URL',
+      'Could not find a valid YouTube video ID in that URL.',
+      'Paste a full YouTube URL (e.g. youtube.com/watch?v=…) or an 11-character video ID.'
+    );
+  }
+  try {
+    const { title, channel, channelUrl } = await getVideoMeta(videoId);
+    return res.json({ videoId, title, channel, channelUrl });
+  } catch (err) {
+    return sendCaughtError(res, err);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Playlist
 // ---------------------------------------------------------------------------
 

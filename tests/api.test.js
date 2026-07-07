@@ -100,6 +100,19 @@ test('POST /api/transcript with an empty url returns a 4xx structured error enve
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/video-meta — invalid videoId, no network
+// ---------------------------------------------------------------------------
+
+test('GET /api/video-meta with a bad videoId returns a 400 INVALID_URL error envelope', async () => {
+  const res = await fetch(`${base}/api/video-meta?videoId=not-a-real-id`);
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.ok(body.error);
+  assert.equal(typeof body.error.code, 'string');
+  assert.equal(body.error.code, 'INVALID_URL');
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/digest — empty text, no network/claude call
 // ---------------------------------------------------------------------------
 

@@ -8925,6 +8925,14 @@
         urlInput.value = entry.url;
         updateNowReading();
 
+        // Lazy backfill: pre-migration saved entries have channelUrl: null,
+        // so Follow-channel falls back to the manual paste form instead of
+        // one-click follow. Fire-and-forget a cheap oEmbed lookup to heal
+        // this entry in the background — never blocks/delays the open flow.
+        if (ECHO.mode !== 'web' && !currentMeta.channelUrl && currentMeta.videoId) {
+          backfillChannelForCurrent(entry);
+        }
+
         // Saved entries don't record which caption track was used, so we
         // can't reliably pre-select the right language option (showing the
         // wrong one — e.g. the alphabetically-first "Abkhazian (auto)" — is
@@ -8993,6 +9001,51 @@
       } catch (err) {
         console.error('[echo] openSavedEntry network error:', err);
         showToast('error', 'Network error opening saved video: ' + err.message);
+      }
+    }
+
+    /* ==============================================
+       SAVED LIBRARY — LAZY CHANNEL BACKFILL
+       Pre-migration entries were saved before channel/channelUrl were
+       persisted. When one is opened, do a best-effort background lookup
+       + persist so the Follow-channel button works one-click from then on.
+       Must never throw into the caller — this is a pure background heal.
+    =============================================== */
+    async function backfillChannelForCurrent(entry) {
+      try {
+        const vid = currentMeta && currentMeta.videoId;
+        if (!vid) return;
+
+        const res = await fetch('/api/video-meta?videoId=' + encodeURIComponent(vid));
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        if (!data || !data.channelUrl) return;
+
+        // Guard against navigation races: bail if the user opened another
+        // video/entry while this lookup was in flight.
+        if (!currentMeta || currentMeta.videoId !== vid) return;
+
+        currentMeta.channel    = data.channel || currentMeta.channel;
+        currentMeta.channelUrl = data.channelUrl;
+        updateNowReading(); // reveals the Follow-channel button now that we have a URL
+
+        // Persist so this is a one-time heal — upsert preserves everything
+        // else on the entry, just adds the channel fields.
+        try {
+          await Library.saveEntry({
+            url:        entry.url,
+            videoId:    entry.videoId,
+            title:      entry.title,
+            segments:   entry.segments,
+            digest:     entry.digest,
+            channel:    currentMeta.channel,
+            channelUrl: currentMeta.channelUrl,
+          });
+        } catch (persistErr) {
+          console.debug('[echo] backfillChannelForCurrent: persist failed', persistErr);
+        }
+      } catch (err) {
+        console.debug('[echo] backfillChannelForCurrent failed', err);
       }
     }
 
