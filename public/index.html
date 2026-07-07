@@ -50,7 +50,9 @@
       --font-serif: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
       --font-mono:  'JetBrains Mono', 'Courier New', monospace;
 
-      --radius:   8px;
+      --radius:    8px;
+      --radius-sm: 6px;   /* small controls: buttons, chips, inputs, segmented toggles */
+      --control-h: 30px;  /* shared height for header + reader toolbar controls so they align */
       /* Outer page wrapper — wide enough to hold the widest reading
          column (Wide = 940px) plus breathing room. The top chrome
          (brand header, tagline, command bar, status, nudge) is pinned
@@ -103,6 +105,13 @@
 
     html {
       background: var(--paper);
+    }
+
+    /* Native form controls adopt the brand accent (checkboxes, radios, etc.)
+       so they don't render as the browser-default blue against the green UI. */
+    input[type="checkbox"],
+    input[type="radio"] {
+      accent-color: var(--accent);
     }
 
     body {
@@ -166,13 +175,30 @@
       flex-wrap: wrap;
     }
 
-    /* Top-right header cluster: Library destination + usage chip + theme + shortcuts */
+    /* Top-right header cluster: nav destinations + theme + settings + shortcuts.
+       Kept on a single non-wrapping row so the icon buttons never break to a
+       second line; the usage chip lives on the tagline row below, out of the
+       way, so long telemetry text can't push this cluster around. */
     .header-actions {
       display: flex;
       align-items: center;
       gap: 0.5rem;
       margin-left: auto;
+      flex-wrap: nowrap;
+    }
+
+    /* Tagline row: tagline on the left, usage telemetry pinned right. Wraps
+       gracefully on narrow screens (usage drops below the tagline). */
+    .site-subrow {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.75rem 1.25rem;
       flex-wrap: wrap;
+    }
+
+    .site-subrow .site-tagline {
+      margin: 0;
     }
 
     /* Library button — a distinct, tappable destination (not a lens tab) */
@@ -180,14 +206,15 @@
       display: inline-flex;
       align-items: center;
       gap: 0.4rem;
-      padding: 0.32rem 0.7rem;
+      min-height: var(--control-h);
+      padding: 0 0.75rem;
       font-family: var(--font-sans);
       font-size: 0.8rem;
       font-weight: 500;
       color: var(--ink);
       background: var(--surface);
       border: 1px solid var(--rule);
-      border-radius: var(--radius);
+      border-radius: var(--radius-sm);
       cursor: pointer;
       outline: none;
       white-space: nowrap;
@@ -546,9 +573,11 @@
        subordinate to the Transcript/Digest lens tabs above it --- */
     .view-toggle {
       display: inline-flex;
+      align-items: stretch;
+      min-height: var(--control-h);
       background: transparent;
       border: none;
-      border-radius: 6px;
+      border-radius: var(--radius-sm);
       overflow: hidden;
     }
 
@@ -556,7 +585,7 @@
       position: relative;
       display: flex;
       align-items: center;
-      padding: 0.3rem 0.65rem;
+      padding: 0 0.65rem;
       font-family: var(--font-sans);
       font-size: 0.72rem;
       font-weight: 500;
@@ -601,14 +630,18 @@
 
     /* --- AI Digest button --- */
     #digestBtn {
-      padding: 0.375rem 1rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: var(--control-h);
+      padding: 0 1rem;
       font-family: var(--font-sans);
       font-size: 0.8rem;
       font-weight: 500;
       color: var(--accent);
       background: transparent;
       border: 1px solid var(--accent);
-      border-radius: 6px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
       white-space: nowrap;
       outline: none;
@@ -1400,12 +1433,12 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 30px;
-      height: 30px;
+      width: var(--control-h);
+      height: var(--control-h);
       padding: 0;
       background: transparent;
       border: 1px solid var(--rule);
-      border-radius: var(--radius);
+      border-radius: var(--radius-sm);
       color: var(--muted);
       cursor: pointer;
       outline: none;
@@ -1493,14 +1526,18 @@
        17. MINI BUTTONS & ACTION ROW
     =============================================== */
     .mini-btn {
-      padding: 0.28rem 0.7rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: var(--control-h);
+      padding: 0 0.75rem;
       font-family: var(--font-sans);
       font-size: 0.755rem;
       font-weight: 500;
       color: var(--accent);
       background: transparent;
       border: 1px solid var(--rule);
-      border-radius: 6px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
       white-space: nowrap;
       outline: none;
@@ -1571,13 +1608,14 @@
     }
 
     #findInput {
-      padding: 0.28rem 0.75rem 0.28rem 1.85rem;
+      min-height: var(--control-h);
+      padding: 0 0.75rem 0 1.85rem;
       font-family: var(--font-sans);
       font-size: 0.795rem;
       color: var(--ink);
       background: var(--surface);
       border: 1px solid var(--rule);
-      border-radius: 6px;
+      border-radius: var(--radius-sm);
       outline: none;
       width: 100%;       /* fills the input-wrap, which itself is flex: 1 */
       min-width: 0;
@@ -1749,9 +1787,11 @@
     /* Mini segmented toggle — mirrors .view-toggle at a smaller scale */
     .digest-seg {
       display: inline-flex;
+      align-items: stretch;
+      min-height: var(--control-h);
       background: var(--surface);
       border: 1px solid var(--rule);
-      border-radius: 6px;
+      border-radius: var(--radius-sm);
       overflow: hidden;
     }
 
@@ -1759,7 +1799,7 @@
       position: relative;
       display: flex;
       align-items: center;
-      padding: 0.22rem 0.65rem;
+      padding: 0 0.65rem;
       font-family: var(--font-sans);
       font-size: 0.75rem;
       font-weight: 500;
@@ -1794,13 +1834,14 @@
     }
 
     #digestLangInput {
-      padding: 0.22rem 0.65rem;
+      min-height: var(--control-h);
+      padding: 0 0.65rem;
       font-family: var(--font-sans);
       font-size: 0.75rem;
       color: var(--ink);
       background: var(--surface);
       border: 1px solid var(--rule);
-      border-radius: 6px;
+      border-radius: var(--radius-sm);
       outline: none;
       width: 105px;
       transition: border-color 0.15s, box-shadow 0.15s;
@@ -2699,8 +2740,8 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 28px;
-      height: 28px;
+      width: var(--control-h);
+      height: var(--control-h);
       padding: 0;
       font-family: var(--font-sans);
       font-size: 0.82rem;
@@ -2708,7 +2749,7 @@
       color: var(--muted);
       background: transparent;
       border: 1px solid var(--rule);
-      border-radius: 5px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
       outline: none;
       transition: color 0.12s, border-color 0.12s, background 0.12s;
@@ -2734,9 +2775,11 @@
 
     .reading-measure-seg {
       display: inline-flex;
+      align-items: stretch;
+      min-height: var(--control-h);
       background: var(--surface);
       border: 1px solid var(--rule);
-      border-radius: 5px;
+      border-radius: var(--radius-sm);
       overflow: hidden;
     }
 
@@ -2744,7 +2787,7 @@
       position: relative;
       display: flex;
       align-items: center;
-      padding: 0.22rem 0.5rem;
+      padding: 0 0.6rem;
       font-family: var(--font-sans);
       font-size: 0.7rem;
       font-weight: 500;
@@ -3462,15 +3505,15 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 30px;
-      height: 30px;
+      width: var(--control-h);
+      height: var(--control-h);
       padding: 0;
       font-family: var(--font-mono);
       font-size: 0.82rem;
       font-weight: 600;
       background: transparent;
       border: 1px solid var(--rule);
-      border-radius: var(--radius);
+      border-radius: var(--radius-sm);
       color: var(--muted);
       cursor: pointer;
       outline: none;
@@ -3613,12 +3656,12 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 30px;
-      height: 30px;
+      width: var(--control-h);
+      height: var(--control-h);
       padding: 0;
       background: transparent;
       border: 1px solid var(--rule);
-      border-radius: var(--radius);
+      border-radius: var(--radius-sm);
       color: var(--muted);
       cursor: pointer;
       outline: none;
@@ -4427,11 +4470,6 @@
             <span class="library-btn-label">Research</span>
             <span id="researchCount" class="library-btn-count">0</span>
           </button>
-          <div
-            id="usageChip"
-            class="usage-chip"
-            title="Total Claude Code usage on this machine today (all projects, not just Echo)."
-          ></div>
           <button
             id="themeToggle"
             class="theme-toggle"
@@ -4454,7 +4492,14 @@
           >?</button>
         </div>
       </div>
-      <p class="site-tagline">Paste a YouTube link. Read what was <em>actually</em> said.</p>
+      <div class="site-subrow">
+        <p class="site-tagline">Paste a YouTube link. Read what was <em>actually</em> said.</p>
+        <div
+          id="usageChip"
+          class="usage-chip"
+          title="Total Claude Code usage on this machine today (all projects, not just Echo)."
+        ></div>
+      </div>
     </header>
 
     <!-- COMMAND BAR -->
