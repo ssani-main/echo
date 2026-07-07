@@ -6,7 +6,7 @@ import {
   extractVideoId,
   extractPlaylistId,
   fetchTranscript,
-  getVideoTitle,
+  getVideoMeta,
   listCaptionTracks,
   extractPlaylist,
 } from './transcript.js';
@@ -17,18 +17,28 @@ import {
   deleteEntry,
   setTags,
   searchLibrary,
+  buildLibraryFtsQuery,
+  addFollow,
+  removeFollow,
+  listFollows,
+  getSeenSet,
+  recordSeen,
+  touchChecked,
 } from './store.js';
 import { entryToMarkdown } from './markdown.js';
-import { startPlaylistDigest, getJob, cancelJob } from './playlistJob.js';
+import { syncVault } from './vault.js';
+import { startPlaylistDigest, startBatchDigest, getJob, cancelJob } from './playlistJob.js';
 import {
   generateDigest,
   askVideoQuestion,
   generateCrossDigest,
   enrich,
+  suggestTags,
+  askLibrary,
 } from './digest.js';
 import { getTodayUsage } from './usage.js';
 import { logEvent, errLabel } from './usagelog.js';
-import { searchVideos, forYou } from './discovery.js';
+import { searchVideos, forYou, normalizeChannel, enumerateChannelUploads } from './discovery.js';
 import { validateApiKey } from './providers.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -431,7 +441,7 @@ app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
   const t0 = Date.now();
   try {
     const segments = await fetchTranscript(videoId, { lang });
-    const title = await getVideoTitle(videoId);
+    const { title, channel, channelUrl } = await getVideoMeta(videoId);
     // `langUsed` is stamped onto the segments array by fetchTranscript() and
     // reflects the caption track actually loaded (not just what was asked
     // for) — the language picker uses this to pre-select the right option.
@@ -451,7 +461,7 @@ app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
 
     const chars = segments.reduce((sum, s) => sum + String(s.text || '').length, 0);
     logEvent('transcript', { videoId, chars, langCode, ok: true, ms: Date.now() - t0 });
-    return res.json({ videoId, url: req.body.url, title, segments, langCode });
+    return res.json({ videoId, url: req.body.url, title, channel, channelUrl, segments, langCode });
   } catch (err) {
     logEvent('transcript', { videoId, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);
@@ -562,6 +572,29 @@ app.post('/api/playlist/digest/cancel', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Batch digest (multi-paste queue) — local/desktop only. Reuses the same
+// job status/cancel routes as playlist digest above (job shape is identical,
+// distinguished only by `job.kind === 'batch'`).
+// ---------------------------------------------------------------------------
+
+const ECHO_MAX_BATCH_ITEMS = numFromEnv('ECHO_MAX_BATCH_ITEMS', 50, { min: 1 });
+
+app.post('/api/batch/digest', blockInWeb, (req, res) => {
+  const { items, length, format, language, lang, skipExisting } = req.body;
+  if (!Array.isArray(items) || items.length === 0) {
+    return sendError(res, 'INTERNAL', 'A non-empty list of URLs or video IDs is required.', '', 400);
+  }
+  const t0 = Date.now();
+  try {
+    const { jobId } = startBatchDigest(items, { length, format, language, lang, skipExisting, maxItems: ECHO_MAX_BATCH_ITEMS });
+    logEvent('batch-digest', { ok: true, ms: Date.now() - t0 });
+    return res.status(202).json({ jobId });
+  } catch (err) {
+    return sendCaughtError(res, err);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Digest
 // ---------------------------------------------------------------------------
 
@@ -618,6 +651,33 @@ app.post('/api/chat', webLimit(20, 60_000), async (req, res) => {
     return res.json(result);
   } catch (err) {
     logEvent('ask', { videoId: videoId || null, qLen: (question || '').length, ok: false, err: errLabel(err), ms: Date.now() - t0 });
+    return sendCaughtError(res, err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Tag suggestion
+// ---------------------------------------------------------------------------
+
+app.post('/api/tags/suggest', webLimit(20, 60_000), async (req, res) => {
+  const { digest, transcriptExcerpt, language, lang, videoId } = req.body;
+  const material = digest || transcriptExcerpt;
+  if (!requireText(res, material, 'digest or transcriptExcerpt is required.')) return;
+  if (rejectOversizeAiPayload(res, { text: material })) return;
+  if (requireWebKey(req, res)) return;
+  const t0 = Date.now();
+  try {
+    const result = await suggestTags(material, { apiKey: readApiKey(req), language: language || lang });
+    logEvent('tags-suggest', {
+      videoId: videoId || null,
+      chars: (material || '').length,
+      tagCount: Array.isArray(result.tags) ? result.tags.length : 0,
+      costUsd: result.usage && result.usage.costUsd,
+      ok: true, ms: Date.now() - t0,
+    });
+    return res.json(result);
+  } catch (err) {
+    logEvent('tags-suggest', { videoId: videoId || null, chars: (material || '').length, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);
   }
 });
@@ -765,6 +825,42 @@ app.get('/api/saved/:videoId/export.md', blockInWeb, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/vault/sync
+ * Writes the full saved library to a folder on disk as one Markdown file
+ * per entry (Obsidian-friendly). Blocked in web mode — hosted instances
+ * have no writable/durable filesystem to sync into; the frontend there
+ * should use the existing ZIP export instead.
+ * Body: { dir?: string, includeTranscript?: boolean }
+ */
+app.post('/api/vault/sync', blockInWeb, async (req, res) => {
+  const { dir, includeTranscript } = req.body || {};
+  const resolvedDir = (typeof dir === 'string' && dir.trim()) ? dir.trim() : process.env.ECHO_VAULT_DIR;
+
+  if (!resolvedDir) {
+    return sendError(
+      res,
+      'INVALID_URL',
+      'No vault folder configured.',
+      'Choose a folder in Settings, or set ECHO_VAULT_DIR.',
+      400
+    );
+  }
+
+  const t0 = Date.now();
+  try {
+    const result = await syncVault(resolvedDir, { includeTranscript });
+    logEvent('vault-sync', {
+      total: result.total, written: result.written, unchanged: result.unchanged, failed: result.failed,
+      ok: true, ms: Date.now() - t0,
+    });
+    res.json(result);
+  } catch (err) {
+    logEvent('vault-sync', { ok: false, err: errLabel(err), ms: Date.now() - t0 });
+    sendCaughtError(res, err);
+  }
+});
+
 app.post('/api/saved', blockInWeb, async (req, res) => {
   const t0 = Date.now();
   try {
@@ -861,6 +957,89 @@ app.post('/api/cross-digest', webLimit(20, 60_000), async (req, res) => {
     return res.json({ digest, stats: usage });
   } catch (err) {
     logEvent('cross-digest', { nVideos: entries.length, ok: false, err: errLabel(err), ms: Date.now() - t0 });
+    return sendCaughtError(res, err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Ask across your library (cross-video RAG)
+// ---------------------------------------------------------------------------
+
+// Number of candidates to retrieve server-side (local/desktop mode) via FTS5
+// when the client doesn't already supply pre-retrieved candidates itself.
+const ECHO_LIBRARY_ASK_K = numFromEnv('ECHO_LIBRARY_ASK_K', 5, { min: 1 });
+
+// Max chars of transcript excerpt to build for a library-ask candidate that
+// has no saved digest — mirrors the excerpt cap used elsewhere for AI prompts.
+const LIBRARY_ASK_EXCERPT_CHARS = 3000;
+
+app.post('/api/library/ask', webLimit(20, 60_000), async (req, res) => {
+  const { question, candidates: inlineCandidates, language, lang } = req.body;
+
+  if (!requireText(res, question, 'question is required.')) return;
+
+  let candidates;
+
+  if (Array.isArray(inlineCandidates) && inlineCandidates.length > 0) {
+    // Web mode: the client already retrieved candidates from its client-side
+    // IndexedDB library and sends them inline.
+    candidates = inlineCandidates.map((c) => ({
+      videoId: String((c && c.videoId) || ''),
+      title: String((c && c.title) || ''),
+      digest: c && typeof c.digest === 'string' ? c.digest.trim() : undefined,
+      excerpt: c && typeof c.excerpt === 'string' ? c.excerpt.trim() : undefined,
+    }));
+  } else {
+    // Local/desktop mode: retrieve candidates ourselves via the server-side
+    // FTS5 library store.
+    const hits = await searchLibrary(buildLibraryFtsQuery(question), ECHO_LIBRARY_ASK_K);
+
+    if (hits.length === 0) {
+      return res.json({ answer: '', citations: [], usage: {}, truncated: false, empty: true });
+    }
+
+    candidates = hits.map((entry) => {
+      const title = entry.title || entry.videoId;
+      const hasDigest = Boolean(entry.digest && entry.digest.trim());
+      let excerpt;
+      if (!hasDigest) {
+        const transcriptText = Array.isArray(entry.segments)
+          ? entry.segments
+              .map((s) => (s.text || '').replace(/\s+/g, ' ').trim())
+              .filter(Boolean)
+              .join(' ')
+          : '';
+        excerpt = transcriptText.slice(0, LIBRARY_ASK_EXCERPT_CHARS);
+      }
+      return {
+        videoId: entry.videoId,
+        title,
+        digest: hasDigest ? entry.digest : undefined,
+        excerpt,
+      };
+    });
+  }
+
+  const combinedText = candidates.map((c) => c.digest || c.excerpt || '').join(' ');
+  if (rejectOversizeAiPayload(res, { text: combinedText })) return;
+  if (requireWebKey(req, res)) return;
+
+  const t0 = Date.now();
+  try {
+    const result = await askLibrary(question, candidates, {
+      apiKey: readApiKey(req),
+      language: language || lang,
+    });
+    logEvent('library-ask', {
+      nCandidates: candidates.length,
+      nCitations: result.citations.length,
+      truncated: result.truncated,
+      costUsd: result.usage && result.usage.costUsd,
+      ok: true, ms: Date.now() - t0,
+    });
+    return res.json(result);
+  } catch (err) {
+    logEvent('library-ask', { nCandidates: candidates.length, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);
   }
 });
@@ -975,6 +1154,125 @@ app.get('/api/discovery/foryou', blockInWeb, async (_req, res) => {
     const { results, basedOn } = await forYou(saved);
     logEvent('discovery-foryou', { n: results.length, basedOn, ms: Date.now() - t0, ok: true });
     res.json({ results, basedOn });
+  } catch (err) {
+    sendCaughtError(res, err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Channel / creator following — local/desktop only (no yt-dlp/discovery in
+// hosted web mode). Lets the user follow a channel and get notified of new
+// uploads it hasn't seen yet without re-crawling the whole channel.
+// ---------------------------------------------------------------------------
+
+const ECHO_MAX_FOLLOWS    = numFromEnv('ECHO_MAX_FOLLOWS', 25, { min: 1 });
+const ECHO_FOLLOW_UPLOADS = numFromEnv('ECHO_FOLLOW_UPLOADS', 10, { min: 1 });
+
+/**
+ * GET /api/follows
+ * List all followed channels.
+ */
+app.get('/api/follows', blockInWeb, async (_req, res) => {
+  try {
+    const follows = await listFollows();
+    res.json({ follows });
+  } catch (err) {
+    sendCaughtError(res, err);
+  }
+});
+
+/**
+ * POST /api/follows  body: { url, title? }
+ * Follow a channel by URL/handle.
+ */
+app.post('/api/follows', blockInWeb, async (req, res) => {
+  const { url, title } = req.body || {};
+  if (!requireText(res, url, 'url is required.')) return;
+
+  try {
+    const { channelId, url: canonicalUrl } = normalizeChannel(url);
+    const follow = await addFollow({ channelId, title: title || null, url: canonicalUrl });
+    res.status(201).json({ follow });
+  } catch (err) {
+    sendCaughtError(res, err);
+  }
+});
+
+/**
+ * DELETE /api/follows/:channelId
+ * Unfollow a channel (also clears its seen-video history).
+ */
+app.delete('/api/follows/:channelId', blockInWeb, async (req, res) => {
+  try {
+    const ok = await removeFollow(req.params.channelId);
+    if (!ok) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
+    res.json({ ok: true });
+  } catch (err) {
+    sendCaughtError(res, err);
+  }
+});
+
+/**
+ * GET /api/follows/inbox
+ * For each followed channel, enumerate recent uploads and diff against
+ * what's already been seen. Resilient to per-channel yt-dlp failures —
+ * a failing channel is reported with an `error` field rather than failing
+ * the whole request. Does NOT mark anything as seen (listing only).
+ */
+app.get('/api/follows/inbox', blockInWeb, async (_req, res) => {
+  const t0 = Date.now();
+  try {
+    const follows = (await listFollows()).slice(0, ECHO_MAX_FOLLOWS);
+
+    const channels = await Promise.all(follows.map(async (follow) => {
+      const base = {
+        channelId: follow.channelId,
+        title: follow.title,
+        url: follow.url,
+        lastCheckedAt: follow.lastCheckedAt,
+      };
+      try {
+        const [uploads, seen] = await Promise.all([
+          enumerateChannelUploads(follow.url, ECHO_FOLLOW_UPLOADS),
+          getSeenSet(follow.channelId),
+        ]);
+        const unseen = uploads
+          .filter((u) => !seen.has(u.videoId))
+          .map((u) => ({ videoId: u.videoId, title: u.title }));
+        return { ...base, unseen };
+      } catch (err) {
+        return { ...base, unseen: [], error: err.message || 'Failed to check channel.' };
+      }
+    }));
+
+    logEvent('follows-inbox', {
+      nChannels: channels.length,
+      nUnseen: channels.reduce((sum, c) => sum + c.unseen.length, 0),
+      ms: Date.now() - t0,
+      ok: true,
+    });
+    res.json({ channels });
+  } catch (err) {
+    logEvent('follows-inbox', { ok: false, err: errLabel(err), ms: Date.now() - t0 });
+    sendCaughtError(res, err);
+  }
+});
+
+/**
+ * POST /api/follows/seen  body: { channelId, videoIds: string[] }
+ * Mark a batch of uploads as seen/acknowledged for a channel.
+ */
+app.post('/api/follows/seen', blockInWeb, async (req, res) => {
+  const { channelId, videoIds } = req.body || {};
+  if (!requireText(res, channelId, 'channelId is required.')) return;
+  if (!Array.isArray(videoIds)) {
+    return sendError(res, 'INTERNAL', 'videoIds must be an array.', '', 400);
+  }
+
+  try {
+    await recordSeen(channelId, videoIds);
+    await touchChecked(channelId);
+    res.json({ ok: true });
   } catch (err) {
     sendCaughtError(res, err);
   }

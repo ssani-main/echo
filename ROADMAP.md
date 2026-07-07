@@ -6,6 +6,8 @@
 > Anti-goal: don't re-bloat the app. The recent feature cut (embeddings, clips, notes, favorites, highlights)
 > was correct. Only ship features that earn their place in the core loop: *paste → transcript → digest → library*.
 
+**Implementation status (2026-07-07):** Features A1, C2, C1, B1, A2 are **implemented and runtime-verified** on the dev tree (tests 204/204 green, security-scanned). B2 (TTS read-aloud) was **intentionally dropped** at user request ("I just want to read it"). See annotations in each section below for key deviations (dedicated endpoint for C2, A2 local/desktop-only, C1's FTS query builder).
+
 ## Mode cheat-sheet (the design filter)
 
 | | local (default) | desktop (Tauri) | web (hosted BYOK) |
@@ -35,9 +37,11 @@ client-side or degrades to on-demand. Call out the split per feature below rathe
 
 # A — Ingestion
 
-## A1. Multi-paste queue  ·  effort: LOW  ·  priority: 2
+## A1. Multi-paste queue  ·  effort: LOW  ·  priority: 2  ·  ✅ Implemented 2026-07-07
 
 **Goal:** paste many URLs/IDs at once → dedupe against library → run transcript→digest as a tracked queue.
+
+**Implementation note:** `startBatchDigest(items, opts, deps)` in `playlistJob.js`; `POST /api/batch/digest` returns `kind:'batch'` job reusing playlist status/cancel routes; frontend "＋ Paste many" overlay; web mode client-drives queue, capped at 5; env `ECHO_MAX_BATCH_ITEMS` (default 50).
 
 **Reuse:** `playlistJob.js` is already exactly this pattern. Generalize it from "playlist videos" to
 "arbitrary list of URLs." `transcript.js` already extracts IDs from mixed URL/ID input.
@@ -62,10 +66,12 @@ client-side or degrades to on-demand. Call out the split per feature below rathe
 - Auto-save each digested item, or stage them for review first? (Lean: auto-save in local/desktop, stage in web.)
 - Concurrency: keep serial (1 at a time) to stay under CLI/BYOK limits, or small pool? (Lean: serial first.)
 
-## A2. Channel / creator following  ·  effort: MEDIUM–HIGH  ·  priority: 6
+## A2. Channel / creator following  ·  effort: MEDIUM–HIGH  ·  priority: 6  ·  ✅ Implemented 2026-07-07 (local/desktop only)
 
 **Goal:** "Follow a channel" → periodically pull latest N uploads → surface *new* ones in an inbox.
 This is what turns Echo from a converter into a **replacement for watching**.
+
+**Implementation note:** `follows` + `follow_seen` tables; `GET/POST/DELETE /api/follows`, `GET /api/follows/inbox`, `POST /api/follows/seen`; discovery.js `normalizeChannel()` + `enumerateChannelUploads()` (15-min TTL); Inbox pane with per-channel badges; one-click Follow on Discovery cards + loaded video channel; **web mode hides Inbox/Follow after cost-sink hardening** (keyless yt-dlp discovery no longer available in web); env `ECHO_MAX_FOLLOWS` (25), `ECHO_FOLLOW_UPLOADS` (10).
 
 **Reuse:** yt-dlp already enumerates channel/playlist videos (`discovery.js` / `transcript.js` playlist path).
 
@@ -101,10 +107,12 @@ This is what turns Echo from a converter into a **replacement for watching**.
 
 # B — Interop / Export out
 
-## B1. Markdown vault sync (Obsidian-style)  ·  effort: LOW–MEDIUM  ·  priority: 5
+## B1. Markdown vault sync (Obsidian-style)  ·  effort: LOW–MEDIUM  ·  priority: 5  ·  ✅ Implemented 2026-07-07
 
 **Goal:** point Echo at a folder → write one `.md` per saved video (frontmatter + digest + transcript),
 tags as `#tags` / backlinks. Turns the library into an Obsidian/Logseq-compatible vault.
+
+**Implementation note:** New module `vault.js` (`syncVault(dir, opts)`, `slugify()`); `POST /api/vault/sync` (blockInWeb); idempotent filenames `<slug>-<videoId>.md`; Settings folder-path field + "Sync to vault" button + last-synced indicator; web degrades to ZIP export; env `ECHO_VAULT_DIR`; `vault.js` added to `src-tauri/tauri.conf.json` `bundle.resources` (guarded by `tests/tauri-bundle.test.js`).
 
 **Reuse:** `markdown.js` already emits YAML-frontmatter Markdown per entry. This is mostly a *destination*.
 
@@ -129,10 +137,12 @@ tags as `#tags` / backlinks. Turns the library into an Obsidian/Logseq-compatibl
 - One-way (Echo → vault) only for v1. Two-way sync is out of scope (too complex, low value).
 - Tag format: `#tag` inline vs YAML `tags: []`. (Lean: YAML frontmatter — Obsidian reads both.)
 
-## B2. Read-aloud / TTS  ·  effort: LOW  ·  priority: 1  ·  ⭐ best cross-mode ROI
+## B2. Read-aloud / TTS  ·  effort: LOW  ·  priority: 1  ·  ⭐ best cross-mode ROI  ·  🚫 Dropped 2026-07-07
 
 **Goal:** listen to the digest (or transcript) instead of reading. Directly serves the "don't watch video"
 audience who'd also rather not stare at text — commuters, accessibility.
+
+**Status:** User explicitly declined this feature ("I just want to read it"). Implementation blocked by user decision, not technical constraint; browser `SpeechSynthesis` API was ready-to-use.
 
 **Reuse:** nothing needed — browser `SpeechSynthesis` (Web Speech API) is client-side, offline, keyless.
 
@@ -154,10 +164,12 @@ This is why it's #1.
 
 # C — Library as knowledge base
 
-## C1. Ask-across-library (RAG over saved videos)  ·  effort: MEDIUM  ·  priority: 4
+## C1. Ask-across-library (RAG over saved videos)  ·  effort: MEDIUM  ·  priority: 4  ·  ✅ Implemented 2026-07-07
 
 **Goal:** "What has my library said about X?" → retrieve candidate saved videos → synthesize one answer
 with per-video citations. Extends single-video `ask` and manual `cross-digest` into a real second-brain query.
+
+**Implementation note:** `POST /api/library/ask`; digest.js `askLibrary(question, candidates, opts)` synthesizes answer + citations with context budgeting; store.js `buildLibraryFtsQuery()` converts natural-language question to OR-of-quoted-terms FTS5 MATCH (raw questions ANDed stopwords → zero recall); frontend "Ask your library" bar with answer card + clickable citation chips; env `ECHO_LIBRARY_ASK_K` (default 5).
 
 **Reuse:** FTS5 retrieval (`store.js`), retrieval-lite scoring (`digest.js`), synthesis prompt shape
 (cross-digest in `digest.js`). All primitives exist — this is glue.
@@ -184,10 +196,12 @@ with per-video citations. Extends single-video `ask` and manual `cross-digest` i
 - How many candidate videos to feed? Start K=5, cap total context, note truncation in the UI (no silent caps).
 - Cite by video title + timestamp if we can locate the supporting segment; else video-level citation.
 
-## C2. Auto-tagging on save  ·  effort: LOW  ·  priority: 3
+## C2. Auto-tagging on save  ·  effort: LOW  ·  priority: 3  ·  ✅ Implemented 2026-07-07
 
 **Goal:** generate 3–5 tags automatically from the digest at save time. Today tags are manual, so most
 saves have none — which starves Discovery and any future clustering (and C1's retrieval).
+
+**Implementation note:** Dedicated `POST /api/tags/suggest` endpoint (webLimit + requireWebKey) to avoid coupling to generateDigest output contract; digest.js `suggestTags(material, opts)` returns 3–5 normalized lowercase tags; frontend best-effort auto-suggest after save + Settings toggle "Auto-suggest tags on save" (localStorage `echo-auto-tags`; default ON local/desktop, OFF web).
 
 **Reuse:** tags plumbing exists (`tags` table, `PATCH /api/saved/:id/tags`). Just need generation.
 

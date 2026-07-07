@@ -256,6 +256,21 @@ export async function fetchWithRetry(fetcher, videoId, lang, retryDelaysMs = DEF
  * Returns the title string, or null on any error (never throws).
  */
 export async function getVideoTitle(videoId) {
+  const meta = await getVideoMeta(videoId);
+  return meta.title;
+}
+
+/**
+ * Look up title + channel metadata for a YouTube video via the oEmbed API
+ * (no API key required, single request — the same one getVideoTitle used to
+ * make). oEmbed's response already includes `author_name`/`author_url`
+ * (the uploading channel's name and canonical URL), so this reuses that one
+ * call rather than spawning a second yt-dlp/network request just for the
+ * channel link.
+ * Returns { title, channel, channelUrl } — any field is null on failure/absence,
+ * this never throws.
+ */
+export async function getVideoMeta(videoId) {
   const oEmbedUrl =
     `https://www.youtube.com/oembed?url=${encodeURIComponent(
       'https://www.youtube.com/watch?v=' + videoId
@@ -267,12 +282,16 @@ export async function getVideoTitle(videoId) {
   try {
     const response = await fetch(oEmbedUrl, { signal: controller.signal });
     clearTimeout(timer);
-    if (!response.ok) return null;
+    if (!response.ok) return { title: null, channel: null, channelUrl: null };
     const data = await response.json();
-    return data.title || null;
+    return {
+      title: data.title || null,
+      channel: data.author_name || null,
+      channelUrl: data.author_url || null,
+    };
   } catch {
     clearTimeout(timer);
-    return null;
+    return { title: null, channel: null, channelUrl: null };
   }
 }
 

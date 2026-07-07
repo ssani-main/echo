@@ -46,6 +46,7 @@
       "../transcript.js": "transcript.js",
       "../store.js": "store.js",
       "../markdown.js": "markdown.js",
+      "../vault.js": "vault.js",
       "../playlistJob.js": "playlistJob.js",
       "../sanitize.js": "sanitize.js",
       "../usage.js": "usage.js",

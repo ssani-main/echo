@@ -53,11 +53,30 @@ function entryToCard(entry) {
     url: `https://www.youtube.com/watch?v=${videoId}`,
     title: entry.title || '',
     channel: entry.channel || entry.uploader || '',
+    channelUrl: resolveChannelUrl(entry),
     duration,
     durationText: formatDuration(duration),
     views: typeof entry.view_count === 'number' ? entry.view_count : null,
     thumbnail,
   };
+}
+
+/**
+ * Resolve the best available canonical channel URL from a yt-dlp entry.
+ * Flat-playlist search results don't always carry all of these fields, so
+ * this falls back through channel_url -> uploader_url -> channel_id in
+ * priority order and returns null (not a throw) when none are present.
+ * @param {object} entry
+ * @returns {string|null}
+ */
+function resolveChannelUrl(entry) {
+  if (!entry) return null;
+  if (typeof entry.channel_url === 'string' && entry.channel_url) return entry.channel_url;
+  if (typeof entry.uploader_url === 'string' && entry.uploader_url) return entry.uploader_url;
+  if (typeof entry.channel_id === 'string' && entry.channel_id) {
+    return `https://www.youtube.com/channel/${entry.channel_id}`;
+  }
+  return null;
 }
 
 /**
@@ -192,4 +211,147 @@ export async function forYou(savedItems, { n = 24 } = {}) {
   }
 
   return { results, basedOn };
+}
+
+// ---------------------------------------------------------------------------
+// Channel / creator following
+// ---------------------------------------------------------------------------
+
+// Cache of enumerated channel uploads, keyed by the canonical channel URL.
+// Avoids re-spawning yt-dlp for every follow on every inbox poll.
+const CHANNEL_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const channelCache = new Map(); // channelUrl -> { ts: number, data: Array<object> }
+
+/**
+ * Parse a raw channel reference (full URL, handle, or partial path) into a
+ * stable channelId and a canonical uploads URL suitable for yt-dlp.
+ *
+ * Accepted forms:
+ *   https://www.youtube.com/channel/UCxxxxxxxx[/videos]
+ *   https://www.youtube.com/@handle[/videos]
+ *   https://www.youtube.com/c/name[/videos]
+ *   https://www.youtube.com/user/name[/videos]
+ *   @handle
+ *
+ * @param {string} input
+ * @returns {{ channelId: string, url: string }}
+ */
+export function normalizeChannel(input) {
+  const raw = typeof input === 'string' ? input.trim() : '';
+  if (!raw) {
+    const e = new Error('A channel URL or @handle is required.');
+    e.echoCode = 'INVALID_URL';
+    throw e;
+  }
+
+  const fail = () => {
+    const e = new Error('Could not recognize a YouTube channel in that input.');
+    e.echoCode = 'INVALID_URL';
+    throw e;
+  };
+
+  // Bare handle, e.g. "@handle"
+  if (/^@[\w.-]+$/.test(raw)) {
+    const handle = raw.toLowerCase();
+    return { channelId: handle, url: `https://www.youtube.com/${handle}/videos` };
+  }
+
+  let parsed;
+  try {
+    // Allow bare domains/handles without a scheme.
+    parsed = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+  } catch {
+    return fail();
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (!/(^|\.)youtube\.com$/.test(host) && host !== 'youtu.be') {
+    return fail();
+  }
+
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  if (segments.length === 0) return fail();
+
+  // /channel/UC...
+  if (segments[0] === 'channel' && segments[1]) {
+    const channelId = segments[1];
+    return { channelId, url: `https://www.youtube.com/channel/${channelId}/videos` };
+  }
+
+  // /@handle[/videos]
+  if (segments[0].startsWith('@')) {
+    const handle = segments[0].toLowerCase();
+    return { channelId: handle, url: `https://www.youtube.com/${handle}/videos` };
+  }
+
+  // /c/name or /user/name — no stable UC id available from the URL alone;
+  // use a normalized form of the path as the channelId.
+  if ((segments[0] === 'c' || segments[0] === 'user') && segments[1]) {
+    const name = segments[1].toLowerCase();
+    const channelId = `${segments[0]}/${name}`;
+    return { channelId, url: `https://www.youtube.com/${segments[0]}/${name}/videos` };
+  }
+
+  return fail();
+}
+
+/**
+ * Enumerate the most recent uploads for a channel via yt-dlp (flat-playlist,
+ * keyless). Results are cached per channelUrl for CHANNEL_CACHE_TTL_MS to
+ * avoid hammering yt-dlp on every inbox poll; pass { force: true } to bypass.
+ *
+ * @param {string} channelUrl  Canonical uploads URL (from normalizeChannel)
+ * @param {number} [limit=10]
+ * @param {{ force?: boolean }} [opts]
+ * @returns {Promise<Array<{ videoId: string, title: string, channel?: string }>>}
+ */
+export async function enumerateChannelUploads(channelUrl, limit = 10, { force = false } = {}) {
+  const count = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 50);
+  const now = Date.now();
+
+  if (!force) {
+    const cached = channelCache.get(channelUrl);
+    if (cached && (now - cached.ts) < CHANNEL_CACHE_TTL_MS) {
+      return cached.data.slice(0, count);
+    }
+  }
+
+  let stdout;
+  try {
+    ({ stdout } = await execFileAsync(
+      'yt-dlp',
+      [channelUrl, '--flat-playlist', '--playlist-end', String(count), '-J', '--no-warnings'],
+      { maxBuffer: YTDLP_MAX_BUFFER, timeout: YTDLP_TIMEOUT_MS }
+    ));
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      const e = new Error('yt-dlp is not installed or not on PATH.');
+      e.echoCode = 'YTDLP_MISSING';
+      e.hint = 'Install yt-dlp: `pip install yt-dlp` or `winget install yt-dlp`.';
+      throw e;
+    }
+    throw err;
+  }
+
+  let data;
+  try {
+    data = JSON.parse(stdout);
+  } catch (err) {
+    throw new Error(`Failed to parse yt-dlp channel output: ${err.message}`);
+  }
+
+  const entries = Array.isArray(data?.entries) ? data.entries : [];
+  const uploads = [];
+  for (const entry of entries) {
+    if (!entry || !entry.id) continue;
+    uploads.push({
+      videoId: entry.id,
+      title: entry.title || '',
+      channel: entry.channel || entry.uploader || '',
+    });
+    if (uploads.length >= count) break;
+  }
+
+  channelCache.set(channelUrl, { ts: now, data: uploads });
+  return uploads;
 }

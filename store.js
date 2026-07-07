@@ -52,6 +52,23 @@ db.exec(`
     transcript_text,
     digest
   );
+
+  CREATE TABLE IF NOT EXISTS follows (
+    channelId     TEXT PRIMARY KEY,
+    title         TEXT,
+    url           TEXT NOT NULL,
+    addedAt       TEXT NOT NULL,
+    lastCheckedAt TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS follow_seen (
+    channelId TEXT NOT NULL,
+    videoId   TEXT NOT NULL,
+    seenAt    TEXT NOT NULL,
+    UNIQUE(channelId, videoId)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_follow_seen_channel ON follow_seen(channelId);
 `);
 
 // ---------------------------------------------------------------------------
@@ -390,5 +407,134 @@ export async function searchLibrary(query, limit = 20) {
     // Tolerate malformed FTS queries gracefully (bad operators, special chars)
     return [];
   }
+}
+
+// Small English stopword set used to strip low-signal tokens from natural-
+// language questions before they're used as an FTS5 MATCH query. FTS5 ANDs
+// all bareword tokens together, so leaving stopwords in ("what is about in")
+// can force zero matches even when the library clearly has relevant content.
+const FTS_STOPWORDS = new Set([
+  'what', 'is', 'are', 'the', 'a', 'an', 'of', 'to', 'in', 'on', 'for',
+  'and', 'or', 'about', 'does', 'do', 'did', 'how', 'why', 'this', 'that',
+  'with', 'from', 'your', 'my',
+]);
+
+/**
+ * Build a safe, relevance-oriented FTS5 MATCH query from free-form text
+ * (e.g. a natural-language question). Tokenizes on unicode word characters,
+ * drops very short tokens and common English stopwords, quotes each
+ * remaining token as an FTS5 phrase (avoiding syntax errors from special
+ * characters), and OR-joins them for good recall (FTS5 `rank` still orders
+ * results by relevance). Falls back to an unfiltered OR-joined query, and
+ * finally to the raw trimmed text, if stripping leaves nothing usable.
+ *
+ * Does not alter searchLibrary()'s own semantics — callers opt into this by
+ * passing its output as the `query` argument.
+ *
+ * @param {string} text - raw user input (question, phrase, keywords, etc.)
+ * @returns {string} an FTS5 query string
+ */
+export function buildLibraryFtsQuery(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return '';
+
+  const tokens = raw.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+  const filtered = tokens.filter((t) => t.length > 2 && !FTS_STOPWORDS.has(t));
+
+  if (filtered.length > 0) {
+    return filtered.map((t) => `"${t}"`).join(' OR ');
+  }
+
+  if (tokens.length > 0) {
+    return tokens.map((t) => `"${t}"`).join(' OR ');
+  }
+
+  return raw;
+}
+
+// ---------------------------------------------------------------------------
+// Channel / creator following
+// ---------------------------------------------------------------------------
+
+/**
+ * Upsert a followed channel. Preserves the original addedAt on repeat calls
+ * (e.g. re-adding a channel with an updated title), only refreshing
+ * title/url. Returns the resulting follow row.
+ *
+ * @param {{ channelId: string, title?: string|null, url: string }} params
+ */
+export async function addFollow({ channelId, title, url }) {
+  const now = new Date().toISOString();
+  const existing = db.prepare('SELECT * FROM follows WHERE channelId = ?').get(channelId);
+
+  if (!existing) {
+    db.prepare(`
+      INSERT INTO follows (channelId, title, url, addedAt, lastCheckedAt)
+      VALUES (?, ?, ?, ?, NULL)
+    `).run(channelId, title || null, url, now);
+  } else {
+    db.prepare(`
+      UPDATE follows SET title = ?, url = ? WHERE channelId = ?
+    `).run(title || existing.title || null, url, channelId);
+  }
+
+  return db.prepare('SELECT * FROM follows WHERE channelId = ?').get(channelId);
+}
+
+/**
+ * Remove a followed channel and its seen-video history.
+ * Returns true if a follow was removed, false if it wasn't found.
+ */
+export async function removeFollow(channelId) {
+  const result = db.prepare('DELETE FROM follows WHERE channelId = ?').run(channelId);
+  if (result.changes === 0) return false;
+  db.prepare('DELETE FROM follow_seen WHERE channelId = ?').run(channelId);
+  return true;
+}
+
+/**
+ * Return all followed channels, oldest-followed first.
+ */
+export async function listFollows() {
+  return db.prepare('SELECT * FROM follows ORDER BY addedAt ASC').all();
+}
+
+/**
+ * Return the set of videoIds already seen (surfaced/acknowledged) for a
+ * given followed channel.
+ * @returns {Promise<Set<string>>}
+ */
+export async function getSeenSet(channelId) {
+  const rows = db.prepare('SELECT videoId FROM follow_seen WHERE channelId = ?').all(channelId);
+  return new Set(rows.map((r) => r.videoId));
+}
+
+/**
+ * Record a batch of videoIds as seen for a given channel. Deduplicates
+ * against existing rows (INSERT OR IGNORE on the UNIQUE constraint) and
+ * against duplicates within the input array itself.
+ * @param {string} channelId
+ * @param {string[]} videoIds
+ */
+export async function recordSeen(channelId, videoIds) {
+  const ids = Array.isArray(videoIds) ? videoIds : [];
+  const now = new Date().toISOString();
+  const insert = db.prepare(
+    'INSERT OR IGNORE INTO follow_seen (channelId, videoId, seenAt) VALUES (?, ?, ?)'
+  );
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  for (const videoId of uniqueIds) {
+    insert.run(channelId, videoId, now);
+  }
+  return uniqueIds.length;
+}
+
+/**
+ * Update a followed channel's lastCheckedAt timestamp to now.
+ */
+export async function touchChecked(channelId) {
+  const now = new Date().toISOString();
+  db.prepare('UPDATE follows SET lastCheckedAt = ? WHERE channelId = ?').run(now, channelId);
+  return now;
 }
 

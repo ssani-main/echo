@@ -688,12 +688,54 @@
       cursor: default;
     }
 
+    /* Inline panel opened by #followChannelBtn to confirm/paste a channel
+       URL — we don't have the loaded video's channel URL client-side, so
+       this stands in for a one-click follow. */
+    .follow-channel-panel {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      padding: 0.7rem 0.9rem;
+      margin: -0.5rem 0 1rem;
+    }
+
+    /* [hidden] must beat the unconditional display:flex above (author display overrides the UA [hidden] rule) */
+    .follow-channel-panel[hidden] { display: none; }
+
+    .follow-channel-panel input[type="text"] {
+      flex: 1 1 180px;
+      min-width: 140px;
+      padding: 0.35rem 0.55rem;
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      color: var(--ink);
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      outline: none;
+    }
+
+    .follow-channel-panel input[type="text"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .follow-channel-panel .saved-status-msg {
+      flex-basis: 100%;
+      margin: 0;
+    }
+
     @media (max-width: 520px) {
       .header-save-btn {
         padding: 0.4rem 0.6rem;
       }
       /* Collapse to an icon-only pill on very narrow screens to protect the title */
-      .header-save-btn #saveBtnLabel {
+      .header-save-btn #saveBtnLabel,
+      .header-save-btn #followChannelBtnLabel {
         display: none;
       }
     }
@@ -1984,6 +2026,163 @@
     }
 
     /* ==============================================
+       28-ask. ASK YOUR LIBRARY (distinct from the
+       title/tag filter in .saved-toolbar — this is an
+       AI question answered from saved videos' content)
+    =============================================== */
+    .library-ask-wrap {
+      margin-bottom: 0.75rem;
+      padding: 0.65rem 0.75rem;
+      background: var(--accent-soft);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+    }
+
+    .library-ask-row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    #libraryAskInput {
+      flex: 1;
+      min-width: 0;
+      padding: 0.45rem 0.75rem;
+      font-family: var(--font-sans);
+      font-size: 0.85rem;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    #libraryAskInput::placeholder {
+      color: var(--muted);
+      opacity: 1;
+    }
+
+    #libraryAskInput:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    #libraryAskBtn {
+      flex-shrink: 0;
+      padding: 0.45rem 1rem;
+      font-family: var(--font-sans);
+      font-size: 0.82rem;
+      font-weight: 500;
+      color: var(--on-accent);
+      background: var(--accent);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      outline: none;
+      transition: background 0.15s;
+    }
+
+    #libraryAskBtn:hover:not(:disabled) {
+      background: var(--accent-dark);
+    }
+
+    #libraryAskBtn:focus-visible {
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    #libraryAskBtn:disabled {
+      background: var(--muted);
+      opacity: 0.6;
+      cursor: default;
+    }
+
+    .library-ask-result:empty {
+      display: none;
+    }
+
+    .library-ask-result {
+      margin-top: 0.65rem;
+    }
+
+    .library-ask-status {
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      color: var(--muted);
+      letter-spacing: 0.01em;
+    }
+
+    .library-ask-status.error {
+      color: var(--warn);
+    }
+
+    .library-ask-card {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .library-ask-answer {
+      padding: 0.85rem 1.1rem;
+    }
+
+    .library-ask-notice {
+      font-family: var(--font-sans);
+      font-size: 0.72rem;
+      color: var(--muted);
+      padding: 0.4rem 1.1rem 0;
+      letter-spacing: 0.01em;
+    }
+
+    .library-ask-citations {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      padding: 0.6rem 1.1rem 0.85rem;
+      border-top: 1px solid var(--rule);
+      margin-top: 0.6rem;
+    }
+
+    .library-ask-citations-label {
+      width: 100%;
+      font-family: var(--font-sans);
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin-bottom: 0.1rem;
+    }
+
+    .library-ask-citation-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.28rem 0.7rem;
+      font-family: var(--font-sans);
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--accent);
+      background: var(--accent-soft);
+      border: 1px solid transparent;
+      border-radius: 999px;
+      cursor: pointer;
+      outline: none;
+      transition: background 0.12s, border-color 0.12s, color 0.12s;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .library-ask-citation-chip:hover,
+    .library-ask-citation-chip:focus-visible {
+      background: var(--accent);
+      color: var(--on-accent);
+    }
+
+    /* ==============================================
        28a. DISCOVERY PANE (topic chips + result grid)
        Reuses .saved-card / .saved-card-* library card styles so
        Discovery results look native alongside the Library grid.
@@ -2066,6 +2265,211 @@
       display: flex;
       justify-content: center;
       margin-top: 1.15rem;
+    }
+
+    /* Follow button on a Discovery result card — quiet pill, consistent with
+       .saved-export-btn, promoted to filled accent once following. */
+    .discovery-follow-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.2rem;
+      padding: 0.18rem 0.6rem;
+      font-family: var(--font-sans);
+      font-size: 0.68rem;
+      font-weight: 500;
+      color: var(--accent);
+      background: var(--accent-soft);
+      border: 1px solid transparent;
+      border-radius: 999px;
+      cursor: pointer;
+      outline: none;
+      white-space: nowrap;
+      transition: color 0.12s, border-color 0.12s, background 0.12s;
+    }
+
+    .discovery-follow-btn:hover:not(:disabled) {
+      border-color: var(--accent);
+    }
+
+    .discovery-follow-btn:disabled {
+      opacity: 0.75;
+      cursor: default;
+    }
+
+    /* ==============================================
+       28c. INBOX PANE (followed channels + new uploads)
+       Reuses .saved-toolbar / .mini-btn / .saved-status-msg for visual
+       consistency with the Library and Discovery panes.
+    =============================================== */
+    .inbox-manage-panel {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      padding: 0.85rem 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .inbox-manage-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .inbox-manage-row input[type="text"] {
+      flex: 1 1 200px;
+      min-width: 140px;
+      padding: 0.4rem 0.6rem;
+      font-family: var(--font-sans);
+      font-size: 0.82rem;
+      color: var(--ink);
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      outline: none;
+    }
+
+    .inbox-manage-row input[type="text"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .followed-list {
+      margin-top: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .followed-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.6rem;
+      padding: 0.4rem 0.1rem;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .followed-item:last-child {
+      border-bottom: none;
+    }
+
+    .followed-item-title {
+      font-family: var(--font-sans);
+      font-size: 0.82rem;
+      color: var(--ink);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .followed-unfollow-btn {
+      flex-shrink: 0;
+      padding: 0.2rem 0.5rem;
+      font-family: var(--font-sans);
+      font-size: 0.72rem;
+      font-weight: 500;
+      color: var(--muted);
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      cursor: pointer;
+      outline: none;
+      white-space: nowrap;
+      transition: color 0.12s, border-color 0.12s, background 0.12s;
+    }
+
+    .followed-unfollow-btn:hover {
+      color: var(--warn);
+      border-color: var(--warn);
+      background: var(--warn-soft);
+    }
+
+    .inbox-content {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .inbox-channel-group {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      padding: 0.85rem 1rem;
+    }
+
+    .inbox-channel-header {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.5rem;
+    }
+
+    .inbox-channel-title {
+      font-family: var(--font-serif);
+      font-size: 0.95rem;
+      font-weight: 500;
+      color: var(--ink);
+    }
+
+    .inbox-new-badge {
+      font-family: var(--font-sans);
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--on-accent);
+      background: var(--accent);
+      border-radius: 999px;
+      padding: 0.08rem 0.5rem;
+    }
+
+    .inbox-mark-seen-btn {
+      margin-left: auto;
+    }
+
+    .inbox-item-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .inbox-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.6rem;
+      padding: 0.35rem 0;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .inbox-item:last-child {
+      border-bottom: none;
+    }
+
+    .inbox-item-title {
+      font-family: var(--font-sans);
+      font-size: 0.82rem;
+      color: var(--ink);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .inbox-item-read-btn {
+      flex-shrink: 0;
+    }
+
+    .inbox-empty-note,
+    .inbox-error-note {
+      font-family: var(--font-sans);
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .inbox-error-note {
+      color: var(--warn);
     }
 
     /* ==============================================
@@ -3250,6 +3654,34 @@
       justify-content: flex-end;
     }
 
+    .settings-block {
+      margin-top: 18px;
+      padding-top: 14px;
+      border-top: 1px solid var(--rule);
+    }
+    .settings-block .settings-toggle-title {
+      display: block;
+      margin-bottom: 8px;
+    }
+    .settings-block input[type="text"] {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.4rem 0.65rem;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      outline: none;
+      margin: 0.35rem 0 0.7rem;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .settings-block input[type="text"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
     /* ==============================================
        40. TOAST / BANNER SYSTEM
     =============================================== */
@@ -3781,6 +4213,82 @@
 
     .legal-modal-body p { margin: 0 0 0.85rem; }
     .legal-modal-body p:last-child { margin-bottom: 0; }
+
+    /* ==============================================
+       44. BATCH PASTE PANEL (multi-video digest queue)
+       Reuses .shortcuts-backdrop / .shortcuts-modal / .mini-btn /
+       .digest-opt-label / .settings-note / .settings-actions for
+       visual consistency with the Settings and Shortcuts modals.
+    =============================================== */
+    .batch-paste-row {
+      margin: -0.4rem 0 0.75rem;
+    }
+
+    .batch-paste-toggle {
+      background: none;
+      border: none;
+      padding: 0;
+      font-family: var(--font-sans);
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: var(--muted);
+      cursor: pointer;
+      outline: none;
+      transition: color 0.12s;
+    }
+
+    .batch-paste-toggle:hover {
+      color: var(--accent);
+    }
+
+    .batch-paste-toggle:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    #batchOverlay {
+      position: fixed;
+      inset: 0;
+      z-index: 19000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #batchOverlay[hidden] {
+      display: none;
+    }
+
+    .batch-modal {
+      max-width: 460px;
+    }
+
+    .batch-textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.55rem 0.7rem;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      line-height: 1.5;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      outline: none;
+      resize: vertical;
+      margin: 0.35rem 0 0.7rem;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .batch-textarea::placeholder {
+      color: var(--muted);
+      opacity: 1;
+    }
+
+    .batch-textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
   </style>
 </head>
 <body>
@@ -3842,6 +4350,22 @@
             <span class="library-btn-label">Discovery</span>
           </button>
           <button
+            id="inboxBtn"
+            class="library-btn"
+            type="button"
+            aria-pressed="false"
+            title="New uploads from channels you follow"
+          >
+            <svg class="library-btn-icon" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true" fill="none">
+              <g stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 8l9 6 9-6"/>
+                <rect x="3" y="5" width="18" height="14" rx="2"/>
+              </g>
+            </svg>
+            <span class="library-btn-label">Inbox</span>
+            <span id="inboxCount" class="library-btn-count" hidden>0</span>
+          </button>
+          <button
             id="researchBtn"
             class="library-btn"
             type="button"
@@ -3900,6 +4424,11 @@
       />
     </div>
 
+    <!-- BATCH PASTE AFFORDANCE — opens #batchOverlay to digest several videos at once -->
+    <div class="batch-paste-row">
+      <button type="button" id="batchPasteToggle" class="batch-paste-toggle">＋ Paste many</button>
+    </div>
+
     <!-- STATUS LINE -->
     <div id="status"></div>
 
@@ -3934,6 +4463,33 @@
         </svg>
         <span id="saveBtnLabel">Save</span>
       </button>
+      <!-- Follow-channel affordance — local/desktop only (hidden in web mode).
+           One-click follow when currentMeta.channelUrl is available (from
+           the /api/transcript response); otherwise this falls back to a
+           small inline panel where the user confirms/pastes the channel URL
+           or @handle. See updateNowReading() for the visibility gate. -->
+      <button id="followChannelBtn" class="header-save-btn" type="button"
+              aria-label="Follow this video's channel" aria-expanded="false">
+        <svg class="save-ico" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"
+             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 8l9 6 9-6"/>
+          <rect x="3" y="5" width="18" height="14" rx="2"/>
+        </svg>
+        <span id="followChannelBtnLabel">Follow channel</span>
+      </button>
+    </div>
+
+    <!-- FOLLOW-CHANNEL PANEL — inline form opened by #followChannelBtn -->
+    <div id="followChannelPanel" class="follow-channel-panel" hidden>
+      <label class="sr-only" for="followChannelUrlInput">Channel URL or @handle</label>
+      <input id="followChannelUrlInput" type="text" placeholder="Channel URL or @handle"
+             autocomplete="off" spellcheck="false" />
+      <label class="sr-only" for="followChannelTitleInput">Label (optional)</label>
+      <input id="followChannelTitleInput" type="text" placeholder="Label (optional)"
+             autocomplete="off" spellcheck="false" />
+      <button id="followChannelSubmitBtn" class="mini-btn" type="button">Follow</button>
+      <button id="followChannelCancelBtn" class="mini-btn" type="button">Cancel</button>
+      <div id="followChannelStatus" class="saved-status-msg" aria-live="polite"></div>
     </div>
 
     <!-- LENS TABS (Transcript | Digest) -->
@@ -4257,6 +4813,25 @@
           aria-pressed="false"
         >Compare</button>
       </div>
+      <!-- Ask across your library — distinct from the title/tag filter above:
+           this sends a question to the AI over your saved videos' content. -->
+      <div class="library-ask-wrap">
+        <div class="library-ask-row">
+          <input
+            id="libraryAskInput"
+            type="text"
+            placeholder="Ask a question across your whole library…"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="Ask a question across your saved videos"
+          />
+          <button
+            id="libraryAskBtn"
+            aria-label="Submit question across your library"
+          >Ask library</button>
+        </div>
+        <div id="libraryAskResult" class="library-ask-result" aria-live="polite" aria-atomic="true"></div>
+      </div>
       <!-- Compare action bar — visible when 2+ cards are selected in compare mode -->
       <div id="compareBar" hidden role="status" aria-live="polite">
         <span id="compareCountLabel">0 selected</span>
@@ -4309,6 +4884,34 @@
       <div class="discovery-loadmore-wrap">
         <button id="discoveryLoadMoreBtn" class="mini-btn" hidden>Load more</button>
       </div>
+    </div>
+
+    <!-- INBOX PANE — new uploads from followed channels. Local/desktop only;
+         the whole tab is hidden in web mode (see JS init below), since the
+         backend /api/follows* routes 503 in that mode. -->
+    <div id="paneInbox" role="tabpanel" aria-labelledby="inboxBtn" hidden>
+      <div class="saved-toolbar">
+        <button id="inboxRefreshBtn" class="mini-btn">Check now</button>
+        <button id="inboxManageBtn" class="mini-btn" aria-expanded="false">Manage follows</button>
+      </div>
+
+      <!-- MANAGE FOLLOWS — add a channel by URL/handle, unfollow existing ones -->
+      <div id="inboxManagePanel" class="inbox-manage-panel" hidden>
+        <div class="inbox-manage-row">
+          <label class="sr-only" for="followUrlInput">Channel URL or @handle</label>
+          <input id="followUrlInput" type="text" placeholder="Channel URL or @handle"
+                 autocomplete="off" spellcheck="false" aria-label="Channel URL or handle" />
+          <label class="sr-only" for="followTitleInput">Label (optional)</label>
+          <input id="followTitleInput" type="text" placeholder="Label (optional)"
+                 autocomplete="off" spellcheck="false" aria-label="Channel label" />
+          <button id="followAddBtn" class="mini-btn" type="button">Follow</button>
+        </div>
+        <div id="followManageStatus" class="saved-status-msg" aria-live="polite"></div>
+        <div id="followedList" class="followed-list"></div>
+      </div>
+
+      <div id="inboxStatusMsg" class="saved-status-msg" aria-live="polite" aria-atomic="true"></div>
+      <div id="inboxContent" class="inbox-content"></div>
     </div>
 
     <!-- SITE FOOTER — legal/trust links -->
@@ -4427,6 +5030,69 @@
           <span class="settings-note">Run the AI digest automatically after fetching a transcript.</span>
         </span>
       </label>
+      <label class="settings-toggle-row" for="autoTagToggle">
+        <input type="checkbox" id="autoTagToggle" />
+        <span class="settings-toggle-text">
+          <span class="settings-toggle-title">Auto-suggest tags on save</span>
+          <span class="settings-note">Suggest tags automatically when you save an untagged entry to your library.</span>
+        </span>
+      </label>
+
+      <!-- VAULT SYNC — local/desktop: sync library to a Markdown folder on disk.
+           web: no filesystem access, so offer the ZIP export instead. -->
+      <div id="vaultSyncSection" class="settings-block">
+        <span class="settings-toggle-title">Markdown vault</span>
+
+        <div id="vaultSyncLocal">
+          <label class="digest-opt-label" for="vaultDirInput">Vault folder path</label>
+          <input
+            id="vaultDirInput"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="C:\Users\you\Notes\Echo"
+          />
+          <p class="settings-note">
+            Writes each library entry as a Markdown file into this folder on your machine.
+          </p>
+          <p id="vaultSyncStatus" class="settings-note" aria-live="polite"></p>
+          <div class="settings-actions">
+            <button class="mini-btn" id="vaultSyncBtn">Sync to vault</button>
+          </div>
+        </div>
+
+        <div id="vaultSyncWeb" hidden>
+          <p class="settings-note">In hosted mode your library exports as a Markdown ZIP.</p>
+          <div class="settings-actions">
+            <button class="mini-btn" id="vaultZipBtn">Download vault (.zip)</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BATCH PASTE PANEL — paste multiple YouTube URLs/IDs, digest them as a queue -->
+  <div id="batchOverlay" role="dialog" aria-modal="true" aria-label="Paste many videos" hidden>
+    <div class="shortcuts-backdrop" id="batchBackdrop"></div>
+    <div class="shortcuts-modal batch-modal">
+      <div class="shortcuts-modal-header">
+        <span class="shortcuts-modal-title">Paste many</span>
+        <button class="shortcuts-close-btn" id="batchClose" aria-label="Close paste-many panel">✕</button>
+      </div>
+      <label class="digest-opt-label" for="batchInput">YouTube URLs or IDs — one per line, or comma-separated</label>
+      <textarea
+        id="batchInput"
+        class="batch-textarea"
+        rows="8"
+        placeholder="https://youtube.com/watch?v=...&#10;https://youtu.be/...&#10;dQw4w9WgXcQ"
+        autocomplete="off"
+        spellcheck="false"
+      ></textarea>
+      <p id="batchNotice" class="settings-note" hidden></p>
+      <div class="settings-actions">
+        <button class="mini-btn" id="batchCancelBtn">Cancel</button>
+        <button class="mini-btn" id="batchDigestAllBtn">Digest all</button>
+      </div>
     </div>
   </div>
 
@@ -4580,6 +5246,25 @@
        rejected: it would require multi-store transactions
        for every write with no benefit at this data scale.)
     =============================================== */
+    // Client-side mirror of store.js's buildLibraryFtsQuery() stopword list —
+    // used by IndexedDbLibrary.searchLibrary() so natural-language questions
+    // ("What is discussed about living in Germany?") reduce to signal tokens
+    // ("discussed", "living", "germany") instead of matching nothing.
+    const IDB_FTS_STOPWORDS = new Set([
+      'what', 'is', 'are', 'the', 'a', 'an', 'of', 'to', 'in', 'on', 'for',
+      'and', 'or', 'about', 'does', 'do', 'did', 'how', 'why', 'this', 'that',
+      'with', 'from', 'your', 'my',
+    ]);
+
+    /** Tokenize free text into lowercase signal words (mirrors buildLibraryFtsQuery). */
+    function idbFtsTokens(text) {
+      const raw = String(text || '').trim();
+      if (!raw) return [];
+      const tokens = raw.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+      const filtered = tokens.filter((t) => t.length > 2 && !IDB_FTS_STOPWORDS.has(t));
+      return filtered.length > 0 ? filtered : tokens;
+    }
+
     const ECHO_DB_NAME    = 'echo';
     const ECHO_DB_VERSION = 1;
     let _echoDbPromise = null;
@@ -4782,25 +5467,30 @@
 
       /**
        * Simple client-side keyword filter (web mode has no server-side FTS5
-       * index). Not used by any current call site in web mode — the web
-       * search UI filters the already-loaded savedList client-side — but is
-       * implemented for parity/completeness with ServerLibrary's method set.
+       * index). Used by submitLibraryAsk() in web mode to retrieve candidate
+       * videos for a natural-language question. Tokenizes the query and
+       * matches ANY surviving token (mirrors store.js's buildLibraryFtsQuery
+       * OR-of-tokens approach) — a naive whole-string substring match would
+       * almost never hit since real questions are full of stopwords/phrasing
+       * that won't appear verbatim in the source text.
        * -> { results, mode }, 200
        */
       async searchLibrary(q, limit = 50) {
         try {
-          const query = String(q || '').trim().toLowerCase();
-          if (!query) return idbJson({ results: [], mode: 'keyword' }, 200);
+          const tokens = idbFtsTokens(q);
+          if (!tokens.length) return idbJson({ results: [], mode: 'keyword' }, 200);
           const all = await idbGetAllEntries();
-          const results = all
-            .filter((e) => {
-              const hay = [e.title, e.digest, ...(Array.isArray(e.segments) ? e.segments.map((s) => s.text) : [])]
-                .filter(Boolean)
-                .join(' ')
-                .toLowerCase();
-              return hay.includes(query);
-            })
-            .slice(0, Number(limit) || 50);
+          const scored = [];
+          for (const e of all) {
+            const hay = [e.title, e.digest, ...(Array.isArray(e.segments) ? e.segments.map((s) => s.text) : [])]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase();
+            const score = tokens.reduce((n, t) => n + (hay.includes(t) ? 1 : 0), 0);
+            if (score > 0) scored.push({ entry: e, score });
+          }
+          scored.sort((a, b) => b.score - a.score);
+          const results = scored.slice(0, Number(limit) || 50).map((s) => s.entry);
           return idbJson({ results, mode: 'keyword' }, 200);
         } catch (err) { return idbCaughtError(err); }
       },
@@ -4886,6 +5576,9 @@
     const libraryBtn         = document.getElementById('libraryBtn');
     const libraryCountEl     = document.getElementById('libraryCount');
     const savedOutput        = document.getElementById('savedOutput');
+    const libraryAskInput    = document.getElementById('libraryAskInput');
+    const libraryAskBtn      = document.getElementById('libraryAskBtn');
+    const libraryAskResult   = document.getElementById('libraryAskResult');
     const discoveryBtn            = document.getElementById('discoveryBtn');
     const paneDiscovery           = document.getElementById('paneDiscovery');
     const discoverySearchInput    = document.getElementById('discoverySearchInput');
@@ -4897,6 +5590,31 @@
     const discoveryResultsEl      = document.getElementById('discoveryResults');
     const discoveryResultCountEl  = document.getElementById('discoveryResultCount');
     const discoveryLoadMoreBtn    = document.getElementById('discoveryLoadMoreBtn');
+
+    // Inbox pane (followed channels) — local/desktop only
+    const inboxBtn             = document.getElementById('inboxBtn');
+    const inboxCountEl         = document.getElementById('inboxCount');
+    const paneInbox            = document.getElementById('paneInbox');
+    const inboxRefreshBtn      = document.getElementById('inboxRefreshBtn');
+    const inboxManageBtn       = document.getElementById('inboxManageBtn');
+    const inboxManagePanel     = document.getElementById('inboxManagePanel');
+    const followUrlInput       = document.getElementById('followUrlInput');
+    const followTitleInput     = document.getElementById('followTitleInput');
+    const followAddBtn         = document.getElementById('followAddBtn');
+    const followManageStatusEl = document.getElementById('followManageStatus');
+    const followedListEl       = document.getElementById('followedList');
+    const inboxStatusMsgEl     = document.getElementById('inboxStatusMsg');
+    const inboxContentEl       = document.getElementById('inboxContent');
+
+    // Follow-channel panel — attached to the loaded-video content header
+    const followChannelBtn        = document.getElementById('followChannelBtn');
+    const followChannelPanel      = document.getElementById('followChannelPanel');
+    const followChannelUrlInput   = document.getElementById('followChannelUrlInput');
+    const followChannelTitleInput = document.getElementById('followChannelTitleInput');
+    const followChannelSubmitBtn  = document.getElementById('followChannelSubmitBtn');
+    const followChannelCancelBtn  = document.getElementById('followChannelCancelBtn');
+    const followChannelStatusEl   = document.getElementById('followChannelStatus');
+
     const savedCompareBtn    = document.getElementById('savedCompareBtn');
     const compareBar         = document.getElementById('compareBar');
     const compareCountLabel  = document.getElementById('compareCountLabel');
@@ -4956,9 +5674,9 @@
     let lastReaderLens = 'transcript'; // 'transcript' | 'digest'
 
     function switchTab(name) {
-      const names   = ['transcript', 'digest', 'saved', 'discovery'];
-      const tabEls  = [tabTranscript, tabDigest, null, null];
-      const paneEls = [paneTranscript, paneDigest, paneSaved, paneDiscovery];
+      const names   = ['transcript', 'digest', 'saved', 'discovery', 'inbox'];
+      const tabEls  = [tabTranscript, tabDigest, null, null, null];
+      const paneEls = [paneTranscript, paneDigest, paneSaved, paneDiscovery, paneInbox];
 
       names.forEach((n, i) => {
         const active = n === name;
@@ -4966,15 +5684,17 @@
           tabEls[i].setAttribute('aria-selected', active ? 'true' : 'false');
           tabEls[i].tabIndex = active ? 0 : -1;
         }
-        paneEls[i].hidden  = !active;
+        if (paneEls[i]) paneEls[i].hidden  = !active;
       });
 
       if (name === 'transcript' || name === 'digest') lastReaderLens = name;
       if (name === 'saved') { loadSaved(); }
       if (name === 'discovery') initDiscoveryPane();
+      if (name === 'inbox') loadInbox();
       if (name === 'digest') hideNextActionNudge();
       libraryBtn.setAttribute('aria-pressed', name === 'saved' ? 'true' : 'false');
       if (discoveryBtn) discoveryBtn.setAttribute('aria-pressed', name === 'discovery' ? 'true' : 'false');
+      if (inboxBtn) inboxBtn.setAttribute('aria-pressed', name === 'inbox' ? 'true' : 'false');
       updateReaderChromeVisibility();
       saveSession();
     }
@@ -5001,22 +5721,36 @@
       }
     }
 
+    /** Toggle the Inbox destination the same way libraryBtnClick/discoveryBtnClick
+     *  toggle their destinations — open it, or return to the last reader lens. */
+    function inboxBtnClick() {
+      const isInboxActive = paneInbox && !paneInbox.hidden;
+      if (isInboxActive && currentMeta) {
+        switchTab(lastReaderLens);
+      } else {
+        switchTab('inbox');
+      }
+    }
+
     /** Show/hide the content header + lens tabs: only while a video is loaded
-     *  AND the active pane is a reader lens (not the Library/Discovery). */
+     *  AND the active pane is a reader lens (not the Library/Discovery/Inbox). */
     function updateReaderChromeVisibility() {
       const activePane = !paneTranscript.hidden ? 'transcript'
                         : !paneDigest.hidden     ? 'digest'
                         : (paneDiscovery && !paneDiscovery.hidden) ? 'discovery'
+                        : (paneInbox && !paneInbox.hidden) ? 'inbox'
                         : 'saved';
-      const show = !!currentMeta && activePane !== 'saved' && activePane !== 'discovery';
+      const show = !!currentMeta && activePane !== 'saved' && activePane !== 'discovery' && activePane !== 'inbox';
       tabBarEl.hidden       = !show;
       contentHeaderEl.hidden = !show;
+      if (!show) followChannelPanel.hidden = true;
     }
 
     tabTranscript.addEventListener('click', () => switchTab('transcript'));
     tabDigest.addEventListener('click',     () => switchTab('digest'));
     libraryBtn.addEventListener('click',    libraryBtnClick);
     if (discoveryBtn) discoveryBtn.addEventListener('click', discoveryBtnClick);
+    if (inboxBtn) inboxBtn.addEventListener('click', inboxBtnClick);
 
     // Arrow-key roving focus within the lens tab bar (2 tabs)
     const tabBtns  = [tabTranscript, tabDigest];
@@ -5489,6 +6223,14 @@
       // drives visibility of the reading controls / find bar / lang picker
       // via the `has-transcript` CSS gate (see section 18b).
       document.body.classList.toggle('has-transcript', !!currentMeta);
+      // Follow-channel button is only ever worth showing when we have a
+      // real channelUrl to follow one-click — otherwise it's just a button
+      // that opens a form, which isn't worth the header real estate. Web
+      // mode hides it unconditionally at init (backend routes 503 there);
+      // this only applies in local/desktop mode.
+      if (followChannelBtn && ECHO.mode !== 'web') {
+        followChannelBtn.hidden = !(currentMeta && currentMeta.channelUrl);
+      }
       if (!currentMeta) {
         contentHeaderThumb.hidden = true;
         contentHeaderThumb.removeAttribute('src');
@@ -5937,6 +6679,7 @@
       settingsOverlay:    closeSettingsModal,
       researchRail:       closeResearchRail,
       legalOverlay:       closeLegalOverlay,
+      batchOverlay:       closeBatchOverlay,
     };
     document.addEventListener('keydown', e => {
       if (e.key !== 'Escape') return;
@@ -6637,7 +7380,10 @@
 
         lastSegments    = data.segments;
         currentSegments = data.segments;
-        currentMeta     = { videoId: data.videoId, url: data.url, title: data.title };
+        currentMeta     = {
+          videoId: data.videoId, url: data.url, title: data.title,
+          channel: data.channel || null, channelUrl: data.channelUrl || null,
+        };
         currentDigest   = null;
         // The server reports which caption track was actually loaded (not
         // just the language that was requested) — the picker uses this to
@@ -7297,6 +8043,138 @@
     });
 
     /* ==============================================
+       ASK ACROSS YOUR LIBRARY HANDLER
+       Distinct from #savedSearchInput (title/tag filter): this sends a
+       question to the AI over the content of saved videos.
+       - local/desktop: server does FTS5 retrieval — just forward {question}.
+       - web: server can't see the client-side IndexedDB library, so we do
+         the retrieval here (via Library.searchLibrary) and send trimmed
+         candidates alongside the question.
+    =============================================== */
+    const LIBRARY_ASK_CANDIDATE_DIGEST_CAP = 3000;
+
+    function renderLibraryAskStatus(text, isError) {
+      libraryAskResult.innerHTML = '';
+      const status = document.createElement('div');
+      status.className   = isError ? 'library-ask-status error' : 'library-ask-status';
+      status.textContent = text;
+      libraryAskResult.appendChild(status);
+    }
+
+    function renderLibraryAskAnswer(data) {
+      libraryAskResult.innerHTML = '';
+
+      if (data.empty) {
+        renderLibraryAskStatus('Nothing in your library matches that yet. Save some videos first.', false);
+        return;
+      }
+
+      const card = document.createElement('div');
+      card.className = 'library-ask-card';
+
+      const answerEl = document.createElement('div');
+      answerEl.className   = 'library-ask-answer';
+      answerEl.innerHTML   = renderMarkdown(data.answer || '');
+      card.appendChild(answerEl);
+
+      if (data.truncated) {
+        const n = Array.isArray(data.citations) ? data.citations.length : undefined;
+        const notice = document.createElement('div');
+        notice.className   = 'library-ask-notice';
+        notice.textContent  = n
+          ? `Answered from your top ${n} matching video${n === 1 ? '' : 's'}.`
+          : 'Answered from your top matching videos.';
+        card.appendChild(notice);
+      }
+
+      if (Array.isArray(data.citations) && data.citations.length) {
+        const citWrap = document.createElement('div');
+        citWrap.className = 'library-ask-citations';
+
+        const label = document.createElement('div');
+        label.className   = 'library-ask-citations-label';
+        label.textContent  = 'Sources';
+        citWrap.appendChild(label);
+
+        data.citations.forEach((c) => {
+          if (!c || !c.videoId) return;
+          const chip = document.createElement('button');
+          chip.type        = 'button';
+          chip.className   = 'library-ask-citation-chip';
+          chip.textContent = c.title || c.videoId;
+          chip.setAttribute('aria-label', `Open saved video: ${c.title || c.videoId}`);
+          chip.addEventListener('click', () => openSavedEntry(c.videoId));
+          citWrap.appendChild(chip);
+        });
+
+        card.appendChild(citWrap);
+      }
+
+      libraryAskResult.appendChild(card);
+    }
+
+    async function submitLibraryAsk() {
+      const question = libraryAskInput.value.trim();
+      if (!question) return;
+      if (!requireApiKey()) return; // no-op outside web mode
+
+      libraryAskBtn.disabled = true;
+      renderLibraryAskStatus('Thinking…', false);
+
+      try {
+        let res;
+
+        if (ECHO.mode === 'web') {
+          const searchRes = await Library.searchLibrary(question);
+          const searchData = await searchRes.json().catch(() => ({ results: [] }));
+          const hits = Array.isArray(searchData.results) ? searchData.results.slice(0, 5) : [];
+
+          if (!hits.length) {
+            renderLibraryAskStatus('Nothing in your library matches that yet. Save some videos first.', false);
+            return;
+          }
+
+          const candidates = hits.map((e) => {
+            const candidate = { videoId: e.videoId, title: e.title || e.videoId };
+            if (e.digest) candidate.digest = String(e.digest).slice(0, LIBRARY_ASK_CANDIDATE_DIGEST_CAP);
+            return candidate;
+          });
+
+          res = await aiFetch('/api/library/ask', { question, candidates });
+        } else {
+          res = await aiFetch('/api/library/ask', { question });
+        }
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          renderLibraryAskStatus(apiErrorMessage(data, 'Failed to answer question.'), true);
+          handleApiError(data, 'Failed to answer question.');
+          return;
+        }
+
+        renderLibraryAskAnswer(data);
+        libraryAskInput.value = '';
+
+      } catch (err) {
+        console.error('[echo] submitLibraryAsk network error:', err);
+        renderLibraryAskStatus('Network error — could not reach the server.', true);
+        showToast('error', 'Network error: ' + err.message);
+      } finally {
+        libraryAskBtn.disabled = false;
+      }
+    }
+
+    libraryAskBtn.addEventListener('click', submitLibraryAsk);
+
+    libraryAskInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submitLibraryAsk();
+      }
+    });
+
+    /* ==============================================
        SAVE BUTTON HANDLER
     =============================================== */
     /** Reflect whether the currently-loaded video is already in the library on the Save button. */
@@ -7340,6 +8218,7 @@
         saveBtn.disabled = false;
         showToast('success', 'Saved to your library.');
         await loadSaved(); // refresh list + count; also re-syncs the button state
+        maybeAutoSuggestTags(currentMeta.videoId); // best-effort, fire-and-forget
       } catch (err) {
         console.error('[echo] saveBtn network error:', err);
         if (saveBtnLabel) saveBtnLabel.textContent = 'Network error';
@@ -7783,6 +8662,45 @@
       }
     }
 
+    /**
+     * Best-effort auto-tag suggestion, fired after a fresh save of a
+     * currently-untagged entry (when the "Auto-suggest tags" setting is on).
+     * Uses the digest if one was generated, else a transcript excerpt.
+     * Applies suggestions via the same patchSavedTags() path the manual tag
+     * editor uses, so the resulting chips are normal, editable/removable
+     * chips. Any failure (no key, rate limit, network, empty result) is
+     * swallowed silently — this must never surface an error or block saving.
+     */
+    async function maybeAutoSuggestTags(videoId) {
+      try {
+        if (!getAutoTags()) return;
+        if ((ECHO.mode === 'web' || ECHO.mode === 'desktop') && !getApiKey()) return;
+
+        const entry = savedList.find(e => e.videoId === videoId);
+        if (!entry || (entry.tags && entry.tags.length > 0)) return;
+
+        const body = {};
+        if (currentDigest) {
+          body.digest = currentDigest;
+        } else {
+          const transcriptText = getTranscriptText();
+          if (!transcriptText) return;
+          body.transcriptExcerpt = transcriptText.slice(0, 6000);
+        }
+
+        const res = await aiFetch('/api/tags/suggest', body);
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        const tags = Array.isArray(data?.tags) ? data.tags.filter(Boolean) : [];
+        if (tags.length === 0) return;
+
+        await patchSavedTags(videoId, tags);
+        showToast('success', `Added ${tags.length} suggested tag${tags.length === 1 ? '' : 's'}.`);
+      } catch (err) {
+        console.debug('[echo] auto-tag suggestion skipped:', err);
+      }
+    }
+
     function showSavedTagInput(videoId, addBtn) {
       const container = addBtn.parentElement; // .saved-tags-row
       if (container.querySelector('.saved-tag-input')) {
@@ -7919,7 +8837,12 @@
         // Restore shared state
         lastSegments    = entry.segments;
         currentSegments = entry.segments;
-        currentMeta     = { videoId: entry.videoId, url: entry.url, title: entry.title };
+        // Saved library entries don't persist channel metadata, so the
+        // Follow-channel button falls back to the manual panel for these.
+        currentMeta     = {
+          videoId: entry.videoId, url: entry.url, title: entry.title,
+          channel: null, channelUrl: null,
+        };
         currentDigest   = entry.digest || null;
 
         // Sync UI — command bar and now-reading strip
@@ -8292,18 +9215,33 @@
     let activePlaylistIdx = -1;
     let currentPlaylistUrl = null;
 
+    // True while playlistVideos/playlistPanelEl represent a batch-digest job
+    // (see startBatchDigestAll/runWebBatch) rather than a real playlist —
+    // used to preserve the "Batch digest" header + hidden "Digest all" button
+    // across re-renders (e.g. clicking a row to load that video).
+    let playlistIsBatchJob = false;
+
     // Batch playlist digest job state
     let playlistJobId      = null;
     let playlistPollTimer  = null;
     let playlistPollInFlight = false;
+    let batchTruncatedNotified = false;
 
     const PLAYLIST_DISPLAY_CAP = 20;
 
-    function renderPlaylist(title, videos) {
+    function renderPlaylist(title, videos, opts = {}) {
       if (!playlistPanelEl || !videos || videos.length === 0) {
         if (playlistPanelEl) playlistPanelEl.hidden = true;
         return;
       }
+
+      // Batch-digest jobs (see startBatchDigestAll/runWebBatch) have no source
+      // playlist URL/title and shouldn't offer a redundant "Digest all" button
+      // since the job is already running by the time this renders.
+      const displayTitle   = title || (opts.kind === 'batch' ? 'Batch digest' : 'Playlist');
+      const digestAllBtnHtml = opts.hideDigestAllBtn ? '' :
+        `<button class="mini-btn" id="playlistDigestAllBtn"` +
+          ` aria-label="Digest all videos in this playlist"${playlistJobId ? ' disabled' : ''}>Digest all</button>`;
 
       const displayCount = Math.min(videos.length, PLAYLIST_DISPLAY_CAP);
       const remaining    = videos.length - displayCount;
@@ -8330,10 +9268,9 @@
 
       playlistPanelEl.innerHTML =
         `<div class="playlist-header" id="playlistHeader">` +
-          `<span class="playlist-header-title">${escapeHtml(title)}</span>` +
+          `<span class="playlist-header-title">${escapeHtml(displayTitle)}</span>` +
           `<span class="playlist-header-count">${videos.length} video${videos.length !== 1 ? 's' : ''}</span>` +
-          `<button class="mini-btn" id="playlistDigestAllBtn"` +
-            ` aria-label="Digest all videos in this playlist"${playlistJobId ? ' disabled' : ''}>Digest all</button>` +
+          digestAllBtnHtml +
           `<button class="playlist-header-toggle" id="playlistToggleBtn"` +
             ` aria-label="Collapse playlist" aria-expanded="true">&#9660;</button>` +
           `<button class="playlist-header-dismiss" id="playlistDismissBtn"` +
@@ -8377,6 +9314,7 @@
         playlistPanelEl.hidden = true;
         playlistVideos         = [];
         activePlaylistIdx      = -1;
+        playlistIsBatchJob     = false;
       });
 
       // Video row clicks
@@ -8387,9 +9325,11 @@
           const v   = playlistVideos[idx];
           if (!v) return;
           activePlaylistIdx = idx;
-          // Re-render panel with updated active state (capture title before re-render)
+          // Re-render panel with updated active state (capture title before re-render).
+          // Preserve batch-job rendering (header + hidden "Digest all") across re-renders.
           const panelTitle = playlistPanelEl.querySelector('.playlist-header-title')?.textContent || '';
-          renderPlaylist(panelTitle, playlistVideos);
+          renderPlaylist(panelTitle, playlistVideos,
+            playlistIsBatchJob ? { kind: 'batch', hideDigestAllBtn: true } : {});
           // Load the video through normal fetch flow, preserving the playlist panel
           const ytUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(v.videoId)}`;
           urlInput.value   = ytUrl;
@@ -8421,6 +9361,7 @@
         playlistVideos      = data.videos;
         activePlaylistIdx   = -1;
         currentPlaylistUrl  = url;
+        playlistIsBatchJob  = false;
         renderPlaylist(data.playlistTitle || 'Playlist', data.videos);
       } catch (err) {
         /* Silently ignore network errors for playlist (non-critical) */
@@ -8500,6 +9441,13 @@
             `Digesting… ${job.saved} saved · ${job.failed} failed · ${job.skipped} skipped of ${job.total}`;
         }
 
+        // Server-side batch jobs may cap the accepted item list (see /api/batch/digest) —
+        // surface that once per job rather than nagging on every poll tick.
+        if (job.truncated && !batchTruncatedNotified) {
+          batchTruncatedNotified = true;
+          showToast('warning', 'Batch was truncated — only some of the pasted videos were queued.');
+        }
+
         // Best-effort per-item status badges, matched by videoId.
         if (Array.isArray(job.items)) {
           const badgeByStatus = { saved: ' ✓', failed: ' ✕', skipped: ' –' };
@@ -8549,6 +9497,306 @@
       }
 
       playlistPollInFlight = false;
+    }
+
+    /* ==============================================
+       BATCH PASTE / DIGEST QUEUE — FEATURE 9
+       "Paste many" lets the user drop several YouTube URLs/IDs at once and
+       digest them as a queue, reusing the same progress panel (renderPlaylist)
+       and poller (pollPlaylistJob) as the playlist "Digest all" flow.
+
+       - local/desktop: POST /api/batch/digest (server-side job, same shape
+         as /api/playlist/digest) — polled exactly like a playlist job.
+       - web: no server-side job store (stateless BYOK server), so the queue
+         runs client-side in runWebBatch(), one video at a time, rendered
+         through the same renderPlaylist()/badge UI for visual parity.
+    =============================================== */
+
+    /** Extract an 11-char YouTube video ID from a URL or bare ID; null if none found.
+     *  Mirrors transcript.js's extractVideoId() so web mode can dedupe/resolve
+     *  videos client-side without a server round-trip. */
+    function extractVideoIdClient(raw) {
+      if (!raw) return null;
+      const s = String(raw).trim();
+      const patterns = [
+        /[?&]v=([A-Za-z0-9_-]{11})(?:[&\s]|$)/,
+        /youtu\.be\/([A-Za-z0-9_-]{11})(?:[?&\s/]|$)/,
+        /youtube\.com\/shorts\/([A-Za-z0-9_-]{11})(?:[?&\s/]|$)/,
+        /youtube\.com\/embed\/([A-Za-z0-9_-]{11})(?:[?&\s/]|$)/,
+      ];
+      for (const re of patterns) {
+        const m = s.match(re);
+        if (m) return m[1];
+      }
+      if (/^[A-Za-z0-9_-]{11}$/.test(s)) return s;
+      return null;
+    }
+
+    const BATCH_WEB_CAP = 5;
+
+    const batchOverlayEl = document.getElementById('batchOverlay');
+    const batchInputEl   = document.getElementById('batchInput');
+    const batchNoticeEl  = document.getElementById('batchNotice');
+
+    function openBatchOverlay() {
+      if (!batchOverlayEl) return;
+      if (batchNoticeEl) { batchNoticeEl.hidden = true; batchNoticeEl.textContent = ''; }
+      batchOverlayEl.hidden = false;
+      batchInputEl?.focus();
+    }
+
+    function closeBatchOverlay() {
+      if (!batchOverlayEl) return;
+      batchOverlayEl.hidden = true;
+    }
+
+    /** Splits pasted text into trimmed, non-empty tokens on newlines and/or commas. */
+    function parseBatchInput(raw) {
+      return String(raw || '')
+        .split(/[\n,]+/)
+        .map(s => s.trim())
+        .filter(Boolean);
+    }
+
+    document.getElementById('batchPasteToggle')?.addEventListener('click', openBatchOverlay);
+    document.getElementById('batchClose')?.addEventListener('click', closeBatchOverlay);
+    document.getElementById('batchCancelBtn')?.addEventListener('click', closeBatchOverlay);
+    document.getElementById('batchBackdrop')?.addEventListener('click', closeBatchOverlay);
+
+    document.getElementById('batchDigestAllBtn')?.addEventListener('click', () => {
+      const items = parseBatchInput(batchInputEl?.value);
+      if (items.length === 0) {
+        showToast('warning', 'Paste at least one YouTube URL or video ID.');
+        return;
+      }
+      startBatchDigestAll(items);
+    });
+
+    /**
+     * Entry point for the "Digest all" button in the Paste-many panel.
+     * local/desktop -> server-side job via /api/batch/digest (polled like a
+     * playlist job). web -> runWebBatch() drives the queue in the browser.
+     */
+    async function startBatchDigestAll(items) {
+      if (playlistJobId) {
+        showToast('warning', 'A digest job is already running — wait for it to finish first.');
+        return;
+      }
+      if (!requireApiKey()) return;
+
+      if (ECHO.mode === 'web') {
+        closeBatchOverlay();
+        runWebBatch(items);
+        return;
+      }
+
+      const lengthOpt = document.querySelector('input[name="digestLength"]:checked')?.value || 'detailed';
+      const formatOpt = document.querySelector('input[name="digestFormat"]:checked')?.value || 'digest';
+      const langOpt   = (typeof digestLangInput !== 'undefined' && digestLangInput.value.trim()) || 'English';
+
+      const digestAllBtn = document.getElementById('batchDigestAllBtn');
+      if (digestAllBtn) digestAllBtn.disabled = true;
+
+      try {
+        const res = await fetch('/api/batch/digest', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            items,
+            length:   lengthOpt,
+            format:   formatOpt,
+            language: langOpt,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          if (digestAllBtn) digestAllBtn.disabled = false;
+          handleApiError(data, 'Could not start batch digest.');
+          return;
+        }
+
+        closeBatchOverlay();
+        if (batchInputEl) batchInputEl.value = '';
+
+        playlistJobId          = data.jobId;
+        currentPlaylistUrl     = null; // batch jobs have no source playlist URL
+        playlistIsBatchJob     = true;
+        batchTruncatedNotified = false;
+
+        // Seed the progress panel with placeholder rows in submission order —
+        // the server fills in real titles/statuses as the poller runs.
+        playlistVideos = items.map(raw => {
+          const vid = extractVideoIdClient(raw) || raw;
+          return { videoId: vid, title: vid };
+        });
+        activePlaylistIdx = -1;
+        renderPlaylist('Batch digest', playlistVideos, { kind: 'batch', hideDigestAllBtn: true });
+
+        showToast('info', 'Digesting batch…', 'This can take a while for large batches.');
+
+        const progressEl = document.getElementById('playlistDigestProgress');
+        if (progressEl) {
+          progressEl.hidden = false;
+          progressEl.textContent = 'Digesting… starting up';
+        }
+
+        if (playlistPollTimer) clearInterval(playlistPollTimer);
+        playlistPollTimer = setInterval(pollPlaylistJob, 1500);
+      } catch (err) {
+        if (digestAllBtn) digestAllBtn.disabled = false;
+        showToast('error', 'Network error starting batch digest: ' + err.message);
+      }
+    }
+
+    /**
+     * Web-mode batch queue: no server-side job store (the web server is
+     * stateless/BYOK), so this drives the transcript -> digest -> save
+     * pipeline sequentially in the browser, one video at a time, updating
+     * a job-shaped object rendered through the SAME renderPlaylist()/badge
+     * UI as the local/desktop server-side job for visual parity.
+     */
+    async function runWebBatch(rawItems) {
+      let items = rawItems.slice();
+      if (items.length > BATCH_WEB_CAP) {
+        showToast('warning',
+          `Web mode processes up to ${BATCH_WEB_CAP} at a time — only the first ${BATCH_WEB_CAP} were queued.`);
+        items = items.slice(0, BATCH_WEB_CAP);
+      }
+
+      const job = {
+        kind:         'batch',
+        total:        items.length,
+        completed:    0,
+        saved:        0,
+        failed:       0,
+        skipped:      0,
+        currentIndex: -1,
+        status:       'running',
+        items: items.map(raw => {
+          const vid = extractVideoIdClient(raw) || raw;
+          return { videoId: vid, title: vid, status: 'pending' };
+        }),
+      };
+
+      playlistJobId      = 'web-batch'; // sentinel so the "already running" guard works
+      currentPlaylistUrl = null;
+      playlistIsBatchJob = true;
+      playlistVideos     = job.items.map(it => ({ videoId: it.videoId, title: it.title }));
+      activePlaylistIdx  = -1;
+      renderPlaylist('Batch digest', playlistVideos, { kind: 'batch', hideDigestAllBtn: true });
+
+      const progressEl = document.getElementById('playlistDigestProgress');
+
+      function renderJobProgress() {
+        if (progressEl) {
+          progressEl.hidden = false;
+          progressEl.textContent =
+            `Digesting… ${job.saved} saved · ${job.failed} failed · ${job.skipped} skipped of ${job.total}`;
+        }
+        const badgeByStatus = { saved: ' ✓', failed: ' ✕', skipped: ' –', working: ' …' };
+        job.items.forEach((item, idx) => {
+          const rowEl = playlistPanelEl && playlistPanelEl.querySelector(`.playlist-item[data-idx="${idx}"]`);
+          if (!rowEl) return;
+          const badge = badgeByStatus[item.status];
+          let badgeEl = rowEl.querySelector('.playlist-item-badge');
+          if (badge) {
+            if (!badgeEl) {
+              badgeEl = document.createElement('span');
+              badgeEl.className = 'playlist-item-badge';
+              rowEl.appendChild(badgeEl);
+            }
+            badgeEl.textContent = badge;
+          } else if (badgeEl) {
+            badgeEl.remove();
+          }
+        });
+      }
+      renderJobProgress();
+
+      const lengthOpt = document.querySelector('input[name="digestLength"]:checked')?.value || 'detailed';
+      const formatOpt = document.querySelector('input[name="digestFormat"]:checked')?.value || 'digest';
+      const langOpt   = (typeof digestLangInput !== 'undefined' && digestLangInput.value.trim()) || 'English';
+
+      for (let i = 0; i < items.length; i++) {
+        job.currentIndex = i;
+        const item   = job.items[i];
+        const videoId = item.videoId;
+
+        if (!videoId) {
+          item.status = 'failed';
+          job.failed++;
+          job.completed++;
+          renderJobProgress();
+          continue;
+        }
+
+        item.status = 'working';
+        renderJobProgress();
+
+        try {
+          // Dedupe: skip videos already saved WITH a digest — no point re-spending an AI call.
+          const existingRes = await Library.getEntry(videoId).catch(() => null);
+          const existing = existingRes && existingRes.ok ? await existingRes.json().catch(() => null) : null;
+          if (existing && existing.digest) {
+            item.status = 'skipped';
+            item.title  = existing.title || item.title;
+            job.skipped++;
+            job.completed++;
+            renderJobProgress();
+            continue;
+          }
+
+          const ytUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
+
+          const tRes  = await aiFetch('/api/transcript', { url: ytUrl });
+          const tData = await tRes.json().catch(() => ({}));
+          if (!tRes.ok) throw new Error(apiErrorMessage(tData, 'Could not fetch transcript.'));
+
+          item.title = tData.title || item.title;
+          renderPlaylist('Batch digest',
+            job.items.map(it => ({ videoId: it.videoId, title: it.title })),
+            { kind: 'batch', hideDigestAllBtn: true });
+          renderJobProgress();
+
+          const plainText = buildPlainTranscript(tData.segments || []);
+
+          const dRes  = await aiFetch('/api/digest', {
+            text: plainText, length: lengthOpt, format: formatOpt, language: langOpt,
+            title: tData.title || '', videoId,
+          });
+          const dData = await dRes.json().catch(() => ({}));
+          if (!dRes.ok) throw new Error(apiErrorMessage(dData, 'Failed to generate digest.'));
+
+          const saveRes = await Library.saveEntry({
+            url: ytUrl, videoId, title: tData.title || videoId,
+            segments: tData.segments, digest: dData.digest,
+          });
+          if (!saveRes.ok) throw new Error('Could not save to library.');
+
+          item.status = 'saved';
+          job.saved++;
+        } catch (err) {
+          console.warn('[echo] runWebBatch item error:', videoId, err);
+          item.status = 'failed';
+          job.failed++;
+        }
+
+        job.completed++;
+        renderJobProgress();
+      }
+
+      job.status = 'done';
+      job.currentIndex = -1;
+      playlistJobId = null;
+
+      if (job.failed > 0) {
+        showToast('warning', `Batch digest finished with ${job.failed} failure${job.failed !== 1 ? 's' : ''}.`,
+          `${job.saved} saved, ${job.skipped} skipped.`);
+      } else {
+        showToast('success', `Batch digest complete — ${job.saved} saved, ${job.skipped} skipped.`);
+      }
+
+      loadSaved();
     }
 
     /* ==============================================
@@ -8607,11 +9855,133 @@
       catch { /* localStorage unavailable — non-fatal */ }
     }
 
+    // Auto-tag preference (default ON for local/desktop, OFF for web — web
+    // requires a BYOK key and we don't want to surprise-spend it silently).
+    const AUTO_TAGS_STORAGE_KEY = 'echo-auto-tags';
+
+    function getAutoTags() {
+      try {
+        const raw = localStorage.getItem(AUTO_TAGS_STORAGE_KEY);
+        if (raw === 'true') return true;
+        if (raw === 'false') return false;
+        return ECHO.mode !== 'web';
+      } catch { return ECHO.mode !== 'web'; }
+    }
+
+    function setAutoTags(on) {
+      try { localStorage.setItem(AUTO_TAGS_STORAGE_KEY, on ? 'true' : 'false'); }
+      catch { /* localStorage unavailable — non-fatal */ }
+    }
+
     const settingsOverlayEl  = document.getElementById('settingsOverlay');
     const apiKeyInputEl      = document.getElementById('apiKeyInput');
     const apiKeyStatusEl     = document.getElementById('apiKeyStatus');
     const settingsSaveKeyBtnEl = document.getElementById('settingsSaveKeyBtn');
     const autoDigestToggleEl = document.getElementById('autoDigestToggle');
+    const autoTagToggleEl    = document.getElementById('autoTagToggle');
+
+    // Vault sync preferences — folder path + last-sync result, local/desktop only.
+    const VAULT_DIR_STORAGE_KEY       = 'echo-vault-dir';
+    const VAULT_LAST_SYNC_STORAGE_KEY = 'echo-vault-last-sync';
+
+    function getVaultDir() {
+      try { return localStorage.getItem(VAULT_DIR_STORAGE_KEY) || ''; }
+      catch { return ''; }
+    }
+
+    function setVaultDir(v) {
+      try { localStorage.setItem(VAULT_DIR_STORAGE_KEY, v || ''); }
+      catch { /* localStorage unavailable — non-fatal */ }
+    }
+
+    function getVaultLastSync() {
+      try {
+        const raw = localStorage.getItem(VAULT_LAST_SYNC_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch { return null; }
+    }
+
+    function setVaultLastSync(info) {
+      try { localStorage.setItem(VAULT_LAST_SYNC_STORAGE_KEY, JSON.stringify(info)); }
+      catch { /* localStorage unavailable — non-fatal */ }
+    }
+
+    const vaultDirInputEl    = document.getElementById('vaultDirInput');
+    const vaultSyncBtnEl     = document.getElementById('vaultSyncBtn');
+    const vaultSyncStatusEl  = document.getElementById('vaultSyncStatus');
+    const vaultSyncLocalEl   = document.getElementById('vaultSyncLocal');
+    const vaultSyncWebEl     = document.getElementById('vaultSyncWeb');
+    const vaultZipBtnEl      = document.getElementById('vaultZipBtn');
+
+    /** Renders the last-synced indicator from a stored {when, written, total, unchanged} record. */
+    function renderVaultSyncStatus() {
+      if (!vaultSyncStatusEl) return;
+      const info = getVaultLastSync();
+      if (!info) {
+        vaultSyncStatusEl.textContent = '';
+        return;
+      }
+      const when = new Date(info.when);
+      const whenStr = isNaN(when.getTime()) ? '' : when.toLocaleString();
+      vaultSyncStatusEl.textContent =
+        `Last synced ${whenStr}: ${info.written} written, ${info.unchanged} unchanged` +
+        (info.failed ? `, ${info.failed} failed` : '') + '.';
+    }
+
+    /** Handles the "Sync to vault" button — POSTs to /api/vault/sync (local/desktop only). */
+    async function syncVault() {
+      if (!vaultDirInputEl || !vaultSyncBtnEl) return;
+      const dir = vaultDirInputEl.value.trim();
+      if (!dir) {
+        if (vaultSyncStatusEl) vaultSyncStatusEl.textContent = 'Enter a folder path first.';
+        return;
+      }
+
+      setVaultDir(dir);
+      vaultSyncBtnEl.disabled = true;
+      if (vaultSyncStatusEl) vaultSyncStatusEl.textContent = 'Syncing…';
+
+      try {
+        const res  = await fetch('/api/vault/sync', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ dir }),
+        });
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          const msg = data?.error?.message || data?.message || 'Vault sync failed.';
+          if (vaultSyncStatusEl) vaultSyncStatusEl.textContent = msg;
+          showToast('error', msg);
+          return;
+        }
+
+        const { total = 0, written = 0, unchanged = 0, failed = 0 } = data;
+        setVaultLastSync({ when: new Date().toISOString(), total, written, unchanged, failed });
+        renderVaultSyncStatus();
+        showToast('success', `Synced ${written} files to ${dir} (${unchanged} unchanged).`);
+      } catch (err) {
+        console.error('[echo] vault sync network error:', err);
+        const msg = 'Network error while syncing the vault.';
+        if (vaultSyncStatusEl) vaultSyncStatusEl.textContent = msg;
+        showToast('error', msg);
+      } finally {
+        vaultSyncBtnEl.disabled = false;
+      }
+    }
+
+    vaultSyncBtnEl?.addEventListener('click', syncVault);
+    vaultZipBtnEl?.addEventListener('click', exportSavedLibrary);
+
+    // Vault sync UI: filesystem path in local/desktop, ZIP export only in web
+    // (hosted mode has no server-side filesystem to sync into).
+    if (ECHO.mode === 'web') {
+      if (vaultSyncLocalEl) vaultSyncLocalEl.hidden = true;
+      if (vaultSyncWebEl) vaultSyncWebEl.hidden = false;
+    } else {
+      if (vaultSyncLocalEl) vaultSyncLocalEl.hidden = false;
+      if (vaultSyncWebEl) vaultSyncWebEl.hidden = true;
+    }
 
     /** Sets the inline key-status line under the API key input (Task 3). */
     function setKeyStatus(text, level) {
@@ -8625,6 +9995,9 @@
       if (apiKeyInputEl) apiKeyInputEl.value = getApiKey();
       setKeyStatus('', '');
       if (autoDigestToggleEl) autoDigestToggleEl.checked = getAutoDigest();
+      if (autoTagToggleEl) autoTagToggleEl.checked = getAutoTags();
+      if (vaultDirInputEl) vaultDirInputEl.value = getVaultDir();
+      renderVaultSyncStatus();
       settingsOverlayEl.hidden = false;
       // Focus the key field in web mode; otherwise the (visible) auto-digest toggle.
       if (ECHO.mode === 'web') apiKeyInputEl?.focus();
@@ -8707,6 +10080,13 @@
       showToast('info', autoDigestToggleEl.checked
         ? 'Auto-digest on — digests run automatically after fetching a transcript.'
         : 'Auto-digest off.');
+    });
+
+    autoTagToggleEl?.addEventListener('change', () => {
+      setAutoTags(autoTagToggleEl.checked);
+      showToast('info', autoTagToggleEl.checked
+        ? 'Auto-suggest tags on — new saves without tags will get suggestions.'
+        : 'Auto-suggest tags off.');
     });
 
     // Settings gear is available in all modes now (the auto-digest toggle lives here).
@@ -8959,9 +10339,11 @@
     function buildSessionSnapshot() {
       if (!currentMeta) return null;
       return {
-        videoId:  currentMeta.videoId,
-        url:      currentMeta.url,
-        title:    currentMeta.title,
+        videoId:    currentMeta.videoId,
+        url:        currentMeta.url,
+        title:      currentMeta.title,
+        channel:    currentMeta.channel || null,
+        channelUrl: currentMeta.channelUrl || null,
         segments: currentSegments || lastSegments || null,
         digest:   currentDigest,
         digestUsageLine: (usageStatsEl && usageStatsEl.classList.contains('visible'))
@@ -9038,7 +10420,10 @@
         // Rebuild the same state the fetch-success path sets, purely from the snapshot.
         lastSegments      = snap.segments;
         currentSegments   = snap.segments;
-        currentMeta       = { videoId: snap.videoId, url: snap.url, title: snap.title };
+        currentMeta       = {
+          videoId: snap.videoId, url: snap.url, title: snap.title,
+          channel: snap.channel || null, channelUrl: snap.channelUrl || null,
+        };
         currentDigest     = snap.digest || null;
         urlInput.value = snap.url;
 
@@ -9092,7 +10477,7 @@
         }
 
         // Restore active tab — does not trigger the next-action nudge or any AI call.
-        switchTab(['digest', 'saved', 'discovery'].includes(snap.activeTab) ? snap.activeTab : 'transcript');
+        switchTab(['digest', 'saved', 'discovery', 'inbox'].includes(snap.activeTab) ? snap.activeTab : 'transcript');
 
         setStatus(`Session restored — ${lastSegments.length} segment${lastSegments.length === 1 ? '' : 's'}.`);
         return true;
@@ -9143,6 +10528,19 @@
                 onerror="this.remove()">`
         : '';
 
+      // Follow button — local/desktop only (channel-following backend 503s in
+      // web mode), and only shown when the card carries a resolvable
+      // channelUrl (from yt-dlp's channel_url/uploader_url/channel_id) so a
+      // click is a genuine one-click follow rather than a guess that just
+      // reopens the manual form. Cards without a channelUrl simply don't get
+      // a Follow button.
+      const followBtnHtml = (card.channelUrl && ECHO.mode !== 'web')
+        ? `<button type="button" class="discovery-follow-btn"
+                    data-channel-url="${escapeAttr(card.channelUrl)}"
+                    data-channel="${escapeAttr(channel)}"
+                    aria-label="Follow ${escapeAttr(channel || 'this channel')}">+ Follow</button>`
+        : '';
+
       return `<div class="saved-card"
                    data-url="${escapeAttr(safeUrl || card.url || '')}"
                    tabindex="0"
@@ -9168,6 +10566,7 @@
             ${(channel && viewsStr) ? '<span class="saved-meta-sep" aria-hidden="true">·</span>' : ''}
             ${viewsStr ? `<span class="saved-meta-item">${escapeHtml(viewsStr)}</span>` : ''}
           </div>
+          ${followBtnHtml ? `<div class="saved-card-actions">${followBtnHtml}</div>` : ''}
         </div>
       </div>`;
     }
@@ -9182,13 +10581,24 @@
       const allCards = discoveryResultsEl.querySelectorAll('.saved-card');
       const newCards = Array.from(allCards).slice(allCards.length - cards.length);
       newCards.forEach(card => {
-        card.addEventListener('click', () => loadDiscoveryCard(card.dataset.url));
+        card.addEventListener('click', e => {
+          if (e.target.closest('.discovery-follow-btn')) return;
+          loadDiscoveryCard(card.dataset.url);
+        });
         card.addEventListener('keydown', e => {
+          if (e.target.closest('.discovery-follow-btn')) return;
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             loadDiscoveryCard(card.dataset.url);
           }
         });
+        const followBtn = card.querySelector('.discovery-follow-btn');
+        if (followBtn) {
+          followBtn.addEventListener('click', e => {
+            e.stopPropagation();
+            attemptQuickFollow(followBtn, followBtn.dataset.channelUrl, followBtn.dataset.channel);
+          });
+        }
       });
     }
 
@@ -9372,11 +10782,335 @@
     }
 
     /* ==============================================
+       CHANNEL / CREATOR FOLLOWING — local/desktop only (backend /api/follows*
+       routes 503 in web mode; the Inbox tab and all Follow buttons are
+       hidden entirely in that mode — see the INITIALISE block below).
+    =============================================== */
+
+    /** Shared helper: POST /api/follows { url, title }. Returns the parsed
+     *  response body on success (2xx), or null on failure (shows a toast). */
+    async function followChannel(url, title) {
+      try {
+        const res  = await fetch('/api/follows', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ url, title: title || undefined }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showToast('error', (data && data.error) || "Couldn't follow that channel.");
+          return null;
+        }
+        showToast('success', `Following ${(data.follow && data.follow.title) || title || 'channel'}.`);
+        return data;
+      } catch (e) {
+        showToast('error', "Couldn't reach the server to follow that channel.");
+        return null;
+      }
+    }
+
+    /** Best-effort "Follow" click from a card/button. `url` is normally a
+     *  real channelUrl (one-click follow), but this stays defensive: on
+     *  failure it opens the Inbox's Manage-follows panel pre-filled so the
+     *  user can paste the real channel URL instead of silently doing nothing. */
+    async function attemptQuickFollow(btnEl, url, title) {
+      if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Following…'; }
+      const data = await followChannel(url, title);
+      if (data) {
+        if (btnEl) { btnEl.textContent = 'Following ✓'; }
+        loadFollowedList();
+        return;
+      }
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '+ Follow'; }
+      // Couldn't resolve a channel reference from the display name alone —
+      // hand off to the manual "Manage follows" form, pre-filled.
+      if (inboxBtn && !inboxBtn.hidden) {
+        switchTab('inbox');
+        inboxManagePanel.hidden = false;
+        inboxManageBtn.setAttribute('aria-expanded', 'true');
+        if (followTitleInput) followTitleInput.value = title || '';
+        if (followUrlInput)  { followUrlInput.value = ''; followUrlInput.focus(); }
+        if (followManageStatusEl) {
+          followManageStatusEl.textContent = "Couldn't recognize that as a channel — paste the channel's URL or @handle to follow it.";
+          followManageStatusEl.className = 'saved-status-msg error';
+        }
+      }
+    }
+
+    /** Loads the followed-channels list into #followedList with unfollow ✕ buttons. */
+    async function loadFollowedList() {
+      if (!followedListEl) return;
+      try {
+        const res  = await fetch('/api/follows');
+        const data = await res.json().catch(() => ({}));
+        const follows = (res.ok && Array.isArray(data.follows)) ? data.follows : [];
+        if (follows.length === 0) {
+          followedListEl.innerHTML = '<p class="empty-state">You\'re not following any channels yet.</p>';
+          return;
+        }
+        followedListEl.innerHTML = follows.map(f => `
+          <div class="followed-item" data-channelid="${escapeAttr(f.channelId)}">
+            <span class="followed-item-title">${escapeHtml(f.title || f.channelId)}</span>
+            <button type="button" class="followed-unfollow-btn" data-channelid="${escapeAttr(f.channelId)}"
+                    aria-label="Unfollow ${escapeAttr(f.title || f.channelId)}">✕ Unfollow</button>
+          </div>`).join('');
+        followedListEl.querySelectorAll('.followed-unfollow-btn').forEach(btn => {
+          btn.addEventListener('click', () => unfollowChannel(btn.dataset.channelid));
+        });
+      } catch (e) {
+        followedListEl.innerHTML = '<p class="empty-state">Could not load followed channels.</p>';
+      }
+    }
+
+    /** Unfollows a channel, then refreshes both the manage list and the inbox. */
+    async function unfollowChannel(channelId) {
+      if (!channelId) return;
+      try {
+        const res = await fetch(`/api/follows/${encodeURIComponent(channelId)}`, { method: 'DELETE' });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          showToast('error', (data && data.error) || 'Could not unfollow that channel.');
+          return;
+        }
+        showToast('info', 'Unfollowed.');
+        loadFollowedList();
+        loadInbox();
+      } catch (e) {
+        showToast('error', 'Could not reach the server to unfollow.');
+      }
+    }
+
+    /** Updates the Inbox nav-tab unseen-count badge. */
+    function updateInboxBadge(count) {
+      if (!inboxCountEl) return;
+      if (count > 0) {
+        inboxCountEl.textContent = String(count);
+        inboxCountEl.hidden = false;
+      } else {
+        inboxCountEl.hidden = true;
+      }
+    }
+
+    /** Marks a channel's given videoIds as seen, then reloads the inbox. */
+    async function markChannelSeen(channelId, videoIds) {
+      try {
+        await fetch('/api/follows/seen', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ channelId, videoIds }),
+        });
+      } catch (e) {
+        // Best-effort — a failed mark-as-seen just means the badge stays inflated
+        // until the next successful check; not worth surfacing as an error.
+      }
+      loadInbox();
+    }
+
+    /** Loads a followed channel's unseen video into the reader via the same
+     *  path pasting a URL uses, then marks it seen. */
+    function openInboxItem(channelId, videoId) {
+      if (!videoId) return;
+      urlInput.value = `https://www.youtube.com/watch?v=${videoId}`;
+      fetchTranscript();
+      markChannelSeen(channelId, [videoId]);
+    }
+
+    /** Renders the Inbox's channel groups (with unseen items) into #inboxContent. */
+    function renderInboxContent(channels) {
+      if (!inboxContentEl) return;
+      if (!Array.isArray(channels) || channels.length === 0) {
+        inboxContentEl.innerHTML =
+          '<p class="empty-state">You\'re not following any channels yet — follow one from Discovery or a loaded video.</p>';
+        return;
+      }
+
+      inboxContentEl.innerHTML = channels.map(ch => {
+        const unseen = Array.isArray(ch.unseen) ? ch.unseen : [];
+        const itemsHtml = unseen.length > 0
+          ? unseen.map(u => `
+              <div class="inbox-item" data-videoid="${escapeAttr(u.videoId)}">
+                <span class="inbox-item-title">${escapeHtml(u.title || u.videoId)}</span>
+                <button type="button" class="mini-btn inbox-item-read-btn"
+                        data-channelid="${escapeAttr(ch.channelId)}" data-videoid="${escapeAttr(u.videoId)}">Read / Digest</button>
+              </div>`).join('')
+          : '<p class="inbox-empty-note">No new uploads.</p>';
+
+        const errorHtml = ch.error
+          ? `<p class="inbox-error-note">Couldn't check this channel: ${escapeHtml(ch.error)}</p>`
+          : '';
+
+        return `<div class="inbox-channel-group">
+          <div class="inbox-channel-header">
+            <span class="inbox-channel-title">${escapeHtml(ch.title || ch.channelId)}</span>
+            ${unseen.length > 0 ? `<span class="inbox-new-badge">${unseen.length} new</span>` : ''}
+            ${unseen.length > 0
+              ? `<button type="button" class="mini-btn inbox-mark-seen-btn" data-channelid="${escapeAttr(ch.channelId)}">Mark all seen</button>`
+              : ''}
+          </div>
+          ${errorHtml}
+          <div class="inbox-item-list">${itemsHtml}</div>
+        </div>`;
+      }).join('');
+
+      inboxContentEl.querySelectorAll('.inbox-item-read-btn').forEach(btn => {
+        btn.addEventListener('click', () => openInboxItem(btn.dataset.channelid, btn.dataset.videoid));
+      });
+      inboxContentEl.querySelectorAll('.inbox-mark-seen-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const channelId = btn.dataset.channelid;
+          const group = btn.closest('.inbox-channel-group');
+          const videoIds = group
+            ? Array.from(group.querySelectorAll('.inbox-item')).map(el => el.dataset.videoid)
+            : [];
+          markChannelSeen(channelId, videoIds);
+        });
+      });
+    }
+
+    /** Loads GET /api/follows/inbox and renders it, updating the nav badge. */
+    async function loadInbox() {
+      if (!inboxContentEl) return;
+      if (inboxStatusMsgEl) { inboxStatusMsgEl.textContent = 'Checking…'; inboxStatusMsgEl.className = 'saved-status-msg'; }
+      try {
+        const res  = await fetch('/api/follows/inbox');
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          if (inboxStatusMsgEl) {
+            inboxStatusMsgEl.textContent = (data && data.error) || 'Could not check your follows.';
+            inboxStatusMsgEl.className   = 'saved-status-msg error';
+          }
+          return;
+        }
+        const channels = Array.isArray(data.channels) ? data.channels : [];
+        const unseenTotal = channels.reduce((sum, c) => sum + (Array.isArray(c.unseen) ? c.unseen.length : 0), 0);
+        if (inboxStatusMsgEl) inboxStatusMsgEl.textContent = '';
+        renderInboxContent(channels);
+        updateInboxBadge(unseenTotal);
+      } catch (e) {
+        if (inboxStatusMsgEl) {
+          inboxStatusMsgEl.textContent = "Couldn't reach the server to check your follows.";
+          inboxStatusMsgEl.className   = 'saved-status-msg error';
+        }
+      }
+    }
+
+    /** Refreshes the unseen-count badge on load without switching to the
+     *  Inbox tab or forcing a full re-render — used at startup so the badge
+     *  is accurate before the user ever opens the tab. */
+    function refreshInboxBadgeQuietly() {
+      if (!inboxBtn || inboxBtn.hidden) return;
+      fetch('/api/follows/inbox')
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (!data || !Array.isArray(data.channels)) return;
+          const unseenTotal = data.channels.reduce((sum, c) => sum + (Array.isArray(c.unseen) ? c.unseen.length : 0), 0);
+          updateInboxBadge(unseenTotal);
+        })
+        .catch(() => {});
+    }
+
+    if (inboxRefreshBtn) inboxRefreshBtn.addEventListener('click', loadInbox);
+    if (inboxManageBtn) {
+      inboxManageBtn.addEventListener('click', () => {
+        const show = inboxManagePanel.hidden;
+        inboxManagePanel.hidden = !show;
+        inboxManageBtn.setAttribute('aria-expanded', String(show));
+        if (show) loadFollowedList();
+      });
+    }
+    if (followAddBtn) {
+      followAddBtn.addEventListener('click', async () => {
+        const url   = (followUrlInput.value || '').trim();
+        const title = (followTitleInput.value || '').trim();
+        if (!url) {
+          followManageStatusEl.textContent = 'Enter a channel URL or @handle.';
+          followManageStatusEl.className   = 'saved-status-msg error';
+          return;
+        }
+        followAddBtn.disabled = true;
+        const data = await followChannel(url, title);
+        followAddBtn.disabled = false;
+        if (data) {
+          followUrlInput.value = '';
+          followTitleInput.value = '';
+          followManageStatusEl.textContent = '';
+          followManageStatusEl.className   = 'saved-status-msg';
+          loadFollowedList();
+          loadInbox();
+        }
+      });
+    }
+
+    // Follow-channel button (attached to the loaded-video content header) —
+    // when the loaded video's metadata carried a resolvable channelUrl this
+    // is a genuine one-click follow; otherwise it falls back to a small
+    // confirm/paste form (the button itself is hidden by updateNowReading()
+    // when there's nothing to follow at all).
+    if (followChannelBtn) {
+      followChannelBtn.addEventListener('click', async () => {
+        if (currentMeta && currentMeta.channelUrl) {
+          followChannelBtn.disabled = true;
+          const data = await followChannel(currentMeta.channelUrl, currentMeta.channel || currentMeta.title || '');
+          followChannelBtn.disabled = false;
+          if (data) {
+            refreshInboxBadgeQuietly();
+          }
+          return;
+        }
+        const show = followChannelPanel.hidden;
+        followChannelPanel.hidden = !show;
+        followChannelBtn.setAttribute('aria-expanded', String(show));
+        if (show) {
+          followChannelUrlInput.value = '';
+          followChannelTitleInput.value = '';
+          followChannelStatusEl.textContent = '';
+          followChannelStatusEl.className = 'saved-status-msg';
+          followChannelUrlInput.focus();
+        }
+      });
+    }
+    if (followChannelCancelBtn) {
+      followChannelCancelBtn.addEventListener('click', () => {
+        followChannelPanel.hidden = true;
+        followChannelBtn.setAttribute('aria-expanded', 'false');
+      });
+    }
+    if (followChannelSubmitBtn) {
+      followChannelSubmitBtn.addEventListener('click', async () => {
+        const url   = (followChannelUrlInput.value || '').trim();
+        const title = (followChannelTitleInput.value || '').trim();
+        if (!url) {
+          followChannelStatusEl.textContent = 'Enter a channel URL or @handle.';
+          followChannelStatusEl.className   = 'saved-status-msg error';
+          return;
+        }
+        followChannelSubmitBtn.disabled = true;
+        const data = await followChannel(url, title);
+        followChannelSubmitBtn.disabled = false;
+        if (data) {
+          followChannelPanel.hidden = true;
+          followChannelBtn.setAttribute('aria-expanded', 'false');
+          refreshInboxBadgeQuietly();
+        } else {
+          followChannelStatusEl.textContent = "Couldn't recognize that as a channel URL/handle.";
+          followChannelStatusEl.className   = 'saved-status-msg error';
+        }
+      });
+    }
+
+    /* ==============================================
        INITIALISE
     =============================================== */
     if (ECHO.mode === 'web' && discoveryBtn) {
       // Discovery's backend routes 503 in web mode — hide the entry point.
       discoveryBtn.hidden = true;
+    }
+    if (ECHO.mode === 'web') {
+      // Channel following's backend routes 503 in web mode — hide every entry point.
+      if (inboxBtn) inboxBtn.hidden = true;
+      if (followChannelBtn) followChannelBtn.hidden = true;
+    } else {
+      refreshInboxBadgeQuietly();
     }
     loadUsageChip();
     loadSaved();

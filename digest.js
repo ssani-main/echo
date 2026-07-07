@@ -922,6 +922,90 @@ export async function generateCrossDigest(entries, options = {}) {
 }
 
 /**
+ * Answers a question by synthesising across multiple saved-video "candidates"
+ * (already retrieved by the caller — either server-side FTS5 in local/desktop
+ * mode, or client-side IndexedDB search in web mode). This is the "Ask across
+ * your library" cross-video RAG entry point.
+ *
+ * Source material preference per candidate (mirrors generateCrossDigest):
+ *   1. candidate.digest, if present.
+ *   2. candidate.excerpt (raw transcript excerpt), capped to MAX_CANDIDATE_CHARS.
+ *
+ * The combined candidate material is budgeted against CHUNK_CONTENT_CHARS —
+ * candidates are added in the given (assumed best-first) order until the next
+ * one would overflow the budget; any remaining candidates are dropped and
+ * `truncated` is set true. Only the candidates that made it into the prompt
+ * are returned as `citations`.
+ *
+ * @param {string} question
+ * @param {Array<{ videoId: string, title?: string, digest?: string, excerpt?: string }>} candidates
+ * @param {{ apiKey?: string, language?: string }} [opts]
+ * @returns {Promise<{ answer: string, citations: Array<{videoId:string,title:string}>, usage: object, truncated: boolean }>}
+ */
+export async function askLibrary(question, candidates, opts = {}) {
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    return { answer: '', citations: [], usage: mergeUsage([]), truncated: false };
+  }
+
+  // Maximum chars of material to take from a single candidate (digest or
+  // excerpt) — keeps one over-long source from starving the rest of the
+  // context budget. Mirrors generateCrossDigest's MAX_EXCERPT_CHARS.
+  const MAX_CANDIDATE_CHARS = 3000;
+
+  const { language = 'English' } = opts;
+
+  const blocks = [];
+  const citations = [];
+  let truncated = false;
+  let usedChars = 0;
+
+  for (const candidate of candidates) {
+    const title = sanitizeTitle(candidate.title || candidate.videoId || 'Untitled');
+    const videoId = candidate.videoId;
+
+    let material = '';
+    if (candidate.digest && candidate.digest.trim()) {
+      material = candidate.digest.trim().slice(0, MAX_CANDIDATE_CHARS);
+    } else if (candidate.excerpt && candidate.excerpt.trim()) {
+      material = candidate.excerpt.trim().slice(0, MAX_CANDIDATE_CHARS);
+    } else {
+      material = '(No transcript or digest available for this video.)';
+    }
+
+    const block = `### ${title} [id: ${videoId}]\n\n${material}`;
+
+    if (usedChars + block.length > CHUNK_CONTENT_CHARS && blocks.length > 0) {
+      truncated = true;
+      break;
+    }
+
+    blocks.push(block);
+    citations.push({ videoId, title });
+    usedChars += block.length;
+  }
+
+  const combined = blocks.join('\n\n---\n\n');
+
+  const prompt =
+    `You are answering a question using ONLY the excerpts/summaries below, taken from ${blocks.length} saved YouTube videos. ` +
+    'Answer the QUESTION using only the provided sources. ' +
+    'Cite the videos that support each part of your answer inline by their title (e.g. "According to “Title”, …"). ' +
+    'If the sources do not contain enough information to answer, say so plainly instead of guessing or inventing facts. ' +
+    `Write your entire response in ${sanitizeLang(language)}.\n\n` +
+    `QUESTION: ${question}\n\n` +
+    'SOURCES (one section per video):\n\n' +
+    combined;
+
+  const { result, usage } = await callProvider(prompt, opts);
+
+  if (!result || !result.trim()) {
+    throw new Error('askLibrary: Claude returned an empty result.');
+  }
+
+  return { answer: result, citations, usage: mergeUsage([usage]), truncated };
+}
+
+/**
  * Builds a compact web-search query from a user's highlighted selection,
  * optionally padded with a couple of salient words from the surrounding
  * transcript context (helps disambiguate short/ambiguous selections).
@@ -1113,4 +1197,63 @@ export async function enrich(selection, opts = {}) {
   }
 
   throw new Error(`enrich: unknown mode "${mode}". Expected 'explain', 'background', or 'factcheck'.`);
+}
+
+// Maximum chars of material (digest or transcript excerpt) to feed the
+// suggestTags prompt. Keeps this a cheap, fast call even for long transcripts.
+const MAX_TAG_MATERIAL_CHARS = 6000;
+
+// Cap on the length of any single normalized tag string.
+const MAX_TAG_CHARS = 40;
+
+/**
+ * Suggest 3-5 short topical tags for a video's digest or transcript excerpt.
+ *
+ * @param {string} material - a digest or transcript excerpt to read.
+ * @param {{ apiKey?: string, language?: string }} [opts]
+ * @returns {Promise<{ tags: string[], usage: object }>}
+ */
+export async function suggestTags(material, opts = {}) {
+  if (!material || !material.trim()) {
+    throw new Error('No material provided.');
+  }
+
+  const { language } = opts;
+  const trimmed = material.trim();
+  const truncated = trimmed.length > MAX_TAG_MATERIAL_CHARS;
+  const excerpt =
+    trimmed.slice(0, MAX_TAG_MATERIAL_CHARS) +
+    (truncated ? ' … [excerpt truncated]' : '');
+
+  const prompt =
+    'Read the following video digest or transcript excerpt and suggest 3-5 short topical tags ' +
+    '(single words or short phrases) that a reader could use to categorise or search for this video. ' +
+    languageDirective(language) + '\n\n' +
+    'Return STRICT JSON and nothing else — no prose before or after, no code fences:\n' +
+    '{"tags": ["tag1", "tag2", "tag3"]}\n\n' +
+    'MATERIAL:\n\n' +
+    excerpt;
+
+  const { result, usage } = await callProvider(prompt, opts);
+
+  let parsed;
+  try {
+    parsed = parseJsonLoose(result);
+  } catch (_) {
+    return { tags: [], usage: mergeUsage([usage]) };
+  }
+
+  const rawTags = Array.isArray(parsed?.tags) ? parsed.tags : [];
+  const seen = new Set();
+  const tags = [];
+  for (const t of rawTags) {
+    if (tags.length >= 5) break;
+    const s = String(t ?? '').trim().toLowerCase();
+    if (!s || s.length > MAX_TAG_CHARS) continue;
+    if (seen.has(s)) continue;
+    seen.add(s);
+    tags.push(s);
+  }
+
+  return { tags, usage: mergeUsage([usage]) };
 }
