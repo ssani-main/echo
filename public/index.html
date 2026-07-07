@@ -1372,7 +1372,7 @@
       flex-direction: column;
       background: var(--surface);
       border: 1px solid var(--rule);
-      border-radius: 12px;
+      border-radius: var(--radius-lg);
       overflow: hidden;
       cursor: pointer;
       outline: none;
@@ -1438,16 +1438,19 @@
       left: 0.5rem;
       bottom: 0.5rem;
       z-index: 3;
-      font-family: var(--font-sans);
-      font-size: 0.62rem;
-      font-weight: 700;
-      letter-spacing: 0.06em;
+      font-family: var(--font-mono);
+      font-size: 0.56rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
-      color: var(--on-accent);
-      background: var(--accent);
-      border-radius: 999px;
-      padding: 0.12rem 0.5rem;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+      color: var(--accent);
+      background: color-mix(in srgb, var(--paper) 76%, transparent);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+      border-radius: 5px;
+      padding: 0.1rem 0.4rem;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
     }
 
     /* Content column below the thumbnail */
@@ -1487,15 +1490,15 @@
     }
 
     .saved-meta-item {
-      font-family: var(--font-sans);
-      font-size: 0.7rem;
-      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      color: var(--ink-faint);
       letter-spacing: 0.01em;
     }
 
     .saved-meta-sep {
-      font-size: 0.7rem;
-      color: var(--rule);
+      font-size: 0.66rem;
+      color: var(--rule-strong);
       line-height: 1;
     }
 
@@ -2182,12 +2185,13 @@
     }
 
     .saved-result-count {
-      font-family: var(--font-sans);
-      font-size: 0.72rem;
-      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      color: var(--ink-faint);
       margin-bottom: 0.4rem;
       min-height: 1.1em;
-      letter-spacing: 0.01em;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
     }
 
     .saved-status-msg {
@@ -2210,8 +2214,9 @@
     .library-ask-wrap {
       margin-bottom: 0.75rem;
       padding: 0.65rem 0.75rem;
-      background: var(--accent-soft);
+      background: var(--surface-2);
       border: 1px solid var(--rule);
+      border-left: 2px solid var(--accent);
       border-radius: var(--radius);
     }
 
@@ -2377,9 +2382,9 @@
       font-family: var(--font-sans);
       font-size: 0.75rem;
       font-weight: 500;
-      color: var(--accent);
-      background: var(--accent-soft);
-      border: 1px solid transparent;
+      color: var(--muted);
+      background: var(--surface-2);
+      border: 1px solid var(--rule);
       border-radius: 999px;
       cursor: pointer;
       outline: none;
@@ -2387,7 +2392,8 @@
     }
 
     .discovery-chip:hover {
-      border-color: var(--accent);
+      border-color: var(--rule-strong);
+      color: var(--ink);
     }
 
     .discovery-chip:focus-visible {
@@ -2396,8 +2402,9 @@
     }
 
     .discovery-chip.is-active {
-      color: var(--on-accent);
-      background: var(--accent);
+      color: var(--accent);
+      background: var(--accent-soft);
+      border-color: color-mix(in srgb, var(--accent) 45%, transparent);
     }
 
     .discovery-subtitle {
@@ -2428,9 +2435,9 @@
       right: 0.5rem;
       bottom: 0.5rem;
       z-index: 3;
-      font-family: var(--font-sans);
-      font-size: 0.62rem;
-      font-weight: 700;
+      font-family: var(--font-mono);
+      font-size: 0.6rem;
+      font-weight: 600;
       letter-spacing: 0.02em;
       color: #fff;
       background: rgba(0, 0, 0, 0.72);
@@ -2649,6 +2656,21 @@
       color: var(--warn);
     }
 
+    #paneInbox .empty-state {
+      display: block;
+      max-width: 460px;
+      margin: 2.5rem auto;
+      padding: 1.75rem 1.5rem;
+      text-align: center;
+      font-family: var(--font-serif);
+      font-size: 0.95rem;
+      line-height: 1.55;
+      color: var(--muted);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius-lg);
+    }
+
     /* Channel selector chips + selected-channel header + card grid —
        28d. below. .inbox-channel-chips reuses .discovery-chips (see class
        list on the element); .inbox-card-grid reuses .discovery-results. */
@@ -2667,6 +2689,16 @@
 
     .inbox-channel-header-bar .inbox-mark-seen-btn {
       margin-left: auto;
+    }
+
+    /* [hidden] guard: these elements set `display` via a class, which overrides
+       the UA `[hidden]{display:none}` rule — so JS `el.hidden = true` fails to
+       hide them (left an orphaned "Mark all seen" + "Load more" on the empty
+       Inbox). Restore the expected hide behavior. */
+    .inbox-channel-header-bar[hidden],
+    .discovery-chips[hidden],
+    .mini-btn[hidden] {
+      display: none !important;
     }
 
     /* "New" badge overlaid on a channel-card thumbnail (top-left, distinct
@@ -11500,6 +11532,8 @@
           renderInboxChips();
           renderChannelHeader();
           if (inboxEmptyStateEl) inboxEmptyStateEl.hidden = false;
+          if (inboxChannelHeaderEl) inboxChannelHeaderEl.hidden = true;
+          if (inboxChipsEl) inboxChipsEl.hidden = true;
           if (inboxCardGridEl) inboxCardGridEl.innerHTML = '';
           if (inboxLoadMoreBtn) inboxLoadMoreBtn.hidden = true;
           return;
