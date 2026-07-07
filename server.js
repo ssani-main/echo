@@ -864,11 +864,11 @@ app.post('/api/vault/sync', blockInWeb, async (req, res) => {
 app.post('/api/saved', blockInWeb, async (req, res) => {
   const t0 = Date.now();
   try {
-    const { url, videoId, title, segments, digest } = req.body;
+    const { url, videoId, title, segments, digest, channel, channelUrl } = req.body;
     if (!videoId || !Array.isArray(segments) || segments.length === 0) {
       return sendError(res, 'INTERNAL', 'videoId and segments are required.', '', 400);
     }
-    const meta = await saveEntry({ url, videoId, title, segments, digest });
+    const meta = await saveEntry({ url, videoId, title, segments, digest, channel, channelUrl });
     logEvent('save', { videoId, hadDigest: Boolean(digest), ok: true, ms: Date.now() - t0 });
     res.json(meta);
   } catch (err) {

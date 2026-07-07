@@ -1371,7 +1371,12 @@
     }
 
     /* On hover-capable devices, keep secondary actions calm until the card is
-       hovered or focused — this is what removes the "wall of buttons" feel. */
+       hovered or focused — this is what removes the "wall of buttons" feel.
+       Exception: .saved-card-actions blocks that hold ONLY a Discovery
+       Follow button (.discovery-follow-btn-only) stay visible at rest —
+       "follow this channel" is a discoverability-critical action, not a
+       housekeeping one like save/delete, so hiding it behind hover hurt
+       findability. */
     @media (hover: hover) {
       .saved-card-actions {
         opacity: 0;
@@ -1379,6 +1384,9 @@
       }
       .saved-card:hover .saved-card-actions,
       .saved-card:focus-within .saved-card-actions {
+        opacity: 1;
+      }
+      .saved-card-actions.discovery-follow-btn-only {
         opacity: 1;
       }
     }
@@ -5388,7 +5396,7 @@
        */
       async saveEntry(payload) {
         try {
-          const { url, videoId, title, segments, digest, tags, favorite } = payload || {};
+          const { url, videoId, title, channel, channelUrl, segments, digest, tags, favorite } = payload || {};
           if (!videoId || !Array.isArray(segments) || segments.length === 0) {
             return idbErr('videoId and segments are required.', 400);
           }
@@ -5401,6 +5409,8 @@
               videoId,
               url:        url || '',
               title:      title || null,
+              channel:    channel || null,
+              channelUrl: channelUrl || null,
               savedAt:    now,
               updatedAt:  now,
               segments:   segments || [],
@@ -5413,6 +5423,8 @@
               ...existing,
               url:        url != null ? url : existing.url,
               title:      title || null,
+              channel:    channel != null ? channel : existing.channel || null,
+              channelUrl: channelUrl != null ? channelUrl : existing.channelUrl || null,
               updatedAt:  now,
               segments:   segments || existing.segments,
               digest:     digest ? digest : existing.digest,
@@ -8196,11 +8208,13 @@
 
       try {
         const res = await Library.saveEntry({
-          url:      currentMeta.url,
-          videoId:  currentMeta.videoId,
-          title:    currentMeta.title,
-          segments: lastSegments,
-          digest:   currentDigest,
+          url:        currentMeta.url,
+          videoId:    currentMeta.videoId,
+          title:      currentMeta.title,
+          channel:    currentMeta.channel || null,
+          channelUrl: currentMeta.channelUrl || null,
+          segments:   lastSegments,
+          digest:     currentDigest,
         });
 
         if (!res.ok) {
@@ -8837,11 +8851,14 @@
         // Restore shared state
         lastSegments    = entry.segments;
         currentSegments = entry.segments;
-        // Saved library entries don't persist channel metadata, so the
-        // Follow-channel button falls back to the manual panel for these.
+        // Newer saved entries persist channel/channelUrl (round-tripped
+        // through /api/saved) so the Follow-channel button can one-click
+        // follow just like a freshly-loaded video. Older entries saved
+        // before this field existed come back with null and fall back to
+        // the manual panel, same as before.
         currentMeta     = {
           videoId: entry.videoId, url: entry.url, title: entry.title,
-          channel: null, channelUrl: null,
+          channel: entry.channel ?? null, channelUrl: entry.channelUrl ?? null,
         };
         currentDigest   = entry.digest || null;
 
@@ -9769,6 +9786,7 @@
 
           const saveRes = await Library.saveEntry({
             url: ytUrl, videoId, title: tData.title || videoId,
+            channel: tData.channel || null, channelUrl: tData.channelUrl || null,
             segments: tData.segments, digest: dData.digest,
           });
           if (!saveRes.ok) throw new Error('Could not save to library.');
@@ -10566,7 +10584,7 @@
             ${(channel && viewsStr) ? '<span class="saved-meta-sep" aria-hidden="true">·</span>' : ''}
             ${viewsStr ? `<span class="saved-meta-item">${escapeHtml(viewsStr)}</span>` : ''}
           </div>
-          ${followBtnHtml ? `<div class="saved-card-actions">${followBtnHtml}</div>` : ''}
+          ${followBtnHtml ? `<div class="saved-card-actions discovery-follow-btn-only">${followBtnHtml}</div>` : ''}
         </div>
       </div>`;
     }

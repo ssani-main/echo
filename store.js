@@ -37,7 +37,9 @@ db.exec(`
     segments  TEXT NOT NULL DEFAULT '[]',
     digest    TEXT,
     favorite  INTEGER NOT NULL DEFAULT 0,
-    segment_count INTEGER NOT NULL DEFAULT 0
+    segment_count INTEGER NOT NULL DEFAULT 0,
+    channel   TEXT,
+    channelUrl TEXT
   );
 
   CREATE TABLE IF NOT EXISTS tags (
@@ -103,6 +105,28 @@ db.exec(`
 })();
 
 // ---------------------------------------------------------------------------
+// One-time migration: add channel/channelUrl columns to pre-existing DBs so
+// a saved entry can carry its source channel's name + URL (enables one-click
+// "Follow channel" from the library). Existing rows get NULL. Idempotent:
+// mirrors migrateSegmentCount()'s PRAGMA-check + duplicate-column tolerance.
+// ---------------------------------------------------------------------------
+
+(function migrateChannelColumns() {
+  const cols = db.prepare('PRAGMA table_info(videos)').all();
+  const colNames = new Set(cols.map((c) => c.name));
+
+  for (const col of ['channel', 'channelUrl']) {
+    if (colNames.has(col)) continue; // Already migrated (or created fresh with the column above)
+    try {
+      db.exec(`ALTER TABLE videos ADD COLUMN ${col} TEXT`);
+    } catch (err) {
+      // Tolerate a race where another process added the column concurrently.
+      if (!/duplicate column/i.test(err?.message || '')) throw err;
+    }
+  }
+})();
+
+// ---------------------------------------------------------------------------
 // Internal DB helpers
 // ---------------------------------------------------------------------------
 
@@ -128,6 +152,8 @@ function fetchFullEntry(videoId) {
     digest:     row.digest ?? null,
     favorite:   row.favorite === 1,
     tags:       tags.map((t) => t.tag),
+    channel:    row.channel ?? null,
+    channelUrl: row.channelUrl ?? null,
   };
 }
 
@@ -145,6 +171,8 @@ function toMeta(entry) {
     segmentCount:   entry.segments?.length || 0,
     tags:           Array.isArray(entry.tags)       ? entry.tags             : [],
     favorite:       typeof entry.favorite === 'boolean' ? entry.favorite     : false,
+    channel:        entry.channel    ?? null,
+    channelUrl:     entry.channelUrl ?? null,
   };
 }
 
@@ -282,7 +310,7 @@ export async function getEntry(videoId) {
  * incoming payload omits them.
  * Returns the metadata object for the saved entry.
  */
-export async function saveEntry({ url, videoId, title, segments, digest, tags, favorite }) {
+export async function saveEntry({ url, videoId, title, segments, digest, tags, favorite, channel, channelUrl }) {
   const now      = new Date().toISOString();
   const existing = db.prepare('SELECT * FROM videos WHERE videoId = ?').get(videoId);
   const safeUrl  = safeHttpUrl(url);
@@ -290,8 +318,8 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
   if (!existing) {
     // ---- New entry --------------------------------------------------------
     db.prepare(`
-      INSERT INTO videos (videoId, url, title, savedAt, updatedAt, segments, digest, favorite, segment_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO videos (videoId, url, title, savedAt, updatedAt, segments, digest, favorite, segment_count, channel, channelUrl)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       videoId,
       safeUrl,
@@ -301,6 +329,8 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
       digest || null,
       typeof favorite === 'boolean' ? (favorite ? 1 : 0) : 0,
       Array.isArray(segments) ? segments.length : 0,
+      channel    || null,
+      channelUrl || null,
     );
 
     const initTags = Array.isArray(tags) ? tags : [];
@@ -309,12 +339,14 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
     }
   } else {
     // ---- Existing entry — preserve savedAt and extension fields not in payload ----
-    const keepDigest   = digest   ? digest   : existing.digest;
-    const keepFavorite = typeof favorite === 'boolean' ? (favorite ? 1 : 0) : existing.favorite;
+    const keepDigest     = digest   ? digest   : existing.digest;
+    const keepFavorite   = typeof favorite === 'boolean' ? (favorite ? 1 : 0) : existing.favorite;
+    const keepChannel    = channel    !== undefined ? (channel    || null) : existing.channel;
+    const keepChannelUrl = channelUrl !== undefined ? (channelUrl || null) : existing.channelUrl;
 
     db.prepare(`
       UPDATE videos
-      SET url = ?, title = ?, updatedAt = ?, segments = ?, digest = ?, favorite = ?, segment_count = ?
+      SET url = ?, title = ?, updatedAt = ?, segments = ?, digest = ?, favorite = ?, segment_count = ?, channel = ?, channelUrl = ?
       WHERE videoId = ?
     `).run(
       url != null ? safeUrl : existing.url,
@@ -324,6 +356,8 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
       keepDigest,
       keepFavorite,
       Array.isArray(segments) ? segments.length : 0,
+      keepChannel,
+      keepChannelUrl,
       videoId,
     );
 
