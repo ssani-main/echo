@@ -68,6 +68,8 @@ client-side or degrades to on-demand. Call out the split per feature below rathe
 
 ## A2. Channel / creator following  ·  effort: MEDIUM–HIGH  ·  priority: 6  ·  ✅ Implemented 2026-07-07 (local/desktop only)
 
+**Shipped 2026-07-07 — exceeds plan:** Inbox is now a paginated full-catalog card-grid browser (original plan was unseen-title list). One-click Follow now works from Discovery cards, loaded videos, AND saved entries (original plan covered only Discovery + loaded). Old saved entries lacking channelUrl transparently self-heal via `GET /api/video-meta` oEmbed backfill. **Known limitation:** YouTube doesn't expose caption availability in channel listings, so grids show all uploads; non-transcribed videos fall back to the existing "no transcript" message on open (pre-filtering would require per-video probing).
+
 **Goal:** "Follow a channel" → periodically pull latest N uploads → surface *new* ones in an inbox.
 This is what turns Echo from a converter into a **replacement for watching**.
 
@@ -94,9 +96,10 @@ This is what turns Echo from a converter into a **replacement for watching**.
 - [ ] Optional: interval refresh (setInterval in server, local/desktop only). Keep it opt-in + cheap.
 
 **Frontend:**
-- [ ] "Follow" button on Discovery result cards + on a loaded video's channel.
-- [ ] New **Inbox** pane (sibling to Library/Discovery): grouped by channel, "new" badges, one-click digest.
-- [ ] Mark-as-seen on open; "check now" button everywhere (the only refresh path in web).
+- [✅] "Follow" button on Discovery result cards + on a loaded video's channel (visible at rest, not hover-only).
+- [✅] One-click Follow on saved library entries (with transparent self-heal for old entries lacking channelUrl).
+- [✅] New **Inbox** pane (sibling to Library/Discovery): paginated full-catalog card-grid with thumbnails, duration, "New" badges, and "Saved" markers.
+- [✅] Mark-as-seen on open; "check now" button everywhere; per-channel selector chips + "Load more" pagination.
 
 **Open questions:**
 - yt-dlp channel enumeration cost/rate — how many follows before it's slow? Cap follows (e.g. 25) + stagger checks.
