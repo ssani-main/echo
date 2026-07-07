@@ -38,7 +38,7 @@ import {
 } from './digest.js';
 import { getTodayUsage } from './usage.js';
 import { logEvent, errLabel } from './usagelog.js';
-import { searchVideos, forYou, normalizeChannel, enumerateChannelUploads } from './discovery.js';
+import { searchVideos, forYou, normalizeChannel, enumerateChannelUploads, getChannelUploadsPage } from './discovery.js';
 import { validateApiKey } from './providers.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1165,8 +1165,10 @@ app.get('/api/discovery/foryou', blockInWeb, async (_req, res) => {
 // uploads it hasn't seen yet without re-crawling the whole channel.
 // ---------------------------------------------------------------------------
 
-const ECHO_MAX_FOLLOWS    = numFromEnv('ECHO_MAX_FOLLOWS', 25, { min: 1 });
-const ECHO_FOLLOW_UPLOADS = numFromEnv('ECHO_FOLLOW_UPLOADS', 10, { min: 1 });
+const ECHO_MAX_FOLLOWS       = numFromEnv('ECHO_MAX_FOLLOWS', 25, { min: 1 });
+const ECHO_FOLLOW_UPLOADS    = numFromEnv('ECHO_FOLLOW_UPLOADS', 10, { min: 1 });
+const ECHO_CHANNEL_PAGE_SIZE = numFromEnv('ECHO_CHANNEL_PAGE_SIZE', 12, { min: 1 });
+const ECHO_CHANNEL_PAGE_MAX  = 30;
 
 /**
  * GET /api/follows
@@ -1274,6 +1276,59 @@ app.post('/api/follows/seen', blockInWeb, async (req, res) => {
     await touchChecked(channelId);
     res.json({ ok: true });
   } catch (err) {
+    sendCaughtError(res, err);
+  }
+});
+
+/**
+ * GET /api/follows/channel?channelId=&offset=&limit=
+ * Browse a followed channel's full uploads catalog, paginated, as cards.
+ * Each item is annotated with `seen` (already surfaced in the inbox) and
+ * `saved` (already in the local library).
+ */
+app.get('/api/follows/channel', blockInWeb, async (req, res) => {
+  const t0 = Date.now();
+  const { channelId } = req.query;
+  if (!requireText(res, channelId, 'channelId query parameter is required.')) return;
+
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+  const rawLimit = parseInt(req.query.limit, 10);
+  const limit = Math.min(
+    ECHO_CHANNEL_PAGE_MAX,
+    Math.max(1, Number.isFinite(rawLimit) ? rawLimit : ECHO_CHANNEL_PAGE_SIZE)
+  );
+
+  try {
+    const follow = (await listFollows()).find((f) => f.channelId === channelId);
+    if (!follow) return sendError(res, 'INTERNAL', 'Not following that channel.', '', 404);
+
+    const [{ items, hasMore }, seenSet, entries] = await Promise.all([
+      getChannelUploadsPage(follow.url, { offset, limit }),
+      getSeenSet(channelId),
+      listEntries(),
+    ]);
+    const savedIds = new Set((entries || []).map((e) => e?.videoId).filter(Boolean));
+
+    const annotated = items.map((item) => ({
+      ...item,
+      seen: seenSet.has(item.videoId),
+      saved: savedIds.has(item.videoId),
+    }));
+
+    logEvent('follows-channel', {
+      channelId, offset, limit, nItems: annotated.length, hasMore, ok: true, ms: Date.now() - t0,
+    });
+    res.json({
+      channelId,
+      title: follow.title,
+      url: follow.url,
+      offset,
+      limit,
+      hasMore,
+      items: annotated,
+    });
+  } catch (err) {
+    logEvent('follows-channel', { channelId, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     sendCaughtError(res, err);
   }
 });

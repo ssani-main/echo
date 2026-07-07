@@ -2480,6 +2480,42 @@
       color: var(--warn);
     }
 
+    /* Channel selector chips + selected-channel header + card grid —
+       28d. below. .inbox-channel-chips reuses .discovery-chips (see class
+       list on the element); .inbox-card-grid reuses .discovery-results. */
+    .inbox-chip-badge {
+      margin-left: 0.3rem;
+      padding: 0.02rem 0.4rem;
+    }
+
+    .inbox-channel-header-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.6rem;
+    }
+
+    .inbox-channel-header-bar .inbox-mark-seen-btn {
+      margin-left: auto;
+    }
+
+    /* "New" badge overlaid on a channel-card thumbnail (top-left, distinct
+       corner from the bottom-right duration badge). */
+    .inbox-card-new-badge {
+      position: absolute;
+      left: 0.5rem;
+      top: 0.5rem;
+      z-index: 3;
+    }
+
+    .inbox-saved-badge {
+      font-family: var(--font-sans);
+      font-size: 0.72rem;
+      font-weight: 500;
+      color: var(--muted);
+    }
+
     /* ==============================================
        28b. SEARCH SNIPPET + SEMANTIC MODE TAG
     =============================================== */
@@ -4918,8 +4954,24 @@
         <div id="followedList" class="followed-list"></div>
       </div>
 
+      <!-- Followed-channel selector — one chip per channel, with its unseen
+           count. Selecting a chip loads that channel's full uploads catalog
+           as a card grid below (see loadChannelPage()). -->
+      <div id="inboxChannelChips" class="discovery-chips inbox-channel-chips" aria-label="Followed channels"></div>
+
+      <div id="inboxChannelHeader" class="inbox-channel-header-bar" hidden>
+        <span id="inboxChannelHeaderTitle" class="inbox-channel-title"></span>
+        <button type="button" id="inboxMarkAllSeenBtn" class="mini-btn inbox-mark-seen-btn" hidden>Mark all seen</button>
+      </div>
+
       <div id="inboxStatusMsg" class="saved-status-msg" aria-live="polite" aria-atomic="true"></div>
-      <div id="inboxContent" class="inbox-content"></div>
+      <div id="inboxContent" class="inbox-content">
+        <p id="inboxEmptyState" class="empty-state" hidden>You're not following any channels yet — follow one from Discovery or a loaded video.</p>
+        <div id="inboxCardGrid" class="discovery-results inbox-card-grid"></div>
+        <div class="discovery-loadmore-wrap">
+          <button id="inboxLoadMoreBtn" class="mini-btn" hidden>Load more</button>
+        </div>
+      </div>
     </div>
 
     <!-- SITE FOOTER — legal/trust links -->
@@ -5617,6 +5669,13 @@
     const followedListEl       = document.getElementById('followedList');
     const inboxStatusMsgEl     = document.getElementById('inboxStatusMsg');
     const inboxContentEl       = document.getElementById('inboxContent');
+    const inboxChipsEl             = document.getElementById('inboxChannelChips');
+    const inboxChannelHeaderEl     = document.getElementById('inboxChannelHeader');
+    const inboxChannelHeaderTitleEl= document.getElementById('inboxChannelHeaderTitle');
+    const inboxMarkAllSeenBtn      = document.getElementById('inboxMarkAllSeenBtn');
+    const inboxCardGridEl          = document.getElementById('inboxCardGrid');
+    const inboxEmptyStateEl        = document.getElementById('inboxEmptyState');
+    const inboxLoadMoreBtn         = document.getElementById('inboxLoadMoreBtn');
 
     // Follow-channel panel — attached to the loaded-video content header
     const followChannelBtn        = document.getElementById('followChannelBtn');
@@ -10909,7 +10968,21 @@
       }
     }
 
-    /** Marks a channel's given videoIds as seen, then reloads the inbox. */
+    // Channel-catalog browser state — which followed channel's card grid is
+    // currently shown, and the pagination cursor into GET /api/follows/channel.
+    // inboxSummary holds the last /api/follows/inbox response (per-channel
+    // title + unseen list), which drives the chip row, unseen badges, and
+    // the "Mark all seen" affordance; it is intentionally decoupled from the
+    // card grid itself so marking items seen doesn't reset scroll/pagination.
+    let inboxSummary        = [];
+    let inboxSelectedChannelId = null;
+    let inboxChannelState   = { channelId: null, offset: 0, limit: 12, hasMore: false };
+    let inboxLoadMoreBusy   = false;
+
+    /** Marks a channel's given videoIds as seen on the server, then quietly
+     *  refreshes the nav badge / chip badges / "Mark all seen" affordance —
+     *  it deliberately does NOT reload the card grid, so a single-card click
+     *  doesn't reset the user's pagination/scroll position. */
     async function markChannelSeen(channelId, videoIds) {
       try {
         await fetch('/api/follows/seen', {
@@ -10921,11 +10994,11 @@
         // Best-effort — a failed mark-as-seen just means the badge stays inflated
         // until the next successful check; not worth surfacing as an error.
       }
-      loadInbox();
+      await refreshInboxSummaryQuietly();
     }
 
-    /** Loads a followed channel's unseen video into the reader via the same
-     *  path pasting a URL uses, then marks it seen. */
+    /** Loads a followed channel's video into the reader via the same path
+     *  pasting a URL uses, then marks it seen. */
     function openInboxItem(channelId, videoId) {
       if (!videoId) return;
       urlInput.value = `https://www.youtube.com/watch?v=${videoId}`;
@@ -10933,59 +11006,215 @@
       markChannelSeen(channelId, [videoId]);
     }
 
-    /** Renders the Inbox's channel groups (with unseen items) into #inboxContent. */
-    function renderInboxContent(channels) {
-      if (!inboxContentEl) return;
-      if (!Array.isArray(channels) || channels.length === 0) {
-        inboxContentEl.innerHTML =
-          '<p class="empty-state">You\'re not following any channels yet — follow one from Discovery or a loaded video.</p>';
-        return;
+    /** Re-fetches GET /api/follows/inbox and refreshes just the nav badge,
+     *  chip row, and channel header — used after marking items seen so the
+     *  currently-rendered card grid (and its pagination) is left untouched. */
+    async function refreshInboxSummaryQuietly() {
+      try {
+        const res  = await fetch('/api/follows/inbox');
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !Array.isArray(data.channels)) return;
+        inboxSummary = data.channels;
+        const unseenTotal = inboxSummary.reduce((sum, c) => sum + (Array.isArray(c.unseen) ? c.unseen.length : 0), 0);
+        updateInboxBadge(unseenTotal);
+        renderInboxChips();
+        renderChannelHeader();
+      } catch (e) {
+        // Best-effort — badges just stay stale until the next successful check.
       }
+    }
 
-      inboxContentEl.innerHTML = channels.map(ch => {
-        const unseen = Array.isArray(ch.unseen) ? ch.unseen : [];
-        const itemsHtml = unseen.length > 0
-          ? unseen.map(u => `
-              <div class="inbox-item" data-videoid="${escapeAttr(u.videoId)}">
-                <span class="inbox-item-title">${escapeHtml(u.title || u.videoId)}</span>
-                <button type="button" class="mini-btn inbox-item-read-btn"
-                        data-channelid="${escapeAttr(ch.channelId)}" data-videoid="${escapeAttr(u.videoId)}">Read / Digest</button>
-              </div>`).join('')
-          : '<p class="inbox-empty-note">No new uploads.</p>';
-
-        const errorHtml = ch.error
-          ? `<p class="inbox-error-note">Couldn't check this channel: ${escapeHtml(ch.error)}</p>`
-          : '';
-
-        return `<div class="inbox-channel-group">
-          <div class="inbox-channel-header">
-            <span class="inbox-channel-title">${escapeHtml(ch.title || ch.channelId)}</span>
-            ${unseen.length > 0 ? `<span class="inbox-new-badge">${unseen.length} new</span>` : ''}
-            ${unseen.length > 0
-              ? `<button type="button" class="mini-btn inbox-mark-seen-btn" data-channelid="${escapeAttr(ch.channelId)}">Mark all seen</button>`
-              : ''}
-          </div>
-          ${errorHtml}
-          <div class="inbox-item-list">${itemsHtml}</div>
-        </div>`;
+    /** Renders the followed-channel chip row from inboxSummary, highlighting
+     *  the selected channel and showing each channel's unseen count. */
+    function renderInboxChips() {
+      if (!inboxChipsEl) return;
+      if (inboxSummary.length === 0) { inboxChipsEl.innerHTML = ''; return; }
+      inboxChipsEl.innerHTML = inboxSummary.map(ch => {
+        const unseen = Array.isArray(ch.unseen) ? ch.unseen.length : 0;
+        const active = ch.channelId === inboxSelectedChannelId;
+        return `<button type="button" class="discovery-chip inbox-channel-chip${active ? ' is-active' : ''}"
+                         data-channelid="${escapeAttr(ch.channelId)}"
+                         aria-pressed="${active ? 'true' : 'false'}">
+          ${escapeHtml(ch.title || ch.channelId)}${unseen > 0 ? ` <span class="inbox-new-badge inbox-chip-badge">${unseen}</span>` : ''}
+        </button>`;
       }).join('');
-
-      inboxContentEl.querySelectorAll('.inbox-item-read-btn').forEach(btn => {
-        btn.addEventListener('click', () => openInboxItem(btn.dataset.channelid, btn.dataset.videoid));
-      });
-      inboxContentEl.querySelectorAll('.inbox-mark-seen-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const channelId = btn.dataset.channelid;
-          const group = btn.closest('.inbox-channel-group');
-          const videoIds = group
-            ? Array.from(group.querySelectorAll('.inbox-item')).map(el => el.dataset.videoid)
-            : [];
-          markChannelSeen(channelId, videoIds);
+      inboxChipsEl.querySelectorAll('.inbox-channel-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          const channelId = chip.dataset.channelid;
+          if (!channelId || channelId === inboxSelectedChannelId) return;
+          inboxSelectedChannelId = channelId;
+          renderInboxChips();
+          renderChannelHeader();
+          loadChannelPage(channelId, 0);
         });
       });
     }
 
-    /** Loads GET /api/follows/inbox and renders it, updating the nav badge. */
+    /** Renders the selected channel's header bar (title + "Mark all seen"),
+     *  reading unseen counts from inboxSummary. */
+    function renderChannelHeader() {
+      if (!inboxChannelHeaderEl) return;
+      const ch = inboxSummary.find(c => c.channelId === inboxSelectedChannelId);
+      if (!ch) { inboxChannelHeaderEl.hidden = true; return; }
+      const unseen = Array.isArray(ch.unseen) ? ch.unseen.length : 0;
+      inboxChannelHeaderEl.hidden = false;
+      if (inboxChannelHeaderTitleEl) inboxChannelHeaderTitleEl.textContent = ch.title || ch.channelId;
+      if (inboxMarkAllSeenBtn) {
+        inboxMarkAllSeenBtn.hidden = unseen === 0;
+        inboxMarkAllSeenBtn.dataset.channelid = ch.channelId;
+      }
+    }
+
+    /** Builds the card markup for a single channel-catalog item, mirroring
+     *  discoveryCardHtml()'s .saved-card structure so channel uploads look
+     *  native alongside the Library/Discovery grids. Adds a "new" badge for
+     *  unseen uploads and a "Saved" marker for uploads already in the
+     *  local library. */
+    function inboxCardHtml(item, channelId) {
+      const title    = item.title || item.videoId || 'Untitled';
+      const viewsStr = formatViews(item.views);
+      const durBadge = item.durationText
+        ? `<span class="discovery-duration-badge">${escapeHtml(item.durationText)}</span>`
+        : '';
+      const newBadge = !item.seen
+        ? `<span class="inbox-new-badge inbox-card-new-badge">New</span>`
+        : '';
+      const savedBadge = item.saved
+        ? `<span class="inbox-saved-badge">&#10003; Saved</span>`
+        : '';
+      const thumbHtml = (item.thumbnail && safeHttpUrl(item.thumbnail))
+        ? `<img class="saved-card-thumb"
+                src="${escapeAttr(item.thumbnail)}"
+                alt="" loading="lazy"
+                onerror="this.remove()">`
+        : '';
+
+      return `<div class="saved-card inbox-card"
+                   data-videoid="${escapeAttr(item.videoId)}"
+                   data-channelid="${escapeAttr(channelId)}"
+                   tabindex="0"
+                   role="button"
+                   aria-label="Load ${escapeAttr(title)}">
+        <div class="saved-card-thumb-wrap">
+          <div class="saved-card-thumb-fallback" aria-hidden="true">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+              <rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/>
+              <path d="M10 8.75 15 12l-5 3.25z" fill="currentColor" stroke="none"/>
+            </svg>
+          </div>
+          ${thumbHtml}
+          ${newBadge}
+          ${durBadge}
+        </div>
+        <div class="saved-card-body">
+          <div class="saved-card-title-row">
+            <div class="saved-card-title">${escapeHtml(title)}</div>
+          </div>
+          <div class="saved-card-meta">
+            ${viewsStr ? `<span class="saved-meta-item">${escapeHtml(viewsStr)}</span>` : ''}
+            ${(viewsStr && savedBadge) ? '<span class="saved-meta-sep" aria-hidden="true">&middot;</span>' : ''}
+            ${savedBadge}
+          </div>
+        </div>
+      </div>`;
+    }
+
+    /** Appends a page of channel-catalog items to #inboxCardGrid (does NOT
+     *  clear existing cards) and wires up click/keydown handling on just the
+     *  newly-added cards — loads the video via openInboxItem() and clears
+     *  its own "new" badge immediately (no full grid re-render). */
+    function appendChannelCards(items, channelId) {
+      if (!Array.isArray(items) || items.length === 0 || !inboxCardGridEl) return;
+      inboxCardGridEl.insertAdjacentHTML('beforeend', items.map(it => inboxCardHtml(it, channelId)).join(''));
+
+      const allCards = inboxCardGridEl.querySelectorAll('.inbox-card');
+      const newCards = Array.from(allCards).slice(allCards.length - items.length);
+      newCards.forEach(card => {
+        const openCard = () => {
+          openInboxItem(card.dataset.channelid, card.dataset.videoid);
+          const badge = card.querySelector('.inbox-card-new-badge');
+          if (badge) badge.remove();
+        };
+        card.addEventListener('click', openCard);
+        card.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCard(); }
+        });
+      });
+    }
+
+    /** Loads one page of a followed channel's full uploads catalog from
+     *  GET /api/follows/channel and appends it to the card grid. Pass
+     *  offset 0 to reset the grid (channel switch / Check now); any other
+     *  offset appends (Load more). Stale responses (channel switched again
+     *  before this resolved) are discarded via the inboxSelectedChannelId
+     *  guard. */
+    async function loadChannelPage(channelId, offset) {
+      if (!channelId || !inboxCardGridEl) return;
+      const isFirstPage = offset === 0;
+      if (!isFirstPage) {
+        inboxLoadMoreBusy = true;
+        if (inboxLoadMoreBtn) { inboxLoadMoreBtn.disabled = true; inboxLoadMoreBtn.textContent = 'Loading…'; }
+      }
+      if (isFirstPage && inboxStatusMsgEl) {
+        inboxStatusMsgEl.textContent = 'Loading uploads…';
+        inboxStatusMsgEl.className   = 'saved-status-msg';
+      }
+      try {
+        const res  = await fetch(`/api/follows/channel?channelId=${encodeURIComponent(channelId)}&offset=${offset}&limit=${inboxChannelState.limit}`);
+        const data = await res.json().catch(() => ({}));
+        if (channelId !== inboxSelectedChannelId) return; // stale — user switched channels
+        if (!res.ok) {
+          if (isFirstPage && inboxCardGridEl) inboxCardGridEl.innerHTML = '';
+          if (inboxStatusMsgEl) {
+            inboxStatusMsgEl.textContent = (data && data.error) || "Could not load this channel's uploads.";
+            inboxStatusMsgEl.className   = 'saved-status-msg error';
+          }
+          inboxChannelState = { channelId, offset: 0, limit: inboxChannelState.limit, hasMore: false };
+          if (inboxLoadMoreBtn) inboxLoadMoreBtn.hidden = true;
+          return;
+        }
+        if (inboxStatusMsgEl) inboxStatusMsgEl.textContent = '';
+        const items = Array.isArray(data.items) ? data.items : [];
+        if (isFirstPage) {
+          inboxCardGridEl.innerHTML = '';
+          if (items.length === 0) {
+            inboxCardGridEl.innerHTML = '<p class="empty-state">No uploads found for this channel yet.</p>';
+          }
+        }
+        appendChannelCards(items, channelId);
+        inboxChannelState = {
+          channelId,
+          offset: (typeof data.offset === 'number' ? data.offset : offset) + items.length,
+          limit:  inboxChannelState.limit,
+          hasMore: !!data.hasMore,
+        };
+        if (inboxLoadMoreBtn) inboxLoadMoreBtn.hidden = !inboxChannelState.hasMore;
+      } catch (e) {
+        if (channelId === inboxSelectedChannelId && inboxStatusMsgEl) {
+          inboxStatusMsgEl.textContent = "Couldn't reach the server to load this channel.";
+          inboxStatusMsgEl.className   = 'saved-status-msg error';
+        }
+      } finally {
+        if (!isFirstPage) {
+          inboxLoadMoreBusy = false;
+          if (inboxLoadMoreBtn) { inboxLoadMoreBtn.disabled = false; inboxLoadMoreBtn.textContent = 'Load more'; }
+        }
+      }
+    }
+
+    /** Fetches the next page of the currently-selected channel's catalog. */
+    function loadMoreChannelPage() {
+      if (inboxLoadMoreBusy || !inboxChannelState.channelId || !inboxChannelState.hasMore) return;
+      loadChannelPage(inboxChannelState.channelId, inboxChannelState.offset);
+    }
+
+    /** Loads GET /api/follows/inbox (chip row + unseen badges), then loads
+     *  the selected channel's first card-grid page — auto-selecting the
+     *  followed channel with the most unseen uploads (or the first one) on
+     *  first load / if the previously-selected channel was unfollowed. Also
+     *  used by "Check now" to re-check follows AND reload the current
+     *  channel's first page. */
     async function loadInbox() {
       if (!inboxContentEl) return;
       if (inboxStatusMsgEl) { inboxStatusMsgEl.textContent = 'Checking…'; inboxStatusMsgEl.className = 'saved-status-msg'; }
@@ -11000,10 +11229,33 @@
           return;
         }
         const channels = Array.isArray(data.channels) ? data.channels : [];
+        inboxSummary = channels;
         const unseenTotal = channels.reduce((sum, c) => sum + (Array.isArray(c.unseen) ? c.unseen.length : 0), 0);
-        if (inboxStatusMsgEl) inboxStatusMsgEl.textContent = '';
-        renderInboxContent(channels);
         updateInboxBadge(unseenTotal);
+
+        if (channels.length === 0) {
+          if (inboxStatusMsgEl) inboxStatusMsgEl.textContent = '';
+          inboxSelectedChannelId = null;
+          renderInboxChips();
+          renderChannelHeader();
+          if (inboxEmptyStateEl) inboxEmptyStateEl.hidden = false;
+          if (inboxCardGridEl) inboxCardGridEl.innerHTML = '';
+          if (inboxLoadMoreBtn) inboxLoadMoreBtn.hidden = true;
+          return;
+        }
+        if (inboxEmptyStateEl) inboxEmptyStateEl.hidden = true;
+
+        const stillFollowed = channels.some(c => c.channelId === inboxSelectedChannelId);
+        if (!stillFollowed) {
+          const withMostUnseen = channels.reduce((best, c) => {
+            const n = Array.isArray(c.unseen) ? c.unseen.length : 0;
+            return (!best || n > best.n) ? { channelId: c.channelId, n } : best;
+          }, null);
+          inboxSelectedChannelId = (withMostUnseen && withMostUnseen.channelId) || channels[0].channelId;
+        }
+        renderInboxChips();
+        renderChannelHeader();
+        loadChannelPage(inboxSelectedChannelId, 0);
       } catch (e) {
         if (inboxStatusMsgEl) {
           inboxStatusMsgEl.textContent = "Couldn't reach the server to check your follows.";
@@ -11028,6 +11280,24 @@
     }
 
     if (inboxRefreshBtn) inboxRefreshBtn.addEventListener('click', loadInbox);
+    if (inboxLoadMoreBtn) inboxLoadMoreBtn.addEventListener('click', loadMoreChannelPage);
+    if (inboxMarkAllSeenBtn) {
+      inboxMarkAllSeenBtn.addEventListener('click', async () => {
+        const channelId = inboxMarkAllSeenBtn.dataset.channelid;
+        if (!channelId) return;
+        const ch = inboxSummary.find(c => c.channelId === channelId);
+        const videoIds = (ch && Array.isArray(ch.unseen)) ? ch.unseen.map(u => u.videoId).filter(Boolean) : [];
+        if (videoIds.length === 0) return;
+        inboxMarkAllSeenBtn.disabled = true;
+        await markChannelSeen(channelId, videoIds);
+        inboxMarkAllSeenBtn.disabled = false;
+        // Clear any "new" badges currently rendered for this channel without
+        // resetting the grid's pagination.
+        if (inboxCardGridEl) {
+          inboxCardGridEl.querySelectorAll('.inbox-card-new-badge').forEach(b => b.remove());
+        }
+      });
+    }
     if (inboxManageBtn) {
       inboxManageBtn.addEventListener('click', () => {
         const show = inboxManagePanel.hidden;

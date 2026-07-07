@@ -355,3 +355,99 @@ export async function enumerateChannelUploads(channelUrl, limit = 10, { force = 
   channelCache.set(channelUrl, { ts: now, data: uploads });
   return uploads;
 }
+
+// Cache of paginated channel-uploads pages, keyed by
+// `${channelUrl}::${offset}::${limit}`. Separate from `channelCache` (which
+// only ever stores the first N uploads) since pages address arbitrary
+// offsets/limits.
+const channelPageCache = new Map(); // key -> { ts: number, data: { items, hasMore } }
+
+/**
+ * Fetch one page of a channel's full uploads catalog via yt-dlp
+ * (flat-playlist, keyless), for the "browse a followed channel" UI.
+ *
+ * yt-dlp's `--playlist-start`/`--playlist-end` are 1-indexed and inclusive,
+ * so a 0-indexed `{ offset, limit }` page maps to
+ * `--playlist-start (offset + 1) --playlist-end (offset + limit)`.
+ *
+ * @param {string} channelUrl  Canonical uploads URL (from normalizeChannel)
+ * @param {{ offset?: number, limit?: number, force?: boolean }} [opts]
+ * @returns {Promise<{ items: Array<object>, hasMore: boolean }>}
+ */
+export async function getChannelUploadsPage(channelUrl, { offset = 0, limit = 12, force = false } = {}) {
+  const start = Math.max(0, parseInt(offset, 10) || 0);
+  const count = Math.max(1, parseInt(limit, 10) || 12);
+  const cacheKey = `${channelUrl}::${start}::${count}`;
+  const now = Date.now();
+
+  if (!force) {
+    const cached = channelPageCache.get(cacheKey);
+    if (cached && (now - cached.ts) < CHANNEL_CACHE_TTL_MS) {
+      return cached.data;
+    }
+  }
+
+  const playlistStart = start + 1;
+  const playlistEnd = start + count;
+
+  let stdout;
+  try {
+    ({ stdout } = await execFileAsync(
+      'yt-dlp',
+      [
+        channelUrl,
+        '--flat-playlist',
+        '--playlist-start', String(playlistStart),
+        '--playlist-end', String(playlistEnd),
+        '-J',
+        '--no-warnings',
+      ],
+      { maxBuffer: YTDLP_MAX_BUFFER, timeout: YTDLP_TIMEOUT_MS }
+    ));
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      const e = new Error('yt-dlp is not installed or not on PATH.');
+      e.echoCode = 'YTDLP_MISSING';
+      e.hint = 'Install yt-dlp: `pip install yt-dlp` or `winget install yt-dlp`.';
+      throw e;
+    }
+    const e = new Error(`Failed to enumerate channel uploads page: ${err.message}`);
+    e.echoCode = 'YTDLP_FAILED';
+    throw e;
+  }
+
+  let data;
+  try {
+    data = JSON.parse(stdout);
+  } catch (err) {
+    const e = new Error(`Failed to parse yt-dlp channel output: ${err.message}`);
+    e.echoCode = 'YTDLP_PARSE_FAILED';
+    throw e;
+  }
+
+  const entries = Array.isArray(data?.entries) ? data.entries : [];
+  const result = buildChannelPage(entries, count);
+  channelPageCache.set(cacheKey, { ts: now, data: result });
+  return result;
+}
+
+/**
+ * Pure helper: map raw yt-dlp flat-playlist entries to page cards, applying
+ * the thumbnail fallback and the `hasMore` heuristic. Split out from
+ * `getChannelUploadsPage` so it's unit-testable without spawning yt-dlp.
+ * @param {Array<object>} entries  Raw yt-dlp entries (data.entries)
+ * @param {number} count           The requested page size (limit)
+ * @returns {{ items: Array<object>, hasMore: boolean }}
+ */
+export function buildChannelPage(entries, count) {
+  const items = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const card = entryToCard(entry);
+    if (!card) continue;
+    if (!card.thumbnail) {
+      card.thumbnail = `https://i.ytimg.com/vi/${card.videoId}/hqdefault.jpg`;
+    }
+    items.push(card);
+  }
+  return { items, hasMore: items.length === count };
+}
