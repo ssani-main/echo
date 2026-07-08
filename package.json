@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
+    "digest:aitell": "node tools/ai-tell/score-digests.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "npm run pkg:stage-deps && NO_STRIP=1 APPIMAGE_EXTRACT_AND_RUN=1 tauri build",
