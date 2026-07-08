@@ -712,6 +712,9 @@ export async function generateDigest(transcriptText, opts = {}) {
       'uncertain, keep that honesty — do not flatten it into false confidence.\n' +
       '- Cut ruthlessly: filler, throat-clearing, self-promotion, sponsor reads, repetition, and anything that does ' +
       'not earn its place.\n' +
+      '- Write plainly. Avoid filler intensifiers ("genuinely," "truly," "really," "actually") and corporate/AI ' +
+      'jargon ("robust," "leverage," "actionable," "vibrant," "delve," "landscape," "tapestry"). Prefer plain verbs ' +
+      'and concrete nouns over inflated phrasing.\n' +
       '- Be as long as the substance genuinely requires and no longer — dense with value, never padded to seem ' +
       'thorough. A great short digest beats a bloated one.\n' +
       '- Do not add a preamble, a title, meta-commentary, or an "in conclusion" wrap-up. Output only the digest ' +
