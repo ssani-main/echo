@@ -617,11 +617,25 @@ export async function createShare({ videoId, title, sourceUrl, digestMd, claims 
 
 /**
  * Look up a share by id. Returns null if not found.
+ *
  * @param {string} id
+ * @param {{ maxAgeMs?: number }} [opts] - when maxAgeMs is a positive number,
+ *   a share older than that (by createdAt) is treated as expired: it is
+ *   lazily deleted and null is returned. Default (no maxAgeMs) never
+ *   expires — unchanged behavior for local/desktop.
  */
-export async function getShare(id) {
+export async function getShare(id, opts = {}) {
   const row = db.prepare('SELECT * FROM shares WHERE id = ?').get(id);
   if (!row) return null;
+
+  const { maxAgeMs } = opts;
+  if (typeof maxAgeMs === 'number' && maxAgeMs > 0) {
+    const age = Date.now() - Date.parse(row.createdAt);
+    if (age > maxAgeMs) {
+      db.prepare('DELETE FROM shares WHERE id = ?').run(id);
+      return null;
+    }
+  }
 
   let claims = null;
   if (row.claimsJson) {
@@ -647,5 +661,41 @@ export async function getShare(id) {
 export async function deleteShare(id) {
   const result = db.prepare('DELETE FROM shares WHERE id = ?').run(id);
   return result.changes > 0;
+}
+
+/**
+ * Prune old/excess share rows. Pure storage-bound housekeeping — callers
+ * decide when/whether to invoke this (e.g. only in web mode); this module
+ * has no mode knowledge of its own.
+ *
+ * @param {{ maxAgeMs?: number, maxCount?: number }} [opts]
+ *   - maxAgeMs:  delete any share older than this (by createdAt) first.
+ *   - maxCount:  after age-pruning, if more than maxCount rows remain,
+ *                delete the oldest overflow so at most maxCount remain.
+ * @returns {Promise<{ deleted: number }>}
+ */
+export async function pruneShares({ maxAgeMs, maxCount } = {}) {
+  let deleted = 0;
+
+  if (typeof maxAgeMs === 'number' && maxAgeMs > 0) {
+    const cutoffIso = new Date(Date.now() - maxAgeMs).toISOString();
+    const result = db.prepare('DELETE FROM shares WHERE createdAt < ?').run(cutoffIso);
+    deleted += result.changes;
+  }
+
+  if (typeof maxCount === 'number' && maxCount > 0) {
+    const { count } = db.prepare('SELECT COUNT(*) AS count FROM shares').get();
+    if (count > maxCount) {
+      const overflow = count - maxCount;
+      // node:sqlite's DELETE has no LIMIT clause — select the oldest
+      // `overflow` ids explicitly and delete by id instead.
+      const result = db.prepare(
+        'DELETE FROM shares WHERE id IN (SELECT id FROM shares ORDER BY createdAt ASC LIMIT ?)'
+      ).run(overflow);
+      deleted += result.changes;
+    }
+  }
+
+  return { deleted };
 }
 

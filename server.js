@@ -27,6 +27,7 @@ import {
   createShare,
   getShare,
   deleteShare,
+  pruneShares,
 } from './store.js';
 import { entryToMarkdown } from './markdown.js';
 import { syncVault } from './vault.js';
@@ -93,6 +94,28 @@ function numFromEnv(name, fallback, { min = 0 } = {}) {
   return n;
 }
 
+// ---------------------------------------------------------------------------
+// Sharing config — Model A (volume-backed, flag-gated shares in web mode)
+// ---------------------------------------------------------------------------
+// Sharing is always on in local/desktop (unchanged). In web mode it's off by
+// default and opt-in via ECHO_SHARES, since a hosted instance's server-side
+// SQLite store is a shared resource across all visitors — enabling it there
+// requires the abuse mitigations below (size cap, TTL expiry, count cap).
+const sharesEnabled = !isWeb || /^(1|true)$/i.test(process.env.ECHO_SHARES || '');
+
+// Max digest markdown size (characters) accepted by /api/share.
+const ECHO_SHARE_MAX_CHARS = numFromEnv('ECHO_SHARE_MAX_CHARS', 100_000, { min: 1 });
+
+// How long a web-mode share stays reachable before it's treated as expired
+// and lazily/actively pruned. Local/desktop shares never expire.
+const ECHO_SHARES_TTL_DAYS = numFromEnv('ECHO_SHARES_TTL_DAYS', 30, { min: 1 });
+
+// Max number of share rows retained in web mode; oldest overflow is pruned
+// on each new share. Local/desktop is unbounded.
+const ECHO_SHARES_MAX = numFromEnv('ECHO_SHARES_MAX', 500, { min: 1 });
+
+const SHARE_TTL_MS = ECHO_SHARES_TTL_DAYS * 24 * 60 * 60 * 1000;
+
 const app = express();
 const PORT = numFromEnv('PORT', 8000, { min: 1 });
 
@@ -146,14 +169,14 @@ app.use((_req, res, next) => {
 // memory, rather than re-reading + re-injecting on every request. Trade-off:
 // editing public/index.html during local development requires a server
 // restart to pick up changes (it did not before this change).
-function buildInjectedHtml(rawHtml, mode) {
-  const injected = { mode };
+function buildInjectedHtml(rawHtml, mode, sharesEnabled) {
+  const injected = { mode, sharesEnabled };
   const script = `<script>window.__ECHO__=${JSON.stringify(injected)}</script>\n</head>`;
   return rawHtml.replace('</head>', script);
 }
 
 const INDEX_HTML_PATH = join(__dirname, 'public', 'index.html');
-const CACHED_INDEX_HTML = buildInjectedHtml(readFileSync(INDEX_HTML_PATH, 'utf8'), ECHO_MODE);
+const CACHED_INDEX_HTML = buildInjectedHtml(readFileSync(INDEX_HTML_PATH, 'utf8'), ECHO_MODE, sharesEnabled);
 
 app.get('/', (_req, res) => {
   res.set('Content-Type', 'text/html; charset=utf-8');
@@ -167,7 +190,7 @@ app.get('/', (_req, res) => {
 app.get('/s/:id', async (req, res) => {
   const notFoundHtml = '<!doctype html><meta charset=utf-8><title>Not found</title><body style="font-family:system-ui;background:#0A0B0D;color:#e6e6e6;padding:3rem;text-align:center"><h1>404</h1><p>This shared digest doesn’t exist or was unpublished.</p>';
   try {
-    const share = await getShare(req.params.id);
+    const share = await getShare(req.params.id, { maxAgeMs: isWeb ? SHARE_TTL_MS : undefined });
     if (!share) {
       return res.status(404).set('Content-Type', 'text/html; charset=utf-8').send(notFoundHtml);
     }
@@ -428,6 +451,28 @@ function blockInWeb(req, res, next) {
       'WEB_MODE_UNSUPPORTED',
       'This feature is not available in hosted web mode.',
       'Your library is stored in your browser.'
+    );
+  }
+  next();
+}
+
+/**
+ * Express middleware — blocks the share routes with a 503 when sharing is
+ * disabled. Always a no-op in local/desktop mode (sharesEnabled is always
+ * true there). In web mode it's a no-op only when the operator has opted in
+ * via ECHO_SHARES.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+function requireSharesEnabled(req, res, next) {
+  if (!sharesEnabled) {
+    return sendError(
+      res,
+      'WEB_MODE_UNSUPPORTED',
+      'Sharing is disabled on this server.',
+      'This feature is not enabled in web mode.'
     );
   }
   next();
@@ -760,16 +805,31 @@ app.post('/api/enrich', webLimit(20, 60_000), async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Public digest sharing (v1 — local/desktop only)
+// Public digest sharing — always on in local/desktop; in web mode it's
+// off by default and opt-in via ECHO_SHARES (Model A: volume-backed,
+// flag-gated shares — see requireSharesEnabled + pruneShares above).
 // ---------------------------------------------------------------------------
 
-app.post('/api/share', blockInWeb, webLimit(20, 60_000), async (req, res) => {
+app.post('/api/share', requireSharesEnabled, webLimit(20, 60_000), async (req, res) => {
   const { videoId, title, sourceUrl, digestMd, claims } = req.body;
   if (!requireText(res, digestMd, 'No digest to share.', 'Generate a digest first.')) return;
+  if (digestMd.length > ECHO_SHARE_MAX_CHARS) {
+    return sendError(
+      res,
+      'TRANSCRIPT_UNAVAILABLE',
+      `Digest is too large to share (${digestMd.length} characters, limit is ${ECHO_SHARE_MAX_CHARS}).`,
+      'This hosted instance caps shared digest size.',
+      413
+    );
+  }
   try {
     const safeTitle = typeof title === 'string' ? title.slice(0, 300) : '';
     const safeSourceUrl = typeof sourceUrl === 'string' ? sourceUrl.slice(0, 2000) : '';
     const safeClaims = Array.isArray(claims) ? claims : null;
+    if (isWeb) {
+      // Bound total storage before inserting — local/desktop stays unbounded.
+      await pruneShares({ maxAgeMs: SHARE_TTL_MS, maxCount: ECHO_SHARES_MAX });
+    }
     const result = await createShare({
       videoId: videoId || null,
       title: safeTitle,
@@ -783,7 +843,7 @@ app.post('/api/share', blockInWeb, webLimit(20, 60_000), async (req, res) => {
   }
 });
 
-app.delete('/api/share/:id', blockInWeb, async (req, res) => {
+app.delete('/api/share/:id', requireSharesEnabled, async (req, res) => {
   try {
     const ok = await deleteShare(req.params.id);
     if (!ok) return sendError(res, 'NOT_FOUND', 'Share not found.', 'It may already have been unpublished.', 404);

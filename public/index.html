@@ -5674,10 +5674,14 @@
   <script>
     /* ==============================================
        WEB MODE FLAG — injected by the server as
-       window.__ECHO__ = { mode }. Falls back
-       to local-mode defaults when unset (e.g. tests).
+       window.__ECHO__ = { mode, sharesEnabled }. Falls
+       back to local-mode defaults when unset (e.g. tests).
     =============================================== */
     const ECHO = window.__ECHO__ || { mode: 'local' };
+    // sharesEnabled is always true in local/desktop; in web mode it reflects
+    // the server's ECHO_SHARES opt-in flag. Fall back to the pre-flag
+    // heuristic (disabled only in web mode) if the server didn't inject it.
+    const sharesEnabled = (ECHO.sharesEnabled ?? (ECHO.mode !== 'web'));
 
     /* ==============================================
        LIBRARY STORAGE ADAPTER
@@ -7129,10 +7133,11 @@
     });
 
     // Share is a server-persisted, cross-network-visible artifact — the
-    // /api/share route is blocked (503) in web mode, so hide the entry
+    // /api/share route 503s when sharing is disabled (always on in
+    // local/desktop; opt-in via ECHO_SHARES in web mode), so hide the entry
     // point entirely rather than let users hit a dead button. Verify
     // claims stays available in every mode (it doesn't persist anything).
-    if (ECHO.mode === 'web' && digestShareBtn) {
+    if (!sharesEnabled && digestShareBtn) {
       digestShareBtn.hidden = true;
     }
 
