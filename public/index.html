@@ -1798,6 +1798,137 @@
     }
 
     /* ==============================================
+       17b. CLAIM VERIFICATION + SHARE RESULT
+       Rendered into #claimsOutput / #shareResult, siblings of
+       #digestExportRow inside #aiPanelSummary. Reuses the same
+       accent/warn/warn-amber/muted palette the toast system uses for its
+       success/error/warning/info states so the claim status pills stay
+       theme-aware without new tokens.
+    =============================================== */
+    .claims-output {
+      margin-bottom: var(--space-9);
+      padding: var(--space-9);
+      background: var(--surface-2);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius-sm);
+    }
+
+    .claims-heading {
+      font-family: var(--font-sans);
+      font-size: var(--text-2xs);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: var(--space-8);
+    }
+
+    .claims-empty {
+      font-family: var(--font-ui);
+      font-size: var(--text-sm);
+      color: var(--muted);
+    }
+
+    .claim-row {
+      padding: var(--space-7) 0;
+      border-top: 1px solid var(--rule);
+    }
+
+    .claim-row:first-of-type {
+      border-top: none;
+      padding-top: 0;
+    }
+
+    .claim-status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-3);
+      font-family: var(--font-ui);
+      font-size: var(--text-2xs);
+      font-weight: 600;
+      padding: var(--space-2) var(--space-6);
+      border-radius: var(--radius-sm);
+      margin-bottom: var(--space-4);
+      white-space: nowrap;
+    }
+
+    .claim-status-pill.is-supported {
+      color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .claim-status-pill.is-unsupported {
+      color: var(--warn);
+      background: var(--warn-soft);
+    }
+
+    .claim-status-pill.is-mixed {
+      color: var(--warn-amber);
+      background: var(--warn-amber-soft);
+    }
+
+    .claim-status-pill.is-unverifiable {
+      color: var(--muted);
+      background: var(--surface-3);
+    }
+
+    .claim-text {
+      font-family: var(--font-serif);
+      font-size: var(--text-sm);
+      color: var(--ink);
+      line-height: 1.5;
+      margin-bottom: var(--space-3);
+    }
+
+    .claim-note {
+      font-family: var(--font-ui);
+      font-size: var(--text-xs);
+      color: var(--muted);
+      line-height: 1.5;
+      margin-bottom: var(--space-4);
+    }
+
+    .claim-sources {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-5);
+    }
+
+    .claim-source-link {
+      font-family: var(--font-ui);
+      font-size: var(--text-2xs);
+      color: var(--accent);
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+    }
+
+    .claim-source-link:hover,
+    .claim-source-link:focus-visible {
+      border-bottom-color: var(--accent);
+    }
+
+    .share-result {
+      display: flex;
+      align-items: center;
+      gap: var(--space-6);
+      flex-wrap: wrap;
+      margin-bottom: var(--space-9);
+      padding: var(--space-7) var(--space-8);
+      background: var(--surface-2);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius-sm);
+    }
+
+    .share-result-url {
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      color: var(--ink);
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    /* ==============================================
        18. FIND BAR
     =============================================== */
     .find-bar {
@@ -5132,7 +5263,13 @@
                   aria-label="Download digest as a Markdown file">Download .md</button>
           <button class="mini-btn" id="digestPrintBtn"
                   aria-label="Print digest or save as PDF">Print / Save as PDF</button>
+          <button class="mini-btn" id="digestVerifyBtn"
+                  aria-label="Verify the digest's factual claims against the web">Verify claims</button>
+          <button class="mini-btn" id="digestShareBtn"
+                  aria-label="Create a public shareable link to this digest">Share</button>
         </div>
+        <div id="claimsOutput" class="claims-output" hidden></div>
+        <div id="shareResult" class="share-result" hidden></div>
 
         <div id="digestOutput"></div>
         <div id="usageStats" class="usage-stats"></div>
@@ -5922,6 +6059,7 @@
     let indicatorTimer = null;
     let currentMeta    = null;  // { videoId, url, title }
     let currentDigest  = null;  // string | null
+    let currentClaims  = null;  // Array<{claim,status,note,sources}> | null
 
     // Saved library state
     let savedList           = [];     // full fetched list from /api/saved
@@ -6056,6 +6194,10 @@
     const digestCopyBtn         = document.getElementById('digestCopyBtn');
     const digestDownloadBtn     = document.getElementById('digestDownloadBtn');
     const digestPrintBtn        = document.getElementById('digestPrintBtn');
+    const digestVerifyBtn       = document.getElementById('digestVerifyBtn');
+    const digestShareBtn        = document.getElementById('digestShareBtn');
+    const claimsOutput          = document.getElementById('claimsOutput');
+    const shareResult           = document.getElementById('shareResult');
     const digestPrintArea       = document.getElementById('digestPrintArea');
     const findInput             = document.getElementById('findInput');
     const findCounter           = document.getElementById('findCounter');
@@ -6845,6 +6987,154 @@
     // afterprint fires whether the user prints or cancels the dialog — either
     // way we want to restore the normal on-screen view.
     window.addEventListener('afterprint', stopPrintingDigest);
+
+    /* ==============================================
+       CLAIM VERIFICATION + SHARE  (Feature: digest trust tools)
+    =============================================== */
+    /**
+     * Render fact-check results into #claimsOutput. Every piece of
+     * claim/note/source text is user- or model-supplied, so it all goes
+     * through escapeHtml()/escapeAttr() before hitting innerHTML — never
+     * concatenated raw.
+     */
+    function renderClaims(claims) {
+      const STATUS_LABEL = {
+        supported:    { cls: 'is-supported',    text: '✓ Supported' },
+        unsupported:  { cls: 'is-unsupported',  text: '⚠ Unsupported' },
+        mixed:        { cls: 'is-mixed',        text: '~ Mixed' },
+        unverifiable: { cls: 'is-unverifiable', text: '? Unverifiable' },
+      };
+
+      if (!Array.isArray(claims) || claims.length === 0) {
+        claimsOutput.innerHTML = '<div class="claims-heading">Key claims</div>' +
+          '<div class="claims-empty">No checkable claims found.</div>';
+        claimsOutput.hidden = false;
+        return;
+      }
+
+      const rows = claims.map(c => {
+        const status = STATUS_LABEL[c?.status] || STATUS_LABEL.unverifiable;
+        const claimText = escapeHtml(String(c?.claim || ''));
+        const noteText  = c?.note ? escapeHtml(String(c.note)) : '';
+        const sources = Array.isArray(c?.sources) ? c.sources : [];
+
+        const sourceLinks = sources
+          .map(s => {
+            const safeUrl = safeHttpUrl(s?.url);
+            if (!safeUrl) return '';
+            const title = escapeHtml(String(s?.title || safeUrl));
+            return '<a class="claim-source-link" href="' + escapeAttr(safeUrl) + '" ' +
+              'target="_blank" rel="noopener noreferrer nofollow">' + title + '</a>';
+          })
+          .filter(Boolean)
+          .join('');
+
+        return (
+          '<div class="claim-row">' +
+            '<div class="claim-status-pill ' + status.cls + '">' + status.text + '</div>' +
+            '<div class="claim-text">' + claimText + '</div>' +
+            (noteText ? '<div class="claim-note">' + noteText + '</div>' : '') +
+            (sourceLinks ? '<div class="claim-sources">' + sourceLinks + '</div>' : '') +
+          '</div>'
+        );
+      }).join('');
+
+      claimsOutput.innerHTML = '<div class="claims-heading">Key claims</div>' + rows;
+      claimsOutput.hidden = false;
+    }
+
+    digestVerifyBtn?.addEventListener('click', async () => {
+      if (!currentDigest) return;
+      digestVerifyBtn.disabled = true;
+      setTopIndicator('working');
+      try {
+        const res  = await aiFetch('/api/claims', {
+          digest:  currentDigest,
+          title:   currentMeta?.title || '',
+          videoId: currentMeta?.videoId || undefined,
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          const msg = apiErrorMessage(data, 'Failed to verify claims.');
+          setDigestStatus(msg, true);
+          setTopIndicator('error');
+          handleApiError(data, 'Failed to verify claims.');
+          return;
+        }
+
+        currentClaims = data.claims || [];
+        renderClaims(currentClaims);
+        setTopIndicator('done');
+      } catch (err) {
+        console.error('[echo] verify claims network error:', err);
+        setDigestStatus('Network error — could not reach the server.', true);
+        setTopIndicator('error');
+        showToast('error', 'Network error: ' + err.message);
+      } finally {
+        digestVerifyBtn.disabled = false;
+      }
+    });
+
+    digestShareBtn?.addEventListener('click', async () => {
+      if (!currentDigest) return;
+      if (!confirm('Create a public link to this digest? Anyone with the link will be able to read it.')) return;
+      digestShareBtn.disabled = true;
+      try {
+        const res  = await aiFetch('/api/share', {
+          videoId:   currentMeta?.videoId,
+          title:     currentMeta?.title || '',
+          sourceUrl: currentMeta?.url   || '',
+          digestMd:  currentDigest,
+          claims:    currentClaims || undefined,
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          handleApiError(data, 'Failed to create share link.');
+          return;
+        }
+
+        const url = location.origin + data.path;
+        shareResult.innerHTML =
+          '<span class="share-result-url">' + escapeHtml(url) + '</span>' +
+          '<button class="mini-btn" id="shareCopyLinkBtn" aria-label="Copy share link">Copy link</button>' +
+          '<button class="mini-btn" id="shareUnpublishBtn" aria-label="Unpublish this shared digest">Unpublish</button>';
+        shareResult.hidden = false;
+
+        const shareId = data.id;
+        document.getElementById('shareCopyLinkBtn')?.addEventListener('click', (e) => {
+          copyToClipboard(e.currentTarget, url, 'Copy link');
+        });
+        document.getElementById('shareUnpublishBtn')?.addEventListener('click', async () => {
+          try {
+            const delRes = await fetch('/api/share/' + encodeURIComponent(shareId), { method: 'DELETE' });
+            if (delRes.ok) {
+              shareResult.hidden    = true;
+              shareResult.innerHTML = '';
+              showToast('success', 'Share link removed.');
+            } else {
+              showToast('error', 'Could not unpublish this share link.');
+            }
+          } catch (err) {
+            showToast('error', 'Network error: ' + err.message);
+          }
+        });
+      } catch (err) {
+        console.error('[echo] share network error:', err);
+        showToast('error', 'Network error: ' + err.message);
+      } finally {
+        digestShareBtn.disabled = false;
+      }
+    });
+
+    // Share is a server-persisted, cross-network-visible artifact — the
+    // /api/share route is blocked (503) in web mode, so hide the entry
+    // point entirely rather than let users hit a dead button. Verify
+    // claims stays available in every mode (it doesn't persist anything).
+    if (ECHO.mode === 'web' && digestShareBtn) {
+      digestShareBtn.hidden = true;
+    }
 
     /* ==============================================
        FIND IN TRANSCRIPT  (Feature 3)
@@ -8341,6 +8631,13 @@
 
         // Capture digest text so Save can include it
         currentDigest = data.digest;
+        // A fresh digest invalidates any previously-verified claims / share
+        // link — drop them so stale UI doesn't linger next to new content.
+        currentClaims = null;
+        claimsOutput.innerHTML = '';
+        claimsOutput.hidden    = true;
+        shareResult.innerHTML  = '';
+        shareResult.hidden     = true;
         syncDigestExportRow();
         syncDigestRegenBtn(); // switch label to "Regenerate"
 
@@ -11315,6 +11612,7 @@
       if (data) {
         if (btnEl) { btnEl.textContent = 'Following ✓'; }
         loadFollowedList();
+        loadInbox();
         return;
       }
       if (btnEl) { btnEl.disabled = false; btnEl.textContent = '+ Follow'; }
@@ -11340,6 +11638,7 @@
         const res  = await fetch('/api/follows');
         const data = await res.json().catch(() => ({}));
         const follows = (res.ok && Array.isArray(data.follows)) ? data.follows : [];
+        if (res.ok) knownFollowCount = follows.length;
         if (follows.length === 0) {
           followedListEl.innerHTML = '<p class="empty-state">You\'re not following any channels yet.</p>';
           return;
@@ -11397,6 +11696,11 @@
     let inboxSelectedChannelId = null;
     let inboxChannelState   = { channelId: null, offset: 0, limit: 12, hasMore: false };
     let inboxLoadMoreBusy   = false;
+    // Last-known followed-channel count from any successful /api/follows or
+    // /api/follows/inbox fetch — lets loadInbox() key #inboxEmptyState off a
+    // trustworthy value immediately, so a failed inbox fetch (early return)
+    // can't leave the empty-state bar stuck showing stale info. null = unknown.
+    let knownFollowCount    = null;
 
     /** Marks a channel's given videoIds as seen on the server, then quietly
      *  refreshes the nav badge / chip badges / "Mark all seen" affordance —
@@ -11434,6 +11738,7 @@
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !Array.isArray(data.channels)) return;
         inboxSummary = data.channels;
+        knownFollowCount = inboxSummary.length;
         const unseenTotal = inboxSummary.reduce((sum, c) => sum + (Array.isArray(c.unseen) ? c.unseen.length : 0), 0);
         updateInboxBadge(unseenTotal);
         renderInboxChips();
@@ -11636,6 +11941,12 @@
      *  channel's first page. */
     async function loadInbox() {
       if (!inboxContentEl) return;
+      // Key the empty-state bar off the last-known follow count *before* the
+      // fetch below runs, so if that fetch fails (and we early-return) the
+      // bar reflects the last trustworthy count instead of being left stale.
+      if (inboxEmptyStateEl && knownFollowCount !== null) {
+        inboxEmptyStateEl.hidden = knownFollowCount > 0;
+      }
       if (inboxStatusMsgEl) { inboxStatusMsgEl.textContent = 'Checking…'; inboxStatusMsgEl.className = 'saved-status-msg'; }
       try {
         const res  = await fetch('/api/follows/inbox');
@@ -11649,6 +11960,7 @@
         }
         const channels = Array.isArray(data.channels) ? data.channels : [];
         inboxSummary = channels;
+        knownFollowCount = channels.length;
         const unseenTotal = channels.reduce((sum, c) => sum + (Array.isArray(c.unseen) ? c.unseen.length : 0), 0);
         updateInboxBadge(unseenTotal);
 
@@ -11694,6 +12006,7 @@
         .then(res => res.ok ? res.json() : null)
         .then(data => {
           if (!data || !Array.isArray(data.channels)) return;
+          knownFollowCount = data.channels.length;
           const unseenTotal = data.channels.reduce((sum, c) => sum + (Array.isArray(c.unseen) ? c.unseen.length : 0), 0);
           updateInboxBadge(unseenTotal);
         })
@@ -11762,7 +12075,8 @@
           const data = await followChannel(currentMeta.channelUrl, currentMeta.channel || currentMeta.title || '');
           followChannelBtn.disabled = false;
           if (data) {
-            refreshInboxBadgeQuietly();
+            loadFollowedList();
+            loadInbox();
           }
           return;
         }
@@ -11799,7 +12113,8 @@
         if (data) {
           followChannelPanel.hidden = true;
           followChannelBtn.setAttribute('aria-expanded', 'false');
-          refreshInboxBadgeQuietly();
+          loadFollowedList();
+          loadInbox();
         } else {
           followChannelStatusEl.textContent = "Couldn't recognize that as a channel URL/handle.";
           followChannelStatusEl.className   = 'saved-status-msg error';

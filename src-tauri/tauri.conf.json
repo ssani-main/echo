@@ -53,6 +53,7 @@
       "../discovery.js": "discovery.js",
       "../usagelog.js": "usagelog.js",
       "../websearch.js": "websearch.js",
+      "../sharepage.js": "sharepage.js",
       "../package.json": "package.json",
       "../public": "public",
       "dist-deps/node_modules": "node_modules"

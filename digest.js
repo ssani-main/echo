@@ -1260,3 +1260,179 @@ export async function suggestTags(material, opts = {}) {
 
   return { tags, usage: mergeUsage([usage]) };
 }
+
+// ---------------------------------------------------------------------------
+// Web-verified claim-checking
+// ---------------------------------------------------------------------------
+
+// Zero-usage placeholder for paths that skip the Claude CLI entirely (e.g.
+// verifyClaim() when the web search returns no results).
+function zeroUsage() {
+  return {
+    costUsd: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    totalTokens: 0,
+    durationMs: 0,
+  };
+}
+
+/**
+ * Runs a small bounded-concurrency pool over `items`, calling `worker(item)`
+ * for each and returning results in the original order. Mirrors the
+ * map-reduce approach in this file, but caps concurrency instead of firing
+ * every call at once (used here to avoid hammering the web-search endpoint
+ * and the provider CLI with unbounded parallel claims).
+ *
+ * @template T, R
+ * @param {T[]} items
+ * @param {number} limit
+ * @param {(item: T, index: number) => Promise<R>} worker
+ * @returns {Promise<R[]>}
+ */
+async function runPool(items, limit, worker) {
+  const results = new Array(items.length);
+  let next = 0;
+
+  async function runner() {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await worker(items[i], i);
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () => runner());
+  await Promise.all(workers);
+  return results;
+}
+
+/**
+ * Extract the most important checkable factual claims from a digest.
+ *
+ * @param {string} digestMd
+ * @param {{ maxClaims?: number, apiKey?: string }} [opts]
+ * @returns {Promise<{ claims: Array<{ claim: string }>, usage: object }>}
+ */
+export async function extractClaims(digestMd, opts = {}) {
+  if (!digestMd || !digestMd.trim()) {
+    return { claims: [], usage: zeroUsage() };
+  }
+
+  const maxClaims = opts.maxClaims ?? 8;
+
+  const prompt =
+    'Read the following video digest and extract the most important CHECKABLE factual claims it makes — ' +
+    'specific, verifiable assertions (e.g. a named fact, statistic, date, event, or attributed statement). ' +
+    'Do NOT extract opinions, vague generalities, or subjective statements.\n\n' +
+    `List at most ${maxClaims} claims, ordered from most to least important.\n\n` +
+    'Output ONLY a JSON array and nothing else — no prose before or after, no code fences:\n' +
+    '[{"claim": "..."}, {"claim": "..."}]\n\n' +
+    'DIGEST:\n\n' +
+    digestMd;
+
+  const { result, usage } = await callProvider(prompt, opts);
+
+  let parsed;
+  try {
+    const s = String(result || '').replace(/```[a-z]*\n?/gi, '').replace(/```/g, '').trim();
+    parsed = JSON.parse(s);
+  } catch (_) {
+    return { claims: [], usage };
+  }
+
+  if (!Array.isArray(parsed)) {
+    return { claims: [], usage };
+  }
+
+  const claims = parsed
+    .filter((c) => c && typeof c.claim === 'string' && c.claim.trim())
+    .map((c) => ({ claim: c.claim.trim() }))
+    .slice(0, maxClaims);
+
+  return { claims, usage };
+}
+
+/**
+ * Verify a single claim against real web-search results.
+ *
+ * @param {string} claim
+ * @param {{ apiKey?: string, language?: string }} [opts]
+ * @returns {Promise<{ status: string, note: string, sources: Array<{title:string,url:string}>, usage: object }>}
+ */
+export async function verifyClaim(claim, opts = {}) {
+  const trimmedClaim = String(claim || '').trim();
+  if (!trimmedClaim) {
+    return { status: 'unverifiable', note: '', sources: [], usage: zeroUsage() };
+  }
+
+  const results = await searchWeb(trimmedClaim, { n: 4 });
+
+  if (!results.length) {
+    return {
+      status: 'unverifiable',
+      note: 'No web results found.',
+      sources: [],
+      usage: zeroUsage(),
+    };
+  }
+
+  const resultsBlock = formatWebResults(results);
+
+  const prompt =
+    'You are fact-checking a claim from a video digest using real web search results. ' +
+    'Judge whether the WEB RESULTS below support the CLAIM. ' +
+    'Use ONLY the WEB RESULTS provided — do not rely on your own training knowledge to invent facts, ' +
+    'and never cite a source that is not in the WEB RESULTS.\n\n' +
+    `CLAIM: "${trimmedClaim}"\n\n` +
+    `WEB RESULTS:\n\n${resultsBlock}\n\n` +
+    'Return STRICT JSON and nothing else — no prose before or after, no code fences:\n' +
+    '{"status":"supported|unsupported|mixed|unverifiable","note":"one short sentence"}';
+
+  const { result, usage } = await callProvider(prompt, opts);
+
+  let status = 'unverifiable';
+  let note = '';
+  try {
+    const s = String(result || '').replace(/```[a-z]*\n?/gi, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(s);
+    const validStatuses = new Set(['supported', 'unsupported', 'mixed', 'unverifiable']);
+    status = validStatuses.has(parsed?.status) ? parsed.status : 'unverifiable';
+    note = typeof parsed?.note === 'string' ? parsed.note : '';
+  } catch (_) {
+    status = 'unverifiable';
+    note = '';
+  }
+
+  const sources = results.map((r) => ({ title: r.title, url: r.url }));
+
+  return { status, note, sources, usage };
+}
+
+/**
+ * Extracts checkable claims from a digest, then verifies each against the
+ * web with bounded concurrency, merging usage across every Claude call.
+ *
+ * @param {string} digestMd
+ * @param {{ maxClaims?: number, apiKey?: string, language?: string }} [opts]
+ * @returns {Promise<{ claims: Array<{ claim: string, status: string, note: string, sources: Array<{title:string,url:string}> }>, usage: object }>}
+ */
+export async function verifyClaims(digestMd, opts = {}) {
+  const { claims: extracted, usage: extractUsage } = await extractClaims(digestMd, opts);
+
+  if (extracted.length === 0) {
+    return { claims: [], usage: mergeUsage([extractUsage]) };
+  }
+
+  const verified = await runPool(extracted, 4, async (c) => {
+    const { status, note, sources, usage } = await verifyClaim(c.claim, opts);
+    return { claim: c.claim, status, note, sources, usage };
+  });
+
+  const usages = [extractUsage, ...verified.map((v) => v.usage)];
+  const claims = verified.map(({ claim, status, note, sources }) => ({ claim, status, note, sources }));
+
+  return { claims, usage: mergeUsage(usages) };
+}

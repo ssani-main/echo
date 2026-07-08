@@ -1,6 +1,7 @@
 // Node 24 ships a built-in synchronous SQLite module — no native build needed.
 // API mirrors better-sqlite3 closely: DatabaseSync, StatementSync, transaction().
 import { DatabaseSync } from 'node:sqlite';
+import { randomBytes } from 'node:crypto';
 import { mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -71,6 +72,16 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_follow_seen_channel ON follow_seen(channelId);
+
+  CREATE TABLE IF NOT EXISTS shares (
+    id         TEXT PRIMARY KEY,
+    videoId    TEXT,
+    title      TEXT,
+    sourceUrl  TEXT,
+    digestMd   TEXT NOT NULL,
+    claimsJson TEXT,
+    createdAt  TEXT NOT NULL
+  );
 `);
 
 // ---------------------------------------------------------------------------
@@ -570,5 +581,71 @@ export async function touchChecked(channelId) {
   const now = new Date().toISOString();
   db.prepare('UPDATE follows SET lastCheckedAt = ? WHERE channelId = ?').run(now, channelId);
   return now;
+}
+
+// ---------------------------------------------------------------------------
+// Shares (public read-only links to a digest)
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a new share row for a digest. Generates an unguessable id (8 random
+ * bytes, base64url-encoded) rather than an incrementing/derivable one.
+ *
+ * @param {{ videoId?: string|null, title?: string|null, sourceUrl?: string|null, digestMd: string, claims?: any[]|null }} params
+ * @returns {Promise<{ id: string, createdAt: string }>}
+ */
+export async function createShare({ videoId, title, sourceUrl, digestMd, claims }) {
+  const id        = randomBytes(8).toString('base64url');
+  const now       = new Date().toISOString();
+  const claimsJson = Array.isArray(claims) && claims.length > 0 ? JSON.stringify(claims) : null;
+
+  db.prepare(`
+    INSERT INTO shares (id, videoId, title, sourceUrl, digestMd, claimsJson, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    videoId    || null,
+    title      || null,
+    sourceUrl  || null,
+    digestMd,
+    claimsJson,
+    now,
+  );
+
+  return { id, createdAt: now };
+}
+
+/**
+ * Look up a share by id. Returns null if not found.
+ * @param {string} id
+ */
+export async function getShare(id) {
+  const row = db.prepare('SELECT * FROM shares WHERE id = ?').get(id);
+  if (!row) return null;
+
+  let claims = null;
+  if (row.claimsJson) {
+    try { claims = JSON.parse(row.claimsJson); } catch { claims = null; }
+  }
+
+  return {
+    id:        row.id,
+    videoId:   row.videoId ?? null,
+    title:     row.title ?? null,
+    sourceUrl: row.sourceUrl ?? null,
+    digestMd:  row.digestMd,
+    claims,
+    createdAt: row.createdAt,
+  };
+}
+
+/**
+ * Remove a share by id.
+ * Returns true if a row was removed, false if it wasn't found.
+ * @param {string} id
+ */
+export async function deleteShare(id) {
+  const result = db.prepare('DELETE FROM shares WHERE id = ?').run(id);
+  return result.changes > 0;
 }
 

@@ -24,9 +24,13 @@ import {
   getSeenSet,
   recordSeen,
   touchChecked,
+  createShare,
+  getShare,
+  deleteShare,
 } from './store.js';
 import { entryToMarkdown } from './markdown.js';
 import { syncVault } from './vault.js';
+import { renderSharePage } from './sharepage.js';
 import { startPlaylistDigest, startBatchDigest, getJob, cancelJob } from './playlistJob.js';
 import {
   generateDigest,
@@ -35,6 +39,7 @@ import {
   enrich,
   suggestTags,
   askLibrary,
+  verifyClaims,
 } from './digest.js';
 import { getTodayUsage } from './usage.js';
 import { logEvent, errLabel } from './usagelog.js';
@@ -153,6 +158,24 @@ const CACHED_INDEX_HTML = buildInjectedHtml(readFileSync(INDEX_HTML_PATH, 'utf8'
 app.get('/', (_req, res) => {
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(CACHED_INDEX_HTML);
+});
+
+// Public share page — not gated behind /api, not blocked in web mode (this
+// is the one server-rendered surface meant to be reachable by anyone with
+// the link, regardless of ECHO_MODE). Errors are swallowed into a plain
+// 404 page rather than leaked to the visitor.
+app.get('/s/:id', async (req, res) => {
+  const notFoundHtml = '<!doctype html><meta charset=utf-8><title>Not found</title><body style="font-family:system-ui;background:#0A0B0D;color:#e6e6e6;padding:3rem;text-align:center"><h1>404</h1><p>This shared digest doesn’t exist or was unpublished.</p>';
+  try {
+    const share = await getShare(req.params.id);
+    if (!share) {
+      return res.status(404).set('Content-Type', 'text/html; charset=utf-8').send(notFoundHtml);
+    }
+    res.set('Content-Type', 'text/html; charset=utf-8').send(renderSharePage(share));
+  } catch (err) {
+    console.error('[echo] caught error:', err);
+    res.status(404).set('Content-Type', 'text/html; charset=utf-8').send(notFoundHtml);
+  }
 });
 
 app.use(express.static(join(__dirname, 'public')));
@@ -733,6 +756,57 @@ app.post('/api/enrich', webLimit(20, 60_000), async (req, res) => {
   } catch (err) {
     logEvent('enrich', { videoId: videoId || null, mode: mode || 'explain', selLen: (selection || '').length, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Public digest sharing (v1 — local/desktop only)
+// ---------------------------------------------------------------------------
+
+app.post('/api/share', blockInWeb, webLimit(20, 60_000), async (req, res) => {
+  const { videoId, title, sourceUrl, digestMd, claims } = req.body;
+  if (!requireText(res, digestMd, 'No digest to share.', 'Generate a digest first.')) return;
+  try {
+    const safeTitle = typeof title === 'string' ? title.slice(0, 300) : '';
+    const safeSourceUrl = typeof sourceUrl === 'string' ? sourceUrl.slice(0, 2000) : '';
+    const safeClaims = Array.isArray(claims) ? claims : null;
+    const result = await createShare({
+      videoId: videoId || null,
+      title: safeTitle,
+      sourceUrl: safeSourceUrl,
+      digestMd,
+      claims: safeClaims,
+    });
+    res.json({ id: result.id, path: '/s/' + result.id });
+  } catch (err) {
+    sendCaughtError(res, err);
+  }
+});
+
+app.delete('/api/share/:id', blockInWeb, async (req, res) => {
+  try {
+    const ok = await deleteShare(req.params.id);
+    if (!ok) return sendError(res, 'NOT_FOUND', 'Share not found.', 'It may already have been unpublished.', 404);
+    res.json({ ok: true });
+  } catch (err) {
+    sendCaughtError(res, err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Claim extraction + web-verification (fact-check a whole digest)
+// ---------------------------------------------------------------------------
+
+app.post('/api/claims', webLimit(10, 60_000), async (req, res) => {
+  const { digest, title, videoId } = req.body;
+  if (!requireText(res, digest, 'No digest provided.', 'Generate a digest before verifying claims.')) return;
+  if (rejectOversizeAiPayload(res, { text: digest })) return;
+  if (requireWebKey(req, res)) return;
+  try {
+    const result = await verifyClaims(digest, { title, apiKey: readApiKey(req), maxClaims: isWeb ? 4 : 8 });
+    res.json(result);
+  } catch (err) {
+    sendCaughtError(res, err);
   }
 });
 

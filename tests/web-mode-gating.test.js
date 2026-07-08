@@ -120,6 +120,8 @@ const GATED_ROUTES = [
   ['PATCH', '/api/saved/some-video-id/tags'],
   ['GET', '/api/search'],
   ['POST', '/api/playlist'],
+  ['POST', '/api/share'],
+  ['DELETE', '/api/share/some-share-id'],
 ];
 
 let webServer;
