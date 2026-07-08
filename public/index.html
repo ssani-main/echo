@@ -140,13 +140,76 @@
 
     body {
       font-family: var(--font-sans);
-      background: var(--paper);
+      /* Base fill lives on <html> (above) so the fixed background field can
+         sit behind a transparent body. See "SIGNAL SURFACE" below. */
+      background: transparent;
       color: var(--ink);
       min-height: 100vh;
       padding: 2.75rem 1.5rem 5rem;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
     }
+
+    /* ==============================================
+       SIGNAL SURFACE — ambient background field
+       Fills the empty canvas with quiet, on-brand depth: a signal glow in
+       the corners over a faint oscilloscope graticule + micro-grain. Calm at
+       rest; the glow comes ALIVE while the AI is digesting — body.ai-active is
+       toggled by setTopIndicator('digesting'|'working'). CSS-only, static
+       (the only motion is a slow breath during ai-active, disabled under
+       reduced-motion). Layers show because <body> is transparent (above).
+    =============================================== */
+    body::before,
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+    }
+    /* Layer 1 — signal glow: cyan (--signal) + indigo (--signal-2) auroras
+       bleeding from the top corners, as if the waveform lights the room. */
+    body::before {
+      z-index: -2;
+      background:
+        radial-gradient(46% 38% at 14% 0%,  color-mix(in srgb, var(--signal)   26%, transparent), transparent 55%),
+        radial-gradient(44% 40% at 98% 16%, color-mix(in srgb, var(--signal-2) 24%, transparent), transparent 58%),
+        radial-gradient(40% 44% at -2% 74%, color-mix(in srgb, var(--signal)   14%, transparent), transparent 62%);
+      opacity: .16;                                  /* really minimal at rest / when done */
+      transition: opacity 1.2s var(--ease), filter 1.4s var(--ease);
+      will-change: opacity;
+    }
+    /* Layer 2 — oscilloscope graticule + micro-grain (fully static). The grid
+       fills the empty side gutters that glow alone can't reach. */
+    body::after {
+      z-index: -1;
+      background-image:
+        linear-gradient(color-mix(in srgb, var(--ink) 9%, transparent) 1px, transparent 1px),
+        linear-gradient(90deg, color-mix(in srgb, var(--ink) 9%, transparent) 1px, transparent 1px),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
+      background-size: 48px 48px, 48px 48px, 200px 200px;
+      opacity: .5;
+      -webkit-mask: radial-gradient(120% 110% at 50% 0%, #000 45%, transparent 92%);
+              mask: radial-gradient(120% 110% at 50% 0%, #000 45%, transparent 92%);
+    }
+    /* Light theme: pull the grain/grid back so the field stays clean, not dirty. */
+    :root:not([data-theme="dark"]) body::after { opacity: .34; }
+
+    /* ai-active — the glow intensifies and breathes while a digest/lookup runs. */
+    body.ai-active::before {
+      opacity: 1;
+      filter: saturate(1.12);
+      animation: signal-breathe 3.4s ease-in-out infinite;
+    }
+    @keyframes signal-breathe {
+      0%, 100% { opacity: .8; }
+      50%      { opacity: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      body.ai-active::before { animation: none; opacity: 1; }
+    }
+    /* Keep the field out of printed digests. */
+    body.printing-digest::before,
+    body.printing-digest::after { display: none; }
 
     /* ==============================================
        3. LAYOUT COLUMN
@@ -6251,6 +6314,10 @@
       topIndicator.innerHTML   = '';
       topIndicator.removeAttribute('tabindex');
       topIndicator.removeAttribute('role');
+
+      // Drive the ambient "Signal Surface" background glow: it comes alive
+      // (intensifies + breathes) while a digest or enrich lookup is in flight.
+      document.body.classList.toggle('ai-active', state === 'digesting' || state === 'working');
 
       if (state === 'idle') return;
 
