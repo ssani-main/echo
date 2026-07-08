@@ -3272,13 +3272,34 @@
     =============================================== */
     .enrich-toolbar {
       min-width: unset;
-      max-width: 320px;
+      max-width: 360px;
       padding: var(--space-4) var(--space-5);
     }
 
     .enrich-toolbar .mini-btn {
       font-size: var(--text-xs);
       padding: var(--space-3) var(--space-5);
+    }
+
+    /* Result area rendered in place inside the toolbar popover (Verify/Explain/
+       Background). Bounded so a long result stays scrollable rather than growing
+       the popover past a usable size; positionEnrichToolbar() re-anchors the
+       popover above/below the selection whenever this area's height changes. */
+    .enrich-toolbar-result {
+      max-height: 320px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-top: var(--space-4);
+      margin-top: var(--space-2);
+      border-top: 1px solid var(--rule);
+    }
+
+    .enrich-toolbar-result[hidden] {
+      display: none;
+    }
+
+    .enrich-toolbar-result .enrich-card-text {
+      font-size: var(--text-sm);
     }
 
     .enrich-card {
@@ -3460,197 +3481,6 @@
     .enrich-sources-list a:hover,
     .enrich-sources-list a:focus-visible {
       text-decoration: underline;
-    }
-
-    /* ==============================================
-       35c. RESEARCH RAIL — right-side drawer that accumulates every digest
-       enrich lookup (Explain/Background/Fact-check) for the current video.
-       Reuses .enrich-verdict* / .enrich-sources* for per-entry results, and
-       .shortcuts-backdrop-style overlay conventions for the scrim + z-index.
-    =============================================== */
-    .research-btn-attn {
-      animation: research-attn-pulse 1.4s ease-in-out 2;
-    }
-
-    @keyframes research-attn-pulse {
-      0%, 100% { box-shadow: none; }
-      50%      { box-shadow: 0 0 0 3px var(--accent-soft); }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      .research-btn-attn {
-        animation: none;
-        border-color: var(--accent);
-      }
-    }
-
-    #researchRail {
-      position: fixed;
-      inset: 0;
-      z-index: 18500; /* below shortcuts/settings modals (19000), above topIndicator (8000) */
-    }
-
-    #researchRail[hidden] {
-      display: none;
-    }
-
-    .research-rail-backdrop {
-      position: absolute;
-      inset: 0;
-      background: var(--overlay-backdrop);
-    }
-
-    .research-rail-panel {
-      position: absolute;
-      top: 0;
-      right: 0;
-      height: 100%;
-      width: 380px;
-      max-width: 100%;
-      background: var(--surface);
-      border-left: 1px solid var(--rule);
-      box-shadow: -8px 0 30px var(--shadow-indicator);
-      display: flex;
-      flex-direction: column;
-      animation: research-rail-slide-in 0.22s ease-out;
-    }
-
-    @keyframes research-rail-slide-in {
-      from { transform: translateX(100%); }
-      to   { transform: translateX(0); }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      .research-rail-panel {
-        animation: none;
-      }
-    }
-
-    @media (max-width: 640px) {
-      .research-rail-panel {
-        width: 100%;
-      }
-    }
-
-    .research-rail-header {
-      display: flex;
-      align-items: center;
-      gap: var(--space-5);
-      padding: var(--space-8) var(--space-9);
-      border-bottom: 1px solid var(--rule);
-      flex: none;
-    }
-
-    .research-rail-title {
-      font-family: var(--font-sans);
-      font-size: var(--text-lg);
-      font-weight: 700;
-      letter-spacing: 0.02em;
-      color: var(--ink);
-    }
-
-    .research-rail-count {
-      font-family: var(--font-mono);
-      font-size: var(--text-xs);
-      color: var(--muted);
-      background: var(--paper);
-      border: 1px solid var(--rule);
-      border-radius: 999px;
-      padding: var(--space-1) var(--space-5);
-    }
-
-    .research-rail-header-actions {
-      margin-left: auto;
-      display: flex;
-      align-items: center;
-      gap: var(--space-4);
-    }
-
-    .research-rail-body {
-      flex: 1 1 auto;
-      overflow-y: auto;
-      padding: var(--space-8) var(--space-9) var(--space-11);
-    }
-
-    .research-rail-empty {
-      font-family: var(--font-serif);
-      font-size: var(--text-md);
-      line-height: 1.6;
-      color: var(--muted);
-      padding: var(--space-11) var(--space-2);
-      text-align: center;
-    }
-
-    .research-entry {
-      position: relative;
-      padding: var(--space-7) var(--space-8);
-      margin-bottom: var(--space-7);
-      background: var(--paper);
-      border: 1px solid var(--rule);
-      border-radius: var(--radius);
-      border-left: 3px solid var(--accent);
-    }
-
-    .research-entry-header {
-      display: flex;
-      align-items: baseline;
-      gap: var(--space-4);
-      margin-bottom: var(--space-4);
-    }
-
-    .research-entry-mode {
-      font-family: var(--font-mono);
-      font-size: var(--text-3xs);
-      font-weight: 500;
-      text-transform: uppercase;
-      letter-spacing: 0.09em;
-      color: var(--accent);
-      flex: none;
-    }
-
-    .research-entry-mode-icon {
-      display: inline-flex;
-      vertical-align: -2px;
-    }
-
-    .research-entry-dismiss {
-      margin-left: auto;
-      flex: none;
-      background: transparent;
-      border: none;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: var(--text-sm);
-      padding: var(--space-1) var(--space-3);
-      line-height: 1;
-      border-radius: 4px;
-    }
-
-    .research-entry-dismiss:hover {
-      background: var(--accent-soft);
-      color: var(--ink);
-    }
-
-    .research-entry-dismiss:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 1px;
-    }
-
-    .research-entry-selection {
-      font-family: var(--font-serif);
-      font-style: italic;
-      font-size: var(--text-sm);
-      color: var(--muted);
-      margin-bottom: var(--space-4);
-      line-height: 1.5;
-    }
-
-    .research-entry-text {
-      font-family: var(--font-serif);
-      font-size: var(--text-md);
-      line-height: 1.55;
-      color: var(--ink);
-      white-space: pre-wrap;
     }
 
     /* ==============================================
@@ -4861,24 +4691,6 @@
             <span id="inboxCount" class="library-btn-count" hidden>0</span>
           </button>
           <button
-            id="researchBtn"
-            class="library-btn"
-            type="button"
-            aria-pressed="false"
-            aria-haspopup="dialog"
-            aria-controls="researchRail"
-            title="Open your research rail"
-          >
-            <svg class="library-btn-icon" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true" fill="none">
-              <g stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="11" cy="11" r="7"/>
-                <path d="M21 21l-4.3-4.3"/>
-              </g>
-            </svg>
-            <span class="library-btn-label">Research</span>
-            <span id="researchCount" class="library-btn-count">0</span>
-          </button>
-          <button
             id="themeToggle"
             class="theme-toggle"
             aria-label="Switch to dark theme"
@@ -5642,35 +5454,20 @@
     </div>
   </div>
 
-  <!-- DIGEST SELECTION ENRICH TOOLBAR (shown when the user selects text inside the AI digest) -->
+  <!-- DIGEST SELECTION ENRICH TOOLBAR (shown when the user selects text inside the AI digest).
+       Verify/Explain/Background results render in place in #enrichToolbarResult below the
+       button row — nothing is persisted; closing the popover discards the result. -->
   <div id="enrichToolbar" class="hl-popover enrich-toolbar" role="toolbar"
        aria-label="Look up selected text" hidden>
     <div class="hl-popover-actions">
       <button class="mini-btn" id="enrichBtnExplain" aria-label="Explain this passage"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.45.9 1.02.9 1.6H14.6c0-.58.3-1.15.9-1.6A6 6 0 0 0 12 3z"/></svg> Explain</button>
       <button class="mini-btn" id="enrichBtnBackground" aria-label="Get background on this passage"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h7M9 11h7"/></svg> Background</button>
-      <button class="mini-btn" id="enrichBtnFactcheck" aria-label="Fact-check this passage">✓ Fact-check</button>
+      <button class="mini-btn" id="enrichBtnFactcheck" aria-label="Verify this passage">✓ Verify</button>
       <button class="mini-btn" id="enrichBtnAsk" aria-label="Ask about this passage"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z"/></svg> Ask</button>
     </div>
+    <div class="enrich-toolbar-result" id="enrichToolbarResult" aria-live="polite" hidden></div>
   </div>
 
-  <!-- RESEARCH RAIL — right-side drawer accumulating every digest enrich lookup
-       (Explain/Background/Fact-check) for the current video. Non-modal
-       (aria-modal="false"): the scrim closes it but underlying content stays
-       reachable via Esc/close button, same as the enrich toolbar above. -->
-  <div id="researchRail" role="dialog" aria-modal="false" aria-label="Research" hidden>
-    <div class="research-rail-backdrop" id="researchRailBackdrop"></div>
-    <div class="research-rail-panel">
-      <div class="research-rail-header">
-        <span class="research-rail-title">Research</span>
-        <span id="researchRailCount" class="research-rail-count">0</span>
-        <div class="research-rail-header-actions">
-          <button class="mini-btn" id="researchRailClearBtn" aria-label="Clear all research entries">Clear</button>
-          <button class="shortcuts-close-btn" id="researchRailClose" aria-label="Close research rail" title="Close (Esc)">✕</button>
-        </div>
-      </div>
-      <div id="researchRailBody" class="research-rail-body" aria-live="polite"></div>
-    </div>
-  </div>
 
   <script>
     /* ==============================================
@@ -6087,10 +5884,6 @@
     // Session-restore state (see SESSION RESTORE section near init)
     let askThread        = [];    // [{q, a}] mirrors qaThread DOM, for session-restore snapshots
     let sessionRestoring = false; // true while replaying a restored session (suppresses re-writes)
-
-    // Research rail state — every successful digest enrich lookup (Explain/Background/
-    // Fact-check) for the CURRENT video, newest-first. See "DIGEST SELECTION ENRICH" below.
-    let enrichLog = []; // [{id, mode, selection, verdict, text, sources, ts}]
 
     // Reading controls state
     const READING_SCALES = [0.9, 1.0, 1.15, 1.3];
@@ -6538,10 +6331,10 @@
         indicatorTimer = setTimeout(() => setTopIndicator('idle'), 2500);
 
       } else if (state === 'working') {
-        // Generic "an AI lookup is in flight" state — used by digest selection
-        // enrich cards (Explain/Background/Fact-check), which can run several
-        // lookups concurrently. No auto-dismiss timer: the caller is expected
-        // to call setTopIndicator('done'|'error'|'idle') once its own lookup settles.
+        // Generic "an AI lookup is in flight" state — used by the digest
+        // selection enrich popover (Explain/Background/Verify). No auto-dismiss
+        // timer: the caller is expected to call setTopIndicator('done'|'error'|'idle')
+        // once its own lookup settles.
         topIndicator.classList.add('digesting');
         topIndicator.innerHTML = '<span class="indicator-dot" aria-hidden="true"></span>AI is working…';
       }
@@ -7396,7 +7189,6 @@
       shortcutsOverlay:   closeShortcutsOverlay,
       crossDigestOverlay: closeCrossDigestModal,
       settingsOverlay:    closeSettingsModal,
-      researchRail:       closeResearchRail,
       legalOverlay:       closeLegalOverlay,
       batchOverlay:       closeBatchOverlay,
     };
@@ -7411,13 +7203,16 @@
     });
 
     /* ==============================================
-       DIGEST SELECTION ENRICH — floating toolbar (Explain / Background /
-       Fact-check / Ask) shown when the user selects text inside #digestOutput,
-       plus the inline "researching… → result" cards those actions produce.
+       DIGEST SELECTION ENRICH — floating popover (Explain / Background /
+       Verify / Ask) shown when the user selects text inside #digestOutput.
+       Verify/Explain/Background results render EPHEMERALLY inside the same
+       popover (#enrichToolbarResult) — nothing is persisted, and closing the
+       popover discards the result. Ask keeps routing to the Ask thread.
        This is independent from find-in-transcript and does not touch #output
        state at all.
     =============================================== */
     const enrichToolbar        = document.getElementById('enrichToolbar');
+    const enrichToolbarResult  = document.getElementById('enrichToolbarResult');
     const enrichBtnExplain     = document.getElementById('enrichBtnExplain');
     const enrichBtnBackground  = document.getElementById('enrichBtnBackground');
     const enrichBtnFactcheck   = document.getElementById('enrichBtnFactcheck');
@@ -7425,7 +7220,9 @@
 
     // Captured at the moment the toolbar is shown, since the DOM selection
     // itself is often lost/collapsed by the time a toolbar button is clicked.
-    let enrichPending = null; // { text, context, endBlockEl }
+    // `rect` is a snapshot DOMRect (not live) — safe to reuse later to
+    // re-anchor the popover as its height changes.
+    let enrichPending = null; // { text, context, rect }
 
     const ENRICH_MODE_LABEL = {
       explain:    'Explain',
@@ -7485,6 +7282,11 @@
       enrichToolbar.hidden           = true;
       enrichToolbar.style.visibility = '';
       enrichPending                  = null;
+
+      // Discard any rendered/loading result so the next selection starts fresh
+      // and a still-in-flight lookup can't flash stale content back in later.
+      enrichToolbarResult.hidden      = true;
+      enrichToolbarResult.innerHTML   = '';
     }
 
     /**
@@ -7532,8 +7334,8 @@
       enrichToolbar.style.visibility = '';
     }
 
-    function showEnrichToolbar(rect, text, context, endBlockEl) {
-      enrichPending = { text, context, endBlockEl };
+    function showEnrichToolbar(rect, text, context) {
+      enrichPending = { text, context, rect };
 
       // Unhide but keep it visually hidden (still takes layout, so
       // getBoundingClientRect() below reports its REAL rendered size) until
@@ -7572,9 +7374,8 @@
         const rect  = range.getBoundingClientRect();
         if (!rect || (rect.width === 0 && rect.height === 0)) return;
 
-        const context    = computeEnrichContext(range);
-        const endBlockEl = findEnrichBlockAncestor(range.endContainer, digestOutput);
-        showEnrichToolbar(rect, text, context, endBlockEl);
+        const context = computeEnrichContext(range);
+        showEnrichToolbar(rect, text, context);
       }, 0);
     }
 
@@ -7599,7 +7400,7 @@
       if (!enrichToolbar.hidden) hideEnrichToolbar();
     }, true);
 
-    /* --- Inline enrich card: loading / error / result rendering --- */
+    /* --- Enrich popover result: loading / error / result rendering --- */
     function renderEnrichLoading(body) {
       body.innerHTML = '';
       const wrap = document.createElement('div');
@@ -7635,11 +7436,11 @@
     }
 
     /**
-     * Builds a `.enrich-sources` list element (used by both the inline enrich
-     * card and the Research rail entries). All model-derived strings (source
-     * titles) are inserted via textContent only — never innerHTML — and
-     * links are only given an href when the URL is actually http(s),
-     * matching the app's existing URL-href XSS guard.
+     * Builds a `.enrich-sources` list element rendered inside the enrich
+     * popover's result area. All model-derived strings (source titles) are
+     * inserted via textContent only — never innerHTML — and links are only
+     * given an href when the URL is actually http(s), matching the app's
+     * existing URL-href XSS guard.
      */
     function buildEnrichSourcesEl(sources) {
       const sourcesWrap = document.createElement('div');
@@ -7712,107 +7513,63 @@
       }
     }
 
-    /** Fires the /api/enrich request for a card and renders whichever state settles. */
-    async function runEnrichLookup(mode, selection, context, card, body) {
-      card.dataset.state = 'loading';
-      renderEnrichLoading(body);
+    /**
+     * Fires the /api/enrich request and renders whichever state settles
+     * directly into the popover's result area (#enrichToolbarResult), then
+     * re-anchors the popover since its height just changed. Nothing here
+     * touches the digest body or any persisted state — the result lives only
+     * as long as the popover stays open.
+     */
+    async function runEnrichLookup(mode, selection, context, rect) {
+      enrichToolbarResult.hidden = false;
+      renderEnrichLoading(enrichToolbarResult);
+      requestAnimationFrame(() => positionEnrichToolbar(rect));
       setTopIndicator('working');
 
       try {
         const res  = await aiFetch('/api/enrich', { selection, context, mode, videoId: (currentMeta && currentMeta.videoId) || undefined });
         const data = await res.json().catch(() => ({}));
 
+        // The popover may have been dismissed (Esc / click outside / new
+        // selection) while this request was in flight — don't write into a
+        // container the next selection will reuse.
+        if (enrichToolbar.hidden) return;
+
         if (!res.ok) {
-          card.dataset.state = 'error';
-          renderEnrichError(body, apiErrorMessage(data, 'Lookup failed.'),
-            () => runEnrichLookup(mode, selection, context, card, body));
+          renderEnrichError(enrichToolbarResult, apiErrorMessage(data, 'Lookup failed.'),
+            () => runEnrichLookup(mode, selection, context, rect));
           setTopIndicator('error');
+          requestAnimationFrame(() => positionEnrichToolbar(rect));
           return;
         }
 
-        card.dataset.state = 'done';
-        renderEnrichResult(body, data);
+        renderEnrichResult(enrichToolbarResult, data);
         setTopIndicator('done');
-
-        // Log to the Research rail — the permanent record for this video.
-        // Dismissing the inline card above must NOT remove this entry.
-        addResearchEntry(mode, selection, data);
+        requestAnimationFrame(() => positionEnrichToolbar(rect));
 
       } catch (err) {
         console.error('[echo] enrich network error:', err);
-        card.dataset.state = 'error';
-        renderEnrichError(body, 'Network error — could not reach the server.',
-          () => runEnrichLookup(mode, selection, context, card, body));
+        if (enrichToolbar.hidden) return;
+        renderEnrichError(enrichToolbarResult, 'Network error — could not reach the server.',
+          () => runEnrichLookup(mode, selection, context, rect));
         setTopIndicator('error');
+        requestAnimationFrame(() => positionEnrichToolbar(rect));
       }
     }
 
-    /** Inserts `card` right after `endBlockEl` (and after any enrich cards already
-     *  chained onto it), or appends to the end of #digestOutput as a fallback. */
-    function insertEnrichCard(card, endBlockEl) {
-      if (endBlockEl && digestOutput.contains(endBlockEl)) {
-        let anchor = endBlockEl;
-        while (anchor.nextElementSibling && anchor.nextElementSibling.classList.contains('enrich-card')) {
-          anchor = anchor.nextElementSibling;
-        }
-        anchor.insertAdjacentElement('afterend', card);
-      } else {
-        digestOutput.appendChild(card);
-      }
-    }
-
-    /** Builds the inline enrich card DOM, inserts it, and kicks off the lookup. */
-    function createEnrichCard(mode, text, context, endBlockEl) {
-      const card = document.createElement('div');
-      card.className     = 'enrich-card';
-      card.dataset.mode  = mode;
-      card.dataset.state = 'loading';
-
-      const header = document.createElement('div');
-      header.className = 'enrich-card-header';
-
-      const label = document.createElement('span');
-      label.className = 'enrich-card-label';
-      label.textContent = ENRICH_MODE_LABEL[mode] || mode;
-      header.appendChild(label);
-
-      const echoSpan = document.createElement('span');
-      echoSpan.className = 'enrich-card-echo';
-      const trimmedEcho = text.length > 60 ? text.slice(0, 60) + '…' : text;
-      echoSpan.textContent = (ENRICH_MODE_GERUND[mode] || (ENRICH_MODE_LABEL[mode] || mode)) + ': "' + trimmedEcho + '"';
-      header.appendChild(echoSpan);
-
-      const dismissBtn = document.createElement('button');
-      dismissBtn.type = 'button';
-      dismissBtn.className = 'enrich-card-dismiss';
-      dismissBtn.setAttribute('aria-label', 'Dismiss this card');
-      dismissBtn.textContent = '✕';
-      dismissBtn.addEventListener('click', () => card.remove());
-      header.appendChild(dismissBtn);
-
-      card.appendChild(header);
-
-      const body = document.createElement('div');
-      body.className = 'enrich-card-body';
-      card.appendChild(body);
-
-      insertEnrichCard(card, endBlockEl);
-      runEnrichLookup(mode, text, context, card, body);
-
-      return card;
-    }
-
+    /** Explain/Background/Verify: run the lookup in place, keeping the popover open. */
     function enrichButtonClick(mode) {
       const pending = enrichPending;
-      hideEnrichToolbar();
       if (!pending) return;
-      createEnrichCard(mode, pending.text, pending.context, pending.endBlockEl);
+      runEnrichLookup(mode, pending.text, pending.context, pending.rect);
     }
 
     enrichBtnExplain?.addEventListener('click', () => enrichButtonClick('explain'));
     enrichBtnBackground?.addEventListener('click', () => enrichButtonClick('background'));
     enrichBtnFactcheck?.addEventListener('click', () => enrichButtonClick('factcheck'));
 
+    // Ask keeps its exact prior behavior — it routes to the Ask thread and
+    // does not render anything in the popover, so it still closes it.
     enrichBtnAsk?.addEventListener('click', () => {
       const pending = enrichPending;
       hideEnrichToolbar();
@@ -7829,189 +7586,6 @@
 
       askInputEl.focus();
       askInputEl.setSelectionRange(seeded.length, seeded.length);
-    });
-
-    /* ==============================================
-       RESEARCH RAIL — right-side drawer that accumulates every successful
-       digest enrich lookup (Explain/Background/Fact-check) for the current
-       video. Non-modal overlay: mirrors the shortcuts/settings overlay's
-       backdrop + Esc-to-close conventions (see DIALOG_CLOSE_FNS above), and
-       reuses the header Library button's styling/count-badge pattern for
-       its own toggle button. Persisted via saveSession()/restoreSession()
-       and reset per-video alongside askThread.
-    =============================================== */
-    const researchBtn          = document.getElementById('researchBtn');
-    const researchCountEl      = document.getElementById('researchCount');
-    const researchRailEl       = document.getElementById('researchRail');
-    const researchRailBody     = document.getElementById('researchRailBody');
-    const researchRailCountEl  = document.getElementById('researchRailCount');
-    const researchRailClose    = document.getElementById('researchRailClose');
-    const researchRailBackdrop = document.getElementById('researchRailBackdrop');
-    const researchRailClearBtn = document.getElementById('researchRailClearBtn');
-    let researchRailLastFocus  = null;
-
-    // Static, developer-authored SVG markup only — never derived from model/user input.
-    const ENRICH_MODE_ICON = {
-      explain: '<svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.45.9 1.02.9 1.6H14.6c0-.58.3-1.15.9-1.6A6 6 0 0 0 12 3z"/></svg>',
-      background: '<svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h7M9 11h7"/></svg>',
-      factcheck: '✓',
-    };
-
-    /** Keeps both the header badge and the in-drawer count in sync with enrichLog. */
-    function updateResearchCount() {
-      const n = String(enrichLog.length);
-      if (researchCountEl)     researchCountEl.textContent     = n;
-      if (researchRailCountEl) researchRailCountEl.textContent = n;
-    }
-
-    /**
-     * Builds one Research rail entry. All model-derived strings (entry.text,
-     * entry.selection, source titles via buildEnrichSourcesEl) are inserted
-     * via textContent only — never innerHTML.
-     */
-    function buildResearchEntryEl(entry) {
-      const el = document.createElement('div');
-      el.className   = 'research-entry';
-      el.dataset.id   = entry.id;
-      el.dataset.mode = entry.mode;
-
-      const header = document.createElement('div');
-      header.className = 'research-entry-header';
-
-      const modeLabel = document.createElement('span');
-      modeLabel.className = 'research-entry-mode';
-      // Icon markup is static/developer-authored (see ENRICH_MODE_ICON) — safe to set via
-      // innerHTML. The label text itself stays a plain text node, consistent with the
-      // textContent-only rule for anything that could vary per entry.
-      const modeIconSpan = document.createElement('span');
-      modeIconSpan.className = 'research-entry-mode-icon';
-      modeIconSpan.setAttribute('aria-hidden', 'true');
-      modeIconSpan.innerHTML = ENRICH_MODE_ICON[entry.mode] || '';
-      modeLabel.appendChild(modeIconSpan);
-      modeLabel.appendChild(document.createTextNode(
-        ' ' + (ENRICH_MODE_LABEL[entry.mode] || entry.mode)
-      ));
-      header.appendChild(modeLabel);
-
-      const dismissBtn = document.createElement('button');
-      dismissBtn.type = 'button';
-      dismissBtn.className = 'research-entry-dismiss';
-      dismissBtn.setAttribute('aria-label', 'Remove this research entry');
-      dismissBtn.textContent = '✕';
-      dismissBtn.addEventListener('click', () => removeResearchEntry(entry.id));
-      header.appendChild(dismissBtn);
-
-      el.appendChild(header);
-
-      const selectionEl = document.createElement('div');
-      selectionEl.className = 'research-entry-selection';
-      const selection = entry.selection || '';
-      const truncatedSel = selection.length > 120 ? selection.slice(0, 120) + '…' : selection;
-      selectionEl.textContent = '"' + truncatedSel + '"';
-      el.appendChild(selectionEl);
-
-      if (entry.mode === 'factcheck' && entry.verdict) {
-        const badge = document.createElement('span');
-        badge.className = 'enrich-verdict enrich-verdict-' + entry.verdict;
-        badge.textContent = ENRICH_VERDICT_LABEL[entry.verdict] || entry.verdict;
-        el.appendChild(badge);
-      }
-
-      const textEl = document.createElement('div');
-      textEl.className = 'research-entry-text';
-      textEl.textContent = entry.text || '';
-      el.appendChild(textEl);
-
-      const sources = Array.isArray(entry.sources) ? entry.sources : [];
-      if (sources.length) el.appendChild(buildEnrichSourcesEl(sources));
-
-      return el;
-    }
-
-    /** Re-renders the full rail body from enrichLog (newest-first order already stored). */
-    function renderResearchRail() {
-      if (!researchRailBody) return;
-      researchRailBody.innerHTML = '';
-
-      if (enrichLog.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'research-rail-empty';
-        empty.textContent =
-          'Select text in the digest and choose Explain, Background, or Fact-check — your lookups collect here.';
-        researchRailBody.appendChild(empty);
-        return;
-      }
-
-      enrichLog.forEach(entry => researchRailBody.appendChild(buildResearchEntryEl(entry)));
-    }
-
-    /** Called from runEnrichLookup on every successful /api/enrich response. */
-    function addResearchEntry(mode, selection, data) {
-      const entry = {
-        id:       'enr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
-        mode,
-        selection: selection || '',
-        verdict:  data.verdict || null,
-        text:     data.text || '',
-        sources:  Array.isArray(data.sources) ? data.sources : [],
-        ts:       Date.now(),
-      };
-      enrichLog.unshift(entry); // newest-first
-      renderResearchRail();
-      updateResearchCount();
-      saveSession();
-
-      // Attention cue if the drawer isn't open to see the new entry land.
-      if (researchRailEl.hidden) {
-        researchBtn?.classList.add('research-btn-attn');
-        setTimeout(() => researchBtn?.classList.remove('research-btn-attn'), 3000);
-      }
-    }
-
-    function removeResearchEntry(id) {
-      enrichLog = enrichLog.filter(e => e.id !== id);
-      renderResearchRail();
-      updateResearchCount();
-      saveSession();
-    }
-
-    function openResearchRail() {
-      if (!researchRailEl) return;
-      researchRailLastFocus = document.activeElement;
-      researchBtn?.classList.remove('research-btn-attn');
-      renderResearchRail();
-      researchRailEl.hidden = false;
-      researchBtn?.setAttribute('aria-pressed', 'true');
-      researchRailClose?.focus();
-    }
-
-    function closeResearchRail() {
-      if (!researchRailEl || researchRailEl.hidden) return;
-      researchRailEl.hidden = true;
-      researchBtn?.setAttribute('aria-pressed', 'false');
-      if (researchRailLastFocus && typeof researchRailLastFocus.focus === 'function') {
-        researchRailLastFocus.focus();
-      }
-      researchRailLastFocus = null;
-    }
-
-    function toggleResearchRail() {
-      if (!researchRailEl) return;
-      if (researchRailEl.hidden) openResearchRail(); else closeResearchRail();
-    }
-
-    researchBtn?.addEventListener('click', toggleResearchRail);
-    researchRailClose?.addEventListener('click', closeResearchRail);
-    researchRailBackdrop?.addEventListener('click', closeResearchRail);
-
-    researchRailClearBtn?.addEventListener('click', () => {
-      if (enrichLog.length === 0) return;
-      const ok = confirm('Clear all research entries for this video? This cannot be undone.');
-      if (!ok) return;
-      enrichLog = [];
-      renderResearchRail();
-      updateResearchCount();
-      saveSession();
     });
 
     /* ==============================================
@@ -8039,9 +7613,6 @@
       currentDigest     = null;
       currentSegments   = null;
       askThread         = [];
-      enrichLog         = []; // per-video reset — a new video starts with an empty Research rail
-      renderResearchRail();
-      updateResearchCount();
       clearSession(); // new fetch in flight — drop any stale prior-video snapshot
       updateNowReading();
       syncDigestExportRow();
@@ -9629,9 +9200,6 @@
         // Reset Ask panel
         qaThread.innerHTML           = '';
         askThread                    = [];
-        enrichLog                    = []; // per-video reset — opening a saved entry starts a fresh rail
-        renderResearchRail();
-        updateResearchCount();
         askClearRow.hidden           = true;
         askInlineStatus.textContent  = '';
         askInlineStatus.className    = 'ai-inline-status';
@@ -11149,7 +10717,6 @@
           ? usageStatsEl.innerHTML
           : '',
         askThread:  askThread,
-        enrichLog:  enrichLog,
         savedFlag:  Array.isArray(savedList) && savedList.some(e => e.videoId === currentMeta.videoId),
         viewMode:   getMode(),
         activeTab:  !paneDigest.hidden ? 'digest'
@@ -11204,10 +10771,6 @@
 
       sessionRestoring = true;
       try {
-        enrichLog         = Array.isArray(snap.enrichLog) ? snap.enrichLog : [];
-        renderResearchRail();
-        updateResearchCount();
-
         if (snap.segmentsDropped || !Array.isArray(snap.segments) || snap.segments.length === 0) {
           // Segments were dropped (quota) or never captured — ask the user to
           // re-fetch rather than guessing at transcript content.
