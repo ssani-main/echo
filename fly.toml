@@ -1,14 +1,13 @@
 # Echo — hosted web mode (BYOK), Fly.io config.
 #
-# This app is stateless: server-side library persistence is disabled in
-# ECHO_MODE=web (each visitor's library lives in browser IndexedDB), and AI
-# calls are bring-your-own-key (each request carries its own Anthropic key
-# via the X-Echo-Api-Key header). No volume, no secrets needed to deploy.
+# AI calls are bring-your-own-key (each request carries its own Anthropic key
+# via the X-Echo-Api-Key header) — no server-side secrets. Each visitor's
+# library lives in browser IndexedDB. This config opts into public digest
+# shares (ECHO_SHARES=1), which persist server-side on the mounted volume
+# below; disable that + drop the [mounts] block to run fully stateless.
 #
-# `app` below is a placeholder — `fly launch` (or `fly apps create`) will
-# either use this name if it's free or prompt you to pick another. Rename it
-# here before deploying if you already know what you want.
-app = "echo-web"
+# App name is set to echo-web-ssani; `fly launch` will create/claim it.
+app = "echo-web-ssani"
 
 # Placeholder region — pick the one closest to your users.
 # List choices: `fly platform regions`
@@ -16,6 +15,12 @@ primary_region = "iad"
 
 [build]
   dockerfile = "Dockerfile"
+
+# Backs ECHO_SHARES digest persistence. Volume must be created with:
+# `fly volumes create echo_data`
+[mounts]
+  source = "echo_data"
+  destination = "/data"
 
 [env]
   # Redundant with the Dockerfile's own ENV, set explicitly here so it's
@@ -27,6 +32,9 @@ primary_region = "iad"
   # for visibility. Safe to tune without touching the Dockerfile.
   ECHO_MAX_TRANSCRIPT_CHARS = "200000"
   ECHO_MAX_AI_PAYLOAD_CHARS = "200000"
+  # Opt-in public digest shares (see DEPLOY.md) — persisted on the mounted volume below.
+  ECHO_SHARES = "1"
+  ECHO_DB_PATH = "/data/library.db"
 
 [http_service]
   internal_port = 8080
