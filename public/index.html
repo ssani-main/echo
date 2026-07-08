@@ -175,8 +175,11 @@
         radial-gradient(44% 40% at 98% 16%, color-mix(in srgb, var(--signal-2) 24%, transparent), transparent 58%),
         radial-gradient(40% 44% at -2% 74%, color-mix(in srgb, var(--signal)   14%, transparent), transparent 62%);
       opacity: .16;                                  /* really minimal at rest / when done */
-      transition: opacity 1.2s var(--ease), filter 1.4s var(--ease);
-      will-change: opacity;
+      /* Opacity is driven ONLY by this transition (base .16 <-> ai-active 1),
+         so the bloom-in and fade-out both ease smoothly. The breathing pulse
+         lives on filter (below) so it never fights the opacity transition. */
+      transition: opacity 1.6s var(--ease), filter 1.2s var(--ease);
+      will-change: opacity, filter;
     }
     /* Layer 2 — oscilloscope graticule + micro-grain (fully static). The grid
        fills the empty side gutters that glow alone can't reach. */
@@ -194,18 +197,19 @@
     /* Light theme: pull the grain/grid back so the field stays clean, not dirty. */
     :root:not([data-theme="dark"]) body::after { opacity: .34; }
 
-    /* ai-active — the glow intensifies and breathes while a digest/lookup runs. */
+    /* ai-active — the glow eases up to full (via the opacity transition above)
+       and breathes. The breath modulates filter only, so removing the class
+       leaves opacity to fade out smoothly instead of snapping. */
     body.ai-active::before {
       opacity: 1;
-      filter: saturate(1.12);
-      animation: signal-breathe 3.4s ease-in-out infinite;
+      animation: signal-breathe 3.6s ease-in-out infinite;
     }
     @keyframes signal-breathe {
-      0%, 100% { opacity: .8; }
-      50%      { opacity: 1; }
+      0%, 100% { filter: brightness(.9)  saturate(1);   }
+      50%      { filter: brightness(1.14) saturate(1.12); }
     }
     @media (prefers-reduced-motion: reduce) {
-      body.ai-active::before { animation: none; opacity: 1; }
+      body.ai-active::before { animation: none; }
     }
     /* Keep the field out of printed digests. */
     body.printing-digest::before,
