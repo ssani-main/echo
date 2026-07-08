@@ -1,18 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 168 44" role="img" aria-label="Echo">
   <style>
-    :root { --echo: #0B6B4F; --ink: #1A1D23; }
-    @media (prefers-color-scheme: dark) { :root { --echo: #35C489; --ink: #ECEAE4; } }
-    .echo-ripple { stroke: var(--echo); }
-    .echo-core   { fill:   var(--echo); }
-    .echo-word   { fill:   var(--ink); font-family: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 27px; font-weight: 600; letter-spacing: -0.5px; }
+    :root { --signal: #0FA98D; --signal-2: #4F46E5; --ink: #0F1319; }
+    @media (prefers-color-scheme: dark) { :root { --signal: #3DE0C8; --signal-2: #6366F1; --ink: #E9ECF1; } }
+    .echo-word { fill: var(--ink); font-family: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 27px; font-weight: 600; letter-spacing: -0.5px; }
   </style>
-  <g transform="translate(2 2) scale(1)">
-    <g class="echo-ripple" fill="none" stroke-width="2.6" stroke-linecap="round">
-      <path d="M18 34.72 A17 17 0 0 1 18 5.28"       opacity="0.26"/>
-      <path d="M20.25 30.83 A12.5 12.5 0 0 1 20.25 9.17" opacity="0.55"/>
-      <path d="M22.5 26.93 A8 8 0 0 1 22.5 13.07"/>
-    </g>
-    <circle class="echo-core" cx="26.5" cy="20" r="3"/>
+  <g transform="translate(6 1) scale(1.5)">
+    <rect x="2"  y="12" width="2.4" height="4"  rx="1.2" fill="var(--signal)"/>
+    <rect x="6"  y="9"  width="2.4" height="10" rx="1.2" fill="var(--signal)"/>
+    <rect x="10" y="5"  width="2.4" height="18" rx="1.2" fill="var(--signal)"/>
+    <rect x="14" y="10" width="2.4" height="8"  rx="1.2" fill="var(--signal-2)"/>
+    <rect x="18" y="7"  width="2.4" height="14" rx="1.2" fill="var(--signal-2)"/>
+    <rect x="22" y="11" width="2.4" height="6"  rx="1.2" fill="var(--signal-2)"/>
   </g>
-  <text class="echo-word" x="52" y="30">Echo</text>
+  <text class="echo-word" x="56" y="30">Echo</text>
 </svg>
