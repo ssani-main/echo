@@ -1,12 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" role="img" aria-label="Echo">
-  <style>
-    :root { --signal: #0FA98D; --signal-2: #4F46E5; }
-    @media (prefers-color-scheme: dark) { :root { --signal: #3DE0C8; --signal-2: #6366F1; } }
-  </style>
-  <rect x="2"  y="12" width="2.4" height="4"  rx="1.2" fill="var(--signal)"/>
-  <rect x="6"  y="9"  width="2.4" height="10" rx="1.2" fill="var(--signal)"/>
-  <rect x="10" y="5"  width="2.4" height="18" rx="1.2" fill="var(--signal)"/>
-  <rect x="14" y="10" width="2.4" height="8"  rx="1.2" fill="var(--signal-2)"/>
-  <rect x="18" y="7"  width="2.4" height="14" rx="1.2" fill="var(--signal-2)"/>
-  <rect x="22" y="11" width="2.4" height="6"  rx="1.2" fill="var(--signal-2)"/>
+  <rect x="2"  y="12" width="2.4" height="4"  rx="1.2" fill="#3DE0C8"/>
+  <rect x="6"  y="9"  width="2.4" height="10" rx="1.2" fill="#3DE0C8"/>
+  <rect x="10" y="5"  width="2.4" height="18" rx="1.2" fill="#3DE0C8"/>
+  <rect x="14" y="10" width="2.4" height="8"  rx="1.2" fill="#6366F1"/>
+  <rect x="18" y="7"  width="2.4" height="14" rx="1.2" fill="#6366F1"/>
+  <rect x="22" y="11" width="2.4" height="6"  rx="1.2" fill="#6366F1"/>
 </svg>
