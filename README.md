@@ -256,6 +256,10 @@ No bookmarklet? You can also just open `http://localhost:8000/?v=VIDEO_ID` or `h
 
 **Node.js** · **Express** · **[youtube-transcript](https://www.npmjs.com/package/youtube-transcript)** · **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** · **[Claude Code](https://claude.com/claude-code)** · plain HTML/CSS/JS (Space Grotesk · Inter · JetBrains Mono)
 
+## 📄 License
+
+Released under the [MIT License](LICENSE) © 2026 ssani-main.
+
 ---
 
 <div align="center">
