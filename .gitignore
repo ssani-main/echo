@@ -21,3 +21,6 @@ tmp/
 
 # Personal library (saved transcripts)
 data/
+
+# Private working notes — kept out of the public repo
+docs/memory/
