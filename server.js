@@ -39,7 +39,6 @@ import {
   suggestTags,
   verifyClaims,
 } from './digest.js';
-import { getTodayUsage } from './usage.js';
 import { logEvent, errLabel } from './usagelog.js';
 import { searchVideos, forYou, normalizeChannel, enumerateChannelUploads, getChannelUploadsPage } from './discovery.js';
 import { validateApiKey } from './providers.js';
@@ -817,19 +816,6 @@ app.post('/api/validate-key', webLimit(20, 60_000), async (req, res) => {
     return res.json(result);
   } catch (err) {
     return sendCaughtError(res, err);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Usage
-// ---------------------------------------------------------------------------
-
-app.get('/api/usage', blockInWeb, async (req, res) => {
-  try {
-    const usage = await getTodayUsage();
-    return res.json(usage);
-  } catch (err) {
-    return res.json({ available: false, error: String(err) });
   }
 });
 

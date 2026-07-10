@@ -168,21 +168,6 @@ test('desktop mode: GET /api/search returns 200 (not 503 WEB_MODE_UNSUPPORTED) �
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/usage — reachable in desktop mode (blockInWeb only gates isWeb).
-// The route itself falls back to a 200 { available: false, error } envelope
-// if the underlying ccusage lookup fails (e.g. not installed in CI), so this
-// only asserts the response is NOT the WEB_MODE_UNSUPPORTED gate — it does
-// not assume ccusage is available in the test environment.
-// ---------------------------------------------------------------------------
-
-test('desktop mode: GET /api/usage is not blocked by the web-mode gate (may still fail for other reasons, e.g. ccusage not installed)', async () => {
-  const res = await fetch(`${desktopServer.base}/api/usage`);
-  assert.notEqual(res.status, 503, `expected not 503, got ${res.status}`);
-  const body = await res.json();
-  assert.notEqual(body?.error?.code, 'WEB_MODE_UNSUPPORTED');
-});
-
-// ---------------------------------------------------------------------------
 // No rate limiting in desktop mode — mirrors the fact that webLimit()/
 // rateLimitHit() gating in server.js is only exercised for isWeb; a burst of
 // requests to a webLimit()-wrapped route (validate-key: 20/60s) should not

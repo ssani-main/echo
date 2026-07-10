@@ -1,6 +1,6 @@
 // Local-only, fire-and-forget action logging.
 //
-// Distinct from usage.js (machine-wide Claude cost via ccusage). This module
+// This module
 // records one JSON line per user action to data/usage-events.jsonl so we can
 // measure the real product loop (paste -> digest -> save), spot digest-quality
 // signals (re-digest, ask-after-digest, save-after-digest), and decide feature

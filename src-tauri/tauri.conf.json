@@ -49,7 +49,6 @@
       "../vault.js": "vault.js",
       "../playlistJob.js": "playlistJob.js",
       "../sanitize.js": "sanitize.js",
-      "../usage.js": "usage.js",
       "../discovery.js": "discovery.js",
       "../usagelog.js": "usagelog.js",
       "../websearch.js": "websearch.js",

@@ -110,7 +110,6 @@ async function assertWebModeUnsupported(base, method, path) {
 
 // The full set of server-side library/search routes gated by blockInWeb().
 const GATED_ROUTES = [
-  ['GET', '/api/usage'],
   ['GET', '/api/saved'],
   ['GET', '/api/saved/export'],
   ['GET', '/api/saved/some-video-id'],
@@ -153,18 +152,6 @@ test('web mode: POST /api/playlist with a real playlist URL body returns 503 WEB
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url: 'https://www.youtube.com/playlist?list=PLxyz' }),
   });
-  assert.equal(res.status, 503, `expected 503, got ${res.status}`);
-  const body = await res.json();
-  assert.equal(body.error.code, 'WEB_MODE_UNSUPPORTED');
-});
-
-// ---------------------------------------------------------------------------
-// GET /api/usage must never leak operator spend data to anonymous web
-// traffic — it must be gated, not merely error out for some other reason.
-// ---------------------------------------------------------------------------
-
-test('web mode: GET /api/usage returns 503 WEB_MODE_UNSUPPORTED (must not leak operator spend as 200 usage data)', async () => {
-  const res = await fetch(`${webServer.base}/api/usage`);
   assert.equal(res.status, 503, `expected 503, got ${res.status}`);
   const body = await res.json();
   assert.equal(body.error.code, 'WEB_MODE_UNSUPPORTED');

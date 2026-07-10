@@ -446,26 +446,6 @@
       font-style: italic;
     }
 
-    /* Usage chip in header */
-    .usage-chip {
-      display: none;
-      font-family: var(--font-sans);
-      font-size: var(--text-2xs);
-      color: var(--muted);
-      opacity: 0.75;
-      letter-spacing: 0.01em;
-      line-height: 1.5;
-    }
-
-    .usage-chip.visible {
-      display: block;
-    }
-
-    .usage-chip .mono {
-      font-family: var(--font-mono);
-      font-size: var(--text-2xs);
-    }
-
     /* Content header — thumbnail + title/meta for the currently-loaded video.
        Sits above the Transcript/Digest lens tabs; shown only while a video
        is loaded AND the active pane is a reader lens (not the library). */
@@ -4470,13 +4450,6 @@
           >?</button>
         </div>
       </div>
-      <div class="site-subrow">
-        <div
-          id="usageChip"
-          class="usage-chip"
-          title="Total Claude Code usage on this machine today (all projects, not just Echo)."
-        ></div>
-      </div>
     </header>
 
     <!-- LANDING HERO — waveform signature + headline; hidden once a video loads -->
@@ -5627,7 +5600,6 @@
     const digestDot       = document.getElementById('digestDot');
     const digestEmptySt   = document.getElementById('digestEmptyState');
     const usageStatsEl    = document.getElementById('usageStats');
-    const usageChipEl     = document.getElementById('usageChip');
     const libraryBtn         = document.getElementById('libraryBtn');
     const libraryCountEl     = document.getElementById('libraryCount');
     const savedOutput        = document.getElementById('savedOutput');
@@ -6057,34 +6029,6 @@
     function formatCostUsd(usd) {
       if (usd == null) return null;
       return '$' + usd.toFixed(2);
-    }
-
-    /* ==============================================
-       USAGE CHIP (header — today's totals)
-    =============================================== */
-    async function loadUsageChip() {
-      if (ECHO.mode === 'web') {
-        // Usage chip would leak the HOST server's Claude spend to BYOK
-        // visitors — hide it and skip the fetch entirely in web mode.
-        usageChipEl.hidden = true;
-        usageChipEl.classList.remove('visible');
-        return;
-      }
-      try {
-        const res  = await fetch('/api/usage');
-        const data = await res.json();
-
-        if (!res.ok || !data.available) {
-          usageChipEl.innerHTML = 'Claude usage today &middot; <span class="mono">usage n/a</span>';
-        } else {
-          const costStr   = formatCostUsd(data.costUsd) ?? 'n/a';
-          const tokenStr  = formatTokens(data.totalTokens);
-          usageChipEl.innerHTML =
-            'Claude usage today &middot; <span class="mono">' + costStr + '</span>' +
-            ' &middot; <span class="mono">' + tokenStr + ' tokens</span>';
-        }
-        usageChipEl.classList.add('visible');
-      } catch (_) { /* silently ignore — non-critical */ }
     }
 
     /* ==============================================
@@ -7932,9 +7876,6 @@
           renderUsageStats(data.usage);
         }
 
-        // Refresh header chip 2 s later so it picks up the new cost
-        setTimeout(loadUsageChip, 2000);
-
         // Stay on Digest tab / Summary sub-panel
         switchTab('digest');
         saveSession();
@@ -8022,7 +7963,6 @@
         const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
         card.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' });
 
-        setTimeout(loadUsageChip, 2000);
         saveSession();
 
       } catch (err) {
@@ -10954,7 +10894,6 @@
     } else {
       refreshInboxBadgeQuietly();
     }
-    loadUsageChip();
     loadSaved();
     let _restored = false;
     if (hasQueryTarget()) {

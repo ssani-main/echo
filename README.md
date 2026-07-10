@@ -200,7 +200,6 @@ echo/
 ├── server.js         # Express server: API routes + serves the UI
 ├── transcript.js     # video-ID parsing + transcript fetch (library + yt-dlp fallback)
 ├── digest.js         # shells out to the Claude Code CLI for the AI workspace tools
-├── usage.js          # fetches today's Claude Code usage stats via ccusage
 ├── store.js          # file-based store for saved videos (library.json)
 ├── data/             # (gitignored) stores user's personal video library
 │   └── library.json  # saved videos: metadata, transcripts, digests, tags, notes, highlights
@@ -221,7 +220,6 @@ echo/
 | `POST` | `/api/playlist` | `{ url }` | `{ playlistTitle, videos: [{ videoId, title }] }` |
 | `POST` | `/api/digest` | `{ text, length?, format?, language? }` | `{ digest, usage }` |
 | `POST` | `/api/enrich` | `{ selection, context?, mode }` (`mode`: `explain`\|`background`\|`factcheck`) | `{ mode, text, sources: [{ title, url }], usage, verdict? }` |
-| `GET` | `/api/usage` | _(none)_ | today's Claude Code totals |
 | `GET` | `/api/saved` | _(none)_ | list of saved entries (metadata incl. tags, favorite, noteCount, highlightCount) |
 | `GET` | `/api/saved/export` | _(none)_ | `{ entries: [ ...full entries... ] }` |
 | `GET` | `/api/saved/:videoId` | _(none)_ | one full entry (transcript, digest, tags, notes, highlights) |
