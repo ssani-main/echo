@@ -45,53 +45,45 @@ You've been there: you find a great video, but you'd rather *read* it than sit t
 | 📋 | **Paste-to-fetch** | Paste a YouTube link into the input field and it auto-loads the transcript—no click needed |
 | 🧹 | **Readable mode** | Glues captions into proper sentences & paragraphs; find-in-transcript with live match counter and Prev/Next navigation; copy/download as Markdown — all persists across sessions |
 | 🎛️ | **Shared reading controls** | Font size (A−/A+) and column width (Narrow/Medium/Wide: ~620 / 760 / 940 px) apply to both Transcript and Digest lenses, share one preference, and scale the reading column responsively. Digest AI output is typeset as a readable article |
-| ⏱️ | **Timecoded mode** | Subtitle-editor style with monospace timecode gutter; every timestamp deep-links YouTube (`&t=<sec>s`); same highlight & note features as Readable mode |
-| 💾 | **Session restore** | Refreshing the page restores the current transcript, digest, Ask thread, highlights, view mode, lens, and Library state via sessionStorage—no re-fetch |
-| 🤖 | **AI Workspace** | **Summary** (short/detailed, bullets/prose, pick output language) and **Ask** (chat thread, answers sourced only from the transcript) |
-| 🔎 | **Selection-driven lookups** | Select any passage in the Digest to get a floating toolbar — **Explain** it (Claude's own knowledge), get **Background** or **Fact-check** it (live web search with citations), or **Ask** about it (seeds the Ask tab). Results render as an inline card under the passage |
-| 🗂️ | **Research rail** | Every Explain/Background/Fact-check lookup for the current video collects in a slide-in **Research** drawer (header button, with count) — persists across a refresh, resets when you load a new video |
-| 📑 | **Reader & Library** | Transcript and Digest are underlined lens tabs—two views of the current video. Saved videos open from a **Library** button in the header (with count). AI Workspace has its own sub-nav to jump between tools |
-| 🟢 | **Live status indicator** | Fixed pill shows "AI is working…" → "Ready ✓" as it processes; click to jump to the Digest pane |
-| 📊 | **Usage readouts** | Today's total Claude Code cost + tokens (via **ccusage**), plus per-digest stats and session totals |
-| ⭐ | **Library & organization** | Click ★ to save videos with transcripts; search, sort (Recently saved / Title A–Z), tag with chips; export your whole library as a ZIP of Markdown files or a JSON backup |
-| 📺 | **Playlist mode** | Paste a playlist URL (`list=`) to browse and load any video's transcript |
+| ⏱️ | **Timecoded mode** | Subtitle-editor style with monospace timecode gutter; every timestamp deep-links YouTube (`&t=<sec>s`) |
+| 💾 | **Session restore** | Refreshing the page restores the current transcript, digest, view mode, lens, and Library state via sessionStorage—no re-fetch |
+| 🤖 | **AI Workspace** | **Summary**: AI-generated digest with short/detailed, bullets/prose, and output language options |
+| 🔎 | **Selection-driven enrich** | Select any passage in the Digest to show an ephemeral floating popover with **Explain** (Claude's own knowledge), **Background** (live web search with citations), and **Verify** (claim verification via web search). Results render inside the popover; dismiss on click-outside, Esc, or new selection—nothing persists |
+| 📑 | **Reader & Library** | Transcript and Digest are lens tabs—two views of the current video. Saved videos open from a **Library** button in the header (with count) |
+| 🟢 | **Live status indicator** | Fixed pill shows "AI is digesting…" → "Digest ready ✓" as it processes; click to jump to the Digest pane |
+| 💾 | **Library & tagging** | Save videos; search by keyword (SQLite FTS5), sort (Recently saved / Title A–Z), tag with auto-suggestions; export whole library as ZIP of Markdown files or JSON backup; sync to Obsidian vault |
+| 🎬 | **Channel following & Inbox** | Follow YouTube channels, browse channel uploads, and track new uploads in an Inbox card-grid (local/desktop only) |
+| 📺 | **Playlist mode** | Paste a playlist URL (`list=`) to browse and load any video's transcript; multi-video digest (local/desktop only) |
+| 🔗 | **Shareable digest pages** | Generate a shareable public URL (`/s/:id`) for any digest; optional "Key claims" verification ledger (local/desktop only) |
+| 🔍 | **Discovery** | In-app YouTube search and browse (local/desktop only) |
 | ⌨️ | **Keyboard shortcuts** | Press `?` for the overlay; `/` focus find, `1`/`2` switch Transcript & Digest lenses, `3` open Library, `t` toggle dark mode, `Esc` close — all paused while typing |
-| 🎨 | **Dark mode & fonts** | Crisp dark theme, Inter for reading, JetBrains Mono for code; loading skeletons respect reduced-motion |
+| 🎨 | **Dark mode & fonts** | Crisp dark-first theme ("Signal" aesthetic), Inter for reading, JetBrains Mono for code; loading skeletons respect reduced-motion |
 | 🛟 | **Automatic fallback** | If the transcript library hiccups, `yt-dlp` steps in |
 | 🏠 | **Fully local** | Your own machine, your own browser — nothing leaves the room |
 
 ## 🤖 About the AI Workspace
 
-The AI Workspace **doesn't need an Anthropic API key or any billing setup.** Instead, Echo shells out to your locally-installed [**Claude Code**](https://claude.com/claude-code) CLI in headless mode, reusing your existing login and subscription quota. There are two tabs, plus selection-driven lookups on the Digest itself:
+The AI Workspace **doesn't need an Anthropic API key or any billing setup** when running locally. Echo shells out to your locally-installed [**Claude Code**](https://claude.com/claude-code) CLI in headless mode, reusing your existing login and subscription quota.
 
-- **Summary**: TL;DR, key points, and topic-by-topic breakdown. Choose short or detailed, bullets or prose, and pick your output language (default English).
-- **Ask**: Multi-turn chat grounded in the transcript. Every answer is sourced only from what was said — no outside knowledge mixed in.
+- **Summary**: AI-generated digest with TL;DR, key points, and topic-by-topic breakdown. Choose short or detailed, bullets or prose, and pick your output language (default English).
 
-**Selection-driven lookups on the Digest.** Highlight any passage in a generated Digest and a small toolbar appears with four actions:
+**Selection-driven lookups on the Digest.** Highlight any passage in a generated Digest and a floating popover appears with three actions:
 
 - **Explain**: A 1–3 sentence explanation from Claude's own knowledge (no web search) — good for jargon or a quick definition.
 - **Background**: 2–4 sentences of context, grounded in a live web search with linked sources.
-- **Fact-check**: A supported/disputed/unverifiable verdict on the highlighted claim, grounded in a live web search with linked sources. ⚠️ **Honest caveat:** the verdict is only as good as what the web search turns up — always verify anything consequential yourself.
-- **Ask**: Seeds the Ask tab with the highlighted passage so you can ask a follow-up question about it.
+- **Verify**: A supported/disputed/mixed/unverifiable verdict on the highlighted claim, grounded in a live web search with linked sources (hidden in web mode). ⚠️ **Honest caveat:** the verdict is only as good as what the web search turns up — always verify anything consequential yourself.
 
-Every Explain/Background/Fact-check result also renders as an inline card right under the passage, and collects in the **Research** rail (header button, with count) so you can review everything you've looked up for the current video — it persists across a page refresh and resets when you load a new video.
+Results render **inside the popover** (max-height 320px, scrollable); dismiss with Esc, click-outside, or select new text — nothing persists. Every enrich call shows its **tokens · cost · duration**.
 
-The prompts live in [`digest.js`](./digest.js) — tweak them if you'd rather have a different model, tone, or analysis approach. Each tool shows its own **tokens · cost · duration**.
-
-### Usage tracking
-
-Echo tracks Claude Code usage from the CLI's JSON output. A **"Claude usage today" chip** in the header displays your total Claude Code usage for the current calendar day (cost + tokens), fetched on demand via the optional **ccusage** tool.
-
-> **Note:** these are actual cost and token figures from Claude Code, **not** the Claude web app's daily usage percentage — that percentage isn't available via any API. The usage readouts show real billing data.
+The prompts live in [`digest.js`](./digest.js) — tweak them if you'd rather have a different model, tone, or analysis approach.
 
 ## 🚀 Getting started
 
 ### Prerequisites
 
-- **[Node.js](https://nodejs.org/) ≥ 18**
+- **[Node.js](https://nodejs.org/) ≥ 22.5**
 - **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** _(optional)_ — the reliability fallback. `winget install yt-dlp` or `pip install yt-dlp`, and make sure it's on your `PATH`.
-- **[Claude Code](https://claude.com/claude-code)** _(optional)_ — only needed for the **AI digest** button.
-- **[ccusage](https://www.npmjs.com/package/ccusage)** _(optional)_ — shows today's total Claude Code usage. Runs on demand via `npx`, no installation needed; if unavailable, the rest of the app works fine.
+- **[Claude Code](https://claude.com/claude-code)** _(optional)_ — only needed for the **AI Workspace** (Summary and Explain/Background/Verify tools). Desktop mode can use BYOK (Bring Your Own Key) from Anthropic as a fallback.
 
 ### Install & run
 
@@ -186,12 +178,14 @@ See [`.env.example`](./.env.example) for the full list of variables and detailed
 ## 🕹️ How to use
 
 1. **Paste** a YouTube URL, optionally pick a caption language, and hit **Get transcript** — it lands in the **Transcript** tab.
-2. **Read** — toggle between Readable and Timecoded views. Adjust font size (A−/A+) and column width (Narrow/Medium/Wide). Use `/` to search, Prev/Next to navigate, or highlight text and add notes (all saved automatically).
-3. **Copy or download** the transcript or digest as Markdown using the download button.
-4. **AI Workspace** — click the Summary or Ask tab. A fixed status pill shows "AI is working…" and jumps to the Digest pane when ready. _(takes ~10–30s while Claude reads the whole thing)._ Once a Digest is generated, highlight any passage in it to Explain, get Background, Fact-check, or Ask about it — results collect in the **Research** rail.
-5. **Save** — click **★** to store the video in your library; access saved videos via the **Library** button in the header (keyboard: `3`). Search, sort, tag, and add notes. Export your whole library as a ZIP of Markdown files or JSON backup.
-6. **Playlist mode** — paste a `list=` URL to browse and load videos from a playlist.
-7. **Keyboard help** — press `?` for shortcuts. The **"Claude usage today"** chip shows your total Claude Code usage for the day (cost + tokens).
+2. **Read** — toggle between Readable and Timecoded views. Adjust font size (A−/A+) and column width (Narrow/Medium/Wide). Use `/` to search and Prev/Next to navigate.
+3. **AI Workspace** — click the **Digest** tab, then **Summary**. A fixed status pill shows "AI is digesting…" and "Digest ready ✓" when done _(takes ~10–30s while Claude reads the transcript)._ Once generated, highlight any passage in the Digest to Explain, get Background, or Verify claims — results render in an ephemeral floating popover.
+4. **Copy or download** the transcript or digest as Markdown using the download button.
+5. **Save** — click **Save** to store the video in your library; access saved videos via the **Library** button in the header (keyboard: `3`). Search, sort, tag, and manage your collection. Export your whole library as a ZIP of Markdown files or JSON backup.
+6. **Playlist mode** — paste a `list=` URL to browse and load videos from a playlist (local/desktop only).
+7. **Channel following** — click **Follow** on any video card in Discovery or Inbox to track a channel's uploads (local/desktop only).
+8. **Share digest** — click **Share** to generate a public shareable link for any digest (local/desktop only).
+9. **Keyboard help** — press `?` for all shortcuts.
 
 ## 🧩 Project structure
 
@@ -199,10 +193,10 @@ See [`.env.example`](./.env.example) for the full list of variables and detailed
 echo/
 ├── server.js         # Express server: API routes + serves the UI
 ├── transcript.js     # video-ID parsing + transcript fetch (library + yt-dlp fallback)
-├── digest.js         # shells out to the Claude Code CLI for the AI workspace tools
-├── store.js          # file-based store for saved videos (library.json)
-├── data/             # (gitignored) stores user's personal video library
-│   └── library.json  # saved videos: metadata, transcripts, digests, tags, notes, highlights
+├── digest.js         # AI workspace tools: Summary, Explain/Background/Verify
+├── store.js          # library storage layer (local: file-based; web: IndexedDB)
+├── data/             # (gitignored, local mode only) persistent video library
+│   └── library.db    # SQLite database of saved videos, tags, follows, inbox
 ├── public/
 │   └── index.html    # the whole UI — one self-contained file, no build step; loads JSZip from CDN for library export
 ├── package.json
@@ -217,25 +211,45 @@ echo/
 | `POST` | `/api/validate-key` | `{ key }` | `{ valid: true }` or `{ valid: false, error }` |
 | `POST` | `/api/transcript` | `{ url, lang? }` | `{ videoId, url, title, segments }` |
 | `GET` | `/api/languages` | `?videoId=` | `{ tracks: [{ code, name, auto }] }` |
-| `POST` | `/api/playlist` | `{ url }` | `{ playlistTitle, videos: [{ videoId, title }] }` |
-| `POST` | `/api/digest` | `{ text, length?, format?, language? }` | `{ digest, usage }` |
+| `GET` | `/api/video-meta` | `?videoId=` | `{ title, channel, channelUrl, duration, … }` (oEmbed metadata) |
+| `POST` | `/api/playlist` | `{ url }` | `{ playlistTitle, videos: [{ videoId, title }] }` (local/desktop only) |
+| `POST` | `/api/digest` | `{ text, length?, format?, language? }` | `{ digest, usage, suggestedTags }` |
 | `POST` | `/api/enrich` | `{ selection, context?, mode }` (`mode`: `explain`\|`background`\|`factcheck`) | `{ mode, text, sources: [{ title, url }], usage, verdict? }` |
-| `GET` | `/api/saved` | _(none)_ | list of saved entries (metadata incl. tags, favorite, noteCount, highlightCount) |
+| `POST` | `/api/claims` | `{ claims: [...], context? }` | `{ results: [{ claim, verdict, sources }] }` (local/desktop only) |
+| `GET` | `/api/saved` | _(none)_ | list of saved entries (metadata incl. tags) |
 | `GET` | `/api/saved/export` | _(none)_ | `{ entries: [ ...full entries... ] }` |
-| `GET` | `/api/saved/:videoId` | _(none)_ | one full entry (transcript, digest, tags, notes, highlights) |
-| `POST` | `/api/saved` | `{ url, videoId, title, segments, digest }` | saved entry metadata (upsert by `videoId`) |
+| `GET` | `/api/saved/:videoId` | _(none)_ | one full entry (transcript, digest, tags) |
+| `GET` | `/api/saved/:videoId/export.md` | _(none)_ | markdown export of entry |
+| `POST` | `/api/saved` | `{ url, videoId, title, segments, digest, tags? }` | saved entry metadata (upsert by `videoId`) |
 | `DELETE` | `/api/saved/:videoId` | _(none)_ | `{ ok: true }` |
 | `PATCH` | `/api/saved/:videoId/tags` | `{ tags }` | updated entry |
+| `POST` | `/api/share` | `{ digest, claims? }` | `{ id, shortUrl }` (local/desktop only) |
+| `DELETE` | `/api/share/:id` | _(none)_ | `{ ok: true }` (local/desktop only) |
+| `POST` | `/api/vault/sync` | `{ url, videoId, title, digest, tags? }` | `{ synced: true, path }` (local/desktop only) |
+| `POST` | `/api/cross-digest` | `{ texts: [...], length?, format?, language? }` | `{ digest, usage }` (multi-video; local/desktop only) |
+| `POST` | `/api/playlist/digest` | `{ url, length?, format? }` | async digest job (local/desktop only) |
+| `GET` | `/api/playlist/digest/status` | `?jobId=` | `{ jobId, status, progress, digest? }` (local/desktop only) |
+| `POST` | `/api/playlist/digest/cancel` | `{ jobId }` | `{ ok: true }` (local/desktop only) |
+| `GET` | `/api/search` | `?q=&tags?=` | library search results (local/desktop only) |
+| `GET` | `/api/discovery/search` | `?q=` | YouTube search results (local/desktop only) |
+| `GET` | `/api/discovery/foryou` | _(none)_ | For You feed (local/desktop only) |
+| `POST` | `/api/follows` | `{ channelId, channelUrl, channelName? }` | follow entry (local/desktop only) |
+| `GET` | `/api/follows` | _(none)_ | list of followed channels (local/desktop only) |
+| `DELETE` | `/api/follows/:channelId` | _(none)_ | `{ ok: true }` (local/desktop only) |
+| `GET` | `/api/follows/inbox` | `?page=` | paginated inbox of new uploads (local/desktop only) |
+| `POST` | `/api/follows/seen` | `{ videoIds: [...] }` | mark as seen (local/desktop only) |
+| `GET` | `/api/follows/channel` | `?channelId=&page=` | channel upload history (local/desktop only) |
 
 ## ⚠️ Good to know
 
 - Videos with **captions disabled**, or that are **private / age-restricted**, can't be transcribed — Echo says so clearly instead of crashing.
 - YouTube occasionally shifts its internals; that's exactly what the `yt-dlp` fallback is there to cover.
-- The **AI Workspace** tools need Claude Code installed and logged in — without it, transcript reading, search, and library features work just fine.
-- Your **saved library** (`data/library.json`) is **gitignored** — it never leaves your machine and doesn't get pushed to any repo.
-- **Explain** is grounded in Claude's own training knowledge with **no live web access**; **Background** and **Fact-check** run a live web search for citations, but always verify anything consequential via other sources.
-- The **usage readouts** show real Claude Code costs and tokens; the **"Claude usage today" chip** is cached ~60s server-side.
+- The **AI Workspace** tools need Claude Code installed and logged in (local mode) or an Anthropic API key (web/desktop modes). Without AI, transcript reading, search, and library features work just fine.
+- Your **saved library** (`data/library.db`) is **gitignored** — it never leaves your machine and doesn't get pushed to any repo (local/desktop modes only; web mode uses client-side IndexedDB).
+- **Explain** is grounded in Claude's own training knowledge with **no live web access**; **Background** and **Verify** run a live web search for citations, but always verify anything consequential via other sources.
+- Each enrich lookup shows its own **tokens · cost · duration**.
 - Library **export to ZIP** loads JSZip from a CDN; if the CDN is unavailable, the app falls back to a single JSON backup file.
+- Per-digest stats (tokens, cost, duration) are always shown when available; these are real billing data from your AI provider.
 
 ## 🔖 Send to Echo (bookmarklet)
 
