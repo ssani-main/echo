@@ -220,7 +220,6 @@ echo/
 | `GET` | `/api/languages` | `?videoId=` | `{ tracks: [{ code, name, auto }] }` |
 | `POST` | `/api/playlist` | `{ url }` | `{ playlistTitle, videos: [{ videoId, title }] }` |
 | `POST` | `/api/digest` | `{ text, length?, format?, language? }` | `{ digest, usage }` |
-| `POST` | `/api/chat` | `{ text, question }` | `{ answer, usage }` |
 | `POST` | `/api/enrich` | `{ selection, context?, mode }` (`mode`: `explain`\|`background`\|`factcheck`) | `{ mode, text, sources: [{ title, url }], usage, verdict? }` |
 | `GET` | `/api/usage` | _(none)_ | today's Claude Code totals |
 | `GET` | `/api/saved` | _(none)_ | list of saved entries (metadata incl. tags, favorite, noteCount, highlightCount) |

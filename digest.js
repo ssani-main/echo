@@ -434,27 +434,6 @@ function languageDirective(language) {
   return `Answer in ${trimmed} using concise Markdown.`;
 }
 
-function scoreChunkRelevance(chunkContent, question) {
-  const words = (s) =>
-    new Set(
-      s
-        .toLowerCase()
-        .split(/\W+/)
-        .filter((w) => w.length > 3)
-    );
-
-  const qWords = words(question);
-  // No meaningful question words — keep all chunks equally.
-  if (qWords.size === 0) return 1;
-
-  const cWords = words(chunkContent);
-  let hits = 0;
-  for (const w of qWords) {
-    if (cWords.has(w)) hits++;
-  }
-  return hits / qWords.size;
-}
-
 // ---------------------------------------------------------------------------
 // Map-reduce implementations (long-path only)
 // ---------------------------------------------------------------------------
@@ -543,69 +522,6 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
   }
 
   return { digest, usage: mergeUsage(usages), strategy: 'mapreduce' };
-}
-
-/**
- * Retrieval-lite for askVideoQuestion.
- * Score each chunk by keyword overlap, select chunks that fit within budget,
- * then run a single Claude call on the combined selected text.
- *
- * @param {string[]} textChunks
- * @param {string} question
- * @param {object} [opts]
- * @returns {Promise<{ answer: string, usage: object }>}
- */
-async function askRetrievalLite(textChunks, question, opts = {}) {
-  const { language } = opts;
-  // Score each chunk and sort descending by relevance.
-  const scored = textChunks.map((chunk, idx) => ({
-    idx,
-    chunk,
-    score: scoreChunkRelevance(chunk, question),
-  }));
-  scored.sort((a, b) => b.score - a.score);
-
-  // Greedily accumulate chunks up to the content budget.
-  const selected = [];
-  let totalChars = 0;
-  for (const item of scored) {
-    if (totalChars + item.chunk.length > CHUNK_CONTENT_CHARS) break;
-    selected.push(item);
-    totalChars += item.chunk.length;
-  }
-
-  if (selected.length === 0) {
-    // Even a single chunk exceeds the budget — take just the top-scored one
-    // truncated. This is a last resort for pathologically large single lines.
-    selected.push(scored[0]);
-  }
-
-  // Restore chronological order so Claude sees a coherent sequence.
-  selected.sort((a, b) => a.idx - b.idx);
-
-  const isPartial = selected.length < textChunks.length;
-  const partialNote = isPartial
-    ? `\n\n(NOTE: This transcript is very long. You are seeing ${selected.length} of ${textChunks.length} ` +
-      'sections, selected by relevance to the question. Answer ONLY from what is shown below — ' +
-      'do NOT infer or invent content from parts of the transcript you cannot see.)'
-    : '';
-
-  const combinedText = selected.map((s) => s.chunk).join('\n\n---\n\n');
-
-  const prompt =
-    'You are given the transcript of a YouTube video (or a relevant portion of it) ' +
-    'and a user question. ' +
-    'Answer the question using ONLY the information present in the transcript text below. ' +
-    'If the transcript does not contain enough information to answer the question, say so plainly — ' +
-    'do NOT invent or infer facts that are not in the transcript. ' +
-    languageDirective(language) +
-    partialNote +
-    `\n\nQUESTION: ${question.trim()}\n\n` +
-    'TRANSCRIPT:\n\n' +
-    combinedText;
-
-  const { result: answer, usage } = await callProvider(prompt, opts);
-  return { answer, usage };
 }
 
 // ---------------------------------------------------------------------------
@@ -788,54 +704,6 @@ export async function generateDigest(transcriptText, opts = {}) {
 
   const { result, usage } = await callProvider(prompt, opts);
   return { digest: result, usage, strategy: 'single' };
-}
-
-/**
- * Answer a user question using the transcript as the sole ground truth.
- *
- * For long transcripts a retrieval-lite approach is used: chunks are scored by
- * keyword overlap with the question and the most relevant subset (fitting the
- * context budget) is passed to Claude. The "answer only from transcript"
- * guarantee is preserved — Claude is instructed not to invent content from
- * portions it cannot see.
- *
- * @param {string} transcriptText
- * @param {string} question
- * @param {{ language?: string }} [opts]  `language` — human-readable language
- *   name/code to answer in; defaults to English when absent/empty.
- * @returns {Promise<{ answer: string, usage: object }>}
- */
-export async function askVideoQuestion(transcriptText, question, opts = {}) {
-  if (!transcriptText || !transcriptText.trim()) {
-    throw new Error('No transcript text provided.');
-  }
-  if (!question || !question.trim()) {
-    throw new Error('No question provided.');
-  }
-
-  const { language } = opts;
-
-  // --- Long-path guard ---
-  if (transcriptText.length > LONG_PATH_THRESHOLD_CHARS) {
-    const chunks = chunkText(transcriptText);
-    if (chunks.length > 1) {
-      return askRetrievalLite(chunks, question, opts);
-    }
-  }
-
-  // --- Fast path (unchanged) ---
-  const prompt =
-    'You are given the raw transcript of a YouTube video and a user question. ' +
-    'Answer the question using ONLY the information present in the transcript. ' +
-    'If the transcript does not contain enough information to answer the question, say so plainly — ' +
-    'do NOT invent or infer facts that are not in the transcript. ' +
-    languageDirective(language) + '\n\n' +
-    `QUESTION: ${question.trim()}\n\n` +
-    'TRANSCRIPT:\n\n' +
-    transcriptText;
-
-  const { result, usage } = await callProvider(prompt, opts);
-  return { answer: result, usage };
 }
 
 /**

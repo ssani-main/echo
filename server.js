@@ -35,7 +35,6 @@ import { renderSharePage } from './sharepage.js';
 import { startPlaylistDigest, startBatchDigest, getJob, cancelJob } from './playlistJob.js';
 import {
   generateDigest,
-  askVideoQuestion,
   generateCrossDigest,
   enrich,
   suggestTags,
@@ -590,20 +589,7 @@ app.get('/api/video-meta', webLimit(20, 60_000), async (req, res) => {
 // Playlist
 // ---------------------------------------------------------------------------
 
-app.post('/api/playlist', webLimit(20, 60_000), async (req, res) => {
-  // Playlist enumeration spawns yt-dlp per request and can be used to fan out
-  // many downstream requests from a single anonymous call — too expensive to
-  // expose to anonymous web traffic. Disabled entirely in web mode; unchanged
-  // in local/desktop mode.
-  if (isWeb) {
-    return sendError(
-      res,
-      'WEB_MODE_UNSUPPORTED',
-      "Playlist processing isn't available in hosted mode.",
-      'Paste a single video link instead.'
-    );
-  }
-
+app.post('/api/playlist', blockInWeb, webLimit(20, 60_000), async (req, res) => {
   const { url } = req.body;
   if (!url) {
     return sendError(res, 'INTERNAL', 'url is required.', '', 400);
@@ -620,20 +606,7 @@ app.post('/api/playlist', webLimit(20, 60_000), async (req, res) => {
 // Batch playlist digest
 // ---------------------------------------------------------------------------
 
-app.post('/api/playlist/digest', (req, res) => {
-  // Batch playlist digest is the heaviest endpoint (many long-running Claude
-  // calls per request) — too expensive to expose to anonymous web traffic.
-  // Disabled entirely in web mode; unchanged in local/desktop mode.
-  if (isWeb) {
-    return sendError(
-      res,
-      'INTERNAL',
-      'Batch playlist digest is not available on this hosted instance.',
-      'Run Echo locally or via the desktop app to use batch playlist digests.',
-      503
-    );
-  }
-
+app.post('/api/playlist/digest', blockInWeb, (req, res) => {
   const { url, length, format, language, lang, skipExisting } = req.body;
   if (!url || typeof url !== 'string' || !url.trim()) {
     return sendError(res, 'INVALID_URL', 'A playlist URL is required.', '', 400);
@@ -715,34 +688,6 @@ app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
     return res.json(result);
   } catch (err) {
     logEvent('digest', { videoId: videoId || null, chars: (text || '').length, length, format, ok: false, err: errLabel(err), ms: Date.now() - t0 });
-    return sendCaughtError(res, err);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Chat / Ask
-// ---------------------------------------------------------------------------
-
-app.post('/api/chat', webLimit(20, 60_000), async (req, res) => {
-  const { text, question, language, lang, langCode, videoId } = req.body;
-  if (!requireText(res, text, 'text is required.')) return;
-  if (!requireText(res, question, 'question is required.')) return;
-  if (rejectOversizeAiPayload(res, { text })) return;
-  if (requireWebKey(req, res)) return;
-  const t0 = Date.now();
-  try {
-    const answerLanguage = language || lang || langCode || undefined;
-    const result = await askVideoQuestion(text, question, { apiKey: readApiKey(req), language: answerLanguage });
-    logEvent('ask', {
-      videoId: videoId || null,
-      chars: (text || '').length,
-      qLen: (question || '').length,
-      costUsd: result.usage && result.usage.costUsd,
-      ok: true, ms: Date.now() - t0,
-    });
-    return res.json(result);
-  } catch (err) {
-    logEvent('ask', { videoId: videoId || null, qLen: (question || '').length, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);
   }
 });
@@ -857,7 +802,7 @@ app.delete('/api/share/:id', requireSharesEnabled, async (req, res) => {
 // Claim extraction + web-verification (fact-check a whole digest)
 // ---------------------------------------------------------------------------
 
-app.post('/api/claims', webLimit(10, 60_000), async (req, res) => {
+app.post('/api/claims', blockInWeb, webLimit(10, 60_000), async (req, res) => {
   const { digest, title, videoId } = req.body;
   if (!requireText(res, digest, 'No digest provided.', 'Generate a digest before verifying claims.')) return;
   if (rejectOversizeAiPayload(res, { text: digest })) return;
@@ -1050,7 +995,7 @@ app.delete('/api/saved/:videoId', blockInWeb, async (req, res) => {
 // Cross-digest
 // ---------------------------------------------------------------------------
 
-app.post('/api/cross-digest', webLimit(20, 60_000), async (req, res) => {
+app.post('/api/cross-digest', blockInWeb, webLimit(20, 60_000), async (req, res) => {
   const { videoIds, options } = req.body;
 
   // Web mode: the browser holds the library client-side (no server store of
