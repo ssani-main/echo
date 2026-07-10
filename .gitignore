@@ -4,6 +4,10 @@ node_modules/
 # Local Claude Code / editor settings
 .claude/
 
+# Installed agent skills (local tooling, not part of the app)
+.agents/
+skills-lock.json
+
 # Logs & OS cruft
 *.log
 npm-debug.log*
