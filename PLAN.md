@@ -1,5 +1,72 @@
 # Echo — Feature Audit & Cut Plan
 
+> Status: **IN PROGRESS 2026-07-10.** Second audit (public-launch scoping) below. The prior
+> 2026-07-06 cut plan is COMPLETED and preserved further down.
+
+---
+
+## Public-Launch Feature Audit (2026-07-10, grilling outcome)
+
+Outcome of a `/grill-me` session scoping Echo for a public launch. Root question: for a
+public launch / general users, which current features earn their place?
+
+### Foundation (root decisions)
+1. **Launch product = a stranger's first _single-video_ web read.** BYOK, stateless, free,
+   no account. The differentiated thing (digest quality) and the only thing launch must prove.
+2. **Library = free browser-local (IndexedDB) at launch.** Accounts + a paid server-saved
+   library are **Phase 2** (deferred). Keep digest/entry data shapes clean so accounts can
+   hang off them later without a rewrite.
+
+### Feature verdicts
+
+| Feature | Verdict | In web launch? | Notes |
+| --- | --- | --- | --- |
+| Digest (incl. map-reduce fallback) | **Keep — the product** | ✅ | The core read |
+| Transcript / languages / video-meta | Keep (infra) | ✅ | Required for the read |
+| Find-in-transcript | Keep | ✅ | Free, client-side, on-mission |
+| Enrich popover | Keep **trimmed** | ✅ | Ship Explain/Background/Ask; **drop "Verify"** in web |
+| Verify-claims | **Flag-off, keep code** | ❌ | Cost/latency/reputational sink on first read; power tier only |
+| Chat / ask-about-video | **Cut** | ❌ | Unused — full-removal candidate |
+| Playlist (+ cross-digest) | Out of web launch, keep code | ❌ | Contradicts single-video scope; local/desktop only |
+| Library save/CRUD | Keep (core intent: "save what I read") | ❌ (local) | Point of the library tier |
+| Extract (vault sync + markdown export) | Keep (core intent: "extract it") | ❌ (local) | Other half of the intent |
+| FTS5 keyword search | **Keep, unconditional** | ❌ (local) | Now load-bearing library navigation |
+| Tags (manual + AI auto-tag) | Keep **both**, redesigned | ❌ (local) | **Auto-tag moves into the digest pass**, shown only at save |
+| Ask-across-library (RAG) | **Cut** | ❌ | Unused — full-removal candidate (check `buildLibraryFtsQuery` shared with FTS5 search first) |
+| Batch / multi-paste queue | **Cut** | ❌ | Unused; OAuth feed supersedes it |
+| Discovery + Follows/Inbox | **Keep + expand** | ❌ | Becomes the YouTube reading front-end |
+| Share pages (`/s/:id`) | Keep → **first Phase-2 add** | ❌ now, ✅ soon | Main growth loop; needs a minimal store |
+| Usage action meter | Keep | ❌ | Post-launch validation of these cuts |
+| ccusage cost-display | **Drop** | ❌ | Flaky Windows-`.cmd` half |
+
+### What web launch v1 ships
+Stranger pastes one link → transcript → **digest** → reads → **find-in-transcript** + optional
+**highlight → Explain/Background/Ask** (ephemeral popover). Free, stateless, BYOK. Nothing else.
+
+### Phase-2 backlog (ordered)
+1. **Web share** (`/s/:id` via a minimal TTL'd store) — first add after launch; unlocks the growth loop.
+2. **Accounts + server-saved library** (+ a web/IndexedDB search story).
+3. **Discovery-via-YouTube-OAuth** — subscriptions/Liked/playlists feed → auto-populates
+   Follows → Inbox is the feed → one-click digest. **Reality check:** the true algorithmic
+   "For You" feed is NOT available via YouTube's official API, so the shippable feed is
+   subscriptions-based; the real home feed stays a **personal desktop-only** logged-in scrape.
+
+### Codebase actions (this audit → code)
+- **Full-removal candidates:** chat/ask, ask-across-library (verify `buildLibraryFtsQuery` first), batch digest.
+- **Flag-off, keep code:** verify-claims, playlist, `/api/claims`, share (already `requireSharesEnabled`).
+- **Web-trim:** drop "Verify" from the enrich popover in web mode.
+- **Redesign:** fold auto-tagging into the digest pass, surface tags at save.
+- **Drop:** ccusage cost-display; keep the JSONL action meter.
+
+### Open sub-decisions (surfaced, not fully pinned)
+- **Removal degree** for chat + ask-across-library: full code removal vs flag-off (leaning full
+  removal; confirm per-file because they touch shared helpers).
+- **Web/IndexedDB library search** in Phase 2: reuse server FTS5 behind auth vs a client-side index.
+
+---
+
+## Prior audit (2026-07-06) — feature cut
+
 > Status: **COMPLETED 2026-07-06.** Five confirmed-dead features removed (highlights, clips, notes, favorites, embeddings/semantic search). FTS5 keyword search kept. Map-reduce digest retained as correctness fallback for >480k-char transcripts.
 
 ## Evidence
