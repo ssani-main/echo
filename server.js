@@ -17,7 +17,6 @@ import {
   deleteEntry,
   setTags,
   searchLibrary,
-  buildLibraryFtsQuery,
   addFollow,
   removeFollow,
   listFollows,
@@ -38,7 +37,6 @@ import {
   generateCrossDigest,
   enrich,
   suggestTags,
-  askLibrary,
   verifyClaims,
 } from './digest.js';
 import { getTodayUsage } from './usage.js';
@@ -1060,89 +1058,6 @@ app.post('/api/cross-digest', blockInWeb, webLimit(20, 60_000), async (req, res)
     return res.json({ digest, stats: usage });
   } catch (err) {
     logEvent('cross-digest', { nVideos: entries.length, ok: false, err: errLabel(err), ms: Date.now() - t0 });
-    return sendCaughtError(res, err);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Ask across your library (cross-video RAG)
-// ---------------------------------------------------------------------------
-
-// Number of candidates to retrieve server-side (local/desktop mode) via FTS5
-// when the client doesn't already supply pre-retrieved candidates itself.
-const ECHO_LIBRARY_ASK_K = numFromEnv('ECHO_LIBRARY_ASK_K', 5, { min: 1 });
-
-// Max chars of transcript excerpt to build for a library-ask candidate that
-// has no saved digest — mirrors the excerpt cap used elsewhere for AI prompts.
-const LIBRARY_ASK_EXCERPT_CHARS = 3000;
-
-app.post('/api/library/ask', webLimit(20, 60_000), async (req, res) => {
-  const { question, candidates: inlineCandidates, language, lang } = req.body;
-
-  if (!requireText(res, question, 'question is required.')) return;
-
-  let candidates;
-
-  if (Array.isArray(inlineCandidates) && inlineCandidates.length > 0) {
-    // Web mode: the client already retrieved candidates from its client-side
-    // IndexedDB library and sends them inline.
-    candidates = inlineCandidates.map((c) => ({
-      videoId: String((c && c.videoId) || ''),
-      title: String((c && c.title) || ''),
-      digest: c && typeof c.digest === 'string' ? c.digest.trim() : undefined,
-      excerpt: c && typeof c.excerpt === 'string' ? c.excerpt.trim() : undefined,
-    }));
-  } else {
-    // Local/desktop mode: retrieve candidates ourselves via the server-side
-    // FTS5 library store.
-    const hits = await searchLibrary(buildLibraryFtsQuery(question), ECHO_LIBRARY_ASK_K);
-
-    if (hits.length === 0) {
-      return res.json({ answer: '', citations: [], usage: {}, truncated: false, empty: true });
-    }
-
-    candidates = hits.map((entry) => {
-      const title = entry.title || entry.videoId;
-      const hasDigest = Boolean(entry.digest && entry.digest.trim());
-      let excerpt;
-      if (!hasDigest) {
-        const transcriptText = Array.isArray(entry.segments)
-          ? entry.segments
-              .map((s) => (s.text || '').replace(/\s+/g, ' ').trim())
-              .filter(Boolean)
-              .join(' ')
-          : '';
-        excerpt = transcriptText.slice(0, LIBRARY_ASK_EXCERPT_CHARS);
-      }
-      return {
-        videoId: entry.videoId,
-        title,
-        digest: hasDigest ? entry.digest : undefined,
-        excerpt,
-      };
-    });
-  }
-
-  const combinedText = candidates.map((c) => c.digest || c.excerpt || '').join(' ');
-  if (rejectOversizeAiPayload(res, { text: combinedText })) return;
-  if (requireWebKey(req, res)) return;
-
-  const t0 = Date.now();
-  try {
-    const result = await askLibrary(question, candidates, {
-      apiKey: readApiKey(req),
-      language: language || lang,
-    });
-    logEvent('library-ask', {
-      nCandidates: candidates.length,
-      nCitations: result.citations.length,
-      truncated: result.truncated,
-      costUsd: result.usage && result.usage.costUsd,
-      ok: true, ms: Date.now() - t0,
-    });
-    return res.json(result);
-  } catch (err) {
-    logEvent('library-ask', { nCandidates: candidates.length, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);
   }
 });

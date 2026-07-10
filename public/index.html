@@ -2435,164 +2435,6 @@
     }
 
     /* ==============================================
-       28-ask. ASK YOUR LIBRARY (distinct from the
-       title/tag filter in .saved-toolbar — this is an
-       AI question answered from saved videos' content)
-    =============================================== */
-    .library-ask-wrap {
-      margin-bottom: var(--space-7);
-      padding: var(--space-6) var(--space-7);
-      background: var(--surface-2);
-      border: 1px solid var(--rule);
-      border-left: 2px solid var(--accent);
-      border-radius: var(--radius);
-    }
-
-    .library-ask-row {
-      display: flex;
-      gap: var(--space-5);
-      align-items: center;
-    }
-
-    #libraryAskInput {
-      flex: 1;
-      min-width: 0;
-      padding: var(--space-4) var(--space-7);
-      font-family: var(--font-sans);
-      font-size: var(--text-md);
-      color: var(--ink);
-      background: var(--surface);
-      border: 1px solid var(--rule);
-      border-radius: 6px;
-      outline: none;
-      transition: border-color 0.15s, box-shadow 0.15s;
-    }
-
-    #libraryAskInput::placeholder {
-      color: var(--muted);
-      opacity: 1;
-    }
-
-    #libraryAskInput:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--accent-soft);
-    }
-
-    #libraryAskBtn {
-      flex-shrink: 0;
-      padding: var(--space-4) var(--space-9);
-      font-family: var(--font-sans);
-      font-size: var(--text-sm);
-      font-weight: 500;
-      color: var(--on-accent);
-      background: var(--accent);
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      white-space: nowrap;
-      outline: none;
-      transition: background 0.15s;
-    }
-
-    #libraryAskBtn:hover:not(:disabled) {
-      background: var(--accent-dark);
-    }
-
-    #libraryAskBtn:focus-visible {
-      box-shadow: 0 0 0 3px var(--accent-soft);
-    }
-
-    #libraryAskBtn:disabled {
-      background: var(--muted);
-      opacity: 0.6;
-      cursor: default;
-    }
-
-    .library-ask-result:empty {
-      display: none;
-    }
-
-    .library-ask-result {
-      margin-top: var(--space-6);
-    }
-
-    .library-ask-status {
-      font-family: var(--font-sans);
-      font-size: var(--text-sm);
-      color: var(--muted);
-      letter-spacing: 0.01em;
-    }
-
-    .library-ask-status.error {
-      color: var(--warn);
-    }
-
-    .library-ask-card {
-      background: var(--surface);
-      border: 1px solid var(--rule);
-      border-radius: var(--radius);
-      overflow: hidden;
-    }
-
-    .library-ask-answer {
-      padding: var(--space-8) var(--space-9);
-    }
-
-    .library-ask-notice {
-      font-family: var(--font-sans);
-      font-size: var(--text-xs);
-      color: var(--muted);
-      padding: var(--space-4) var(--space-9) 0;
-      letter-spacing: 0.01em;
-    }
-
-    .library-ask-citations {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-4);
-      padding: var(--space-6) var(--space-9) var(--space-8);
-      border-top: 1px solid var(--rule);
-      margin-top: var(--space-6);
-    }
-
-    .library-ask-citations-label {
-      width: 100%;
-      font-family: var(--font-sans);
-      font-size: var(--text-2xs);
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: var(--muted);
-      margin-bottom: var(--space-1);
-    }
-
-    .library-ask-citation-chip {
-      display: inline-flex;
-      align-items: center;
-      padding: var(--space-3) var(--space-7);
-      font-family: var(--font-sans);
-      font-size: var(--text-xs);
-      font-weight: 500;
-      color: var(--accent);
-      background: var(--accent-soft);
-      border: 1px solid transparent;
-      border-radius: 999px;
-      cursor: pointer;
-      outline: none;
-      transition: background 0.12s, border-color 0.12s, color 0.12s;
-      max-width: 100%;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .library-ask-citation-chip:hover,
-    .library-ask-citation-chip:focus-visible {
-      background: var(--accent);
-      color: var(--on-accent);
-    }
-
-    /* ==============================================
        28a. DISCOVERY PANE (topic chips + result grid)
        Reuses .saved-card / .saved-card-* library card styles so
        Discovery results look native alongside the Library grid.
@@ -5155,25 +4997,6 @@
           aria-pressed="false"
         >Compare</button>
       </div>
-      <!-- Ask across your library — distinct from the title/tag filter above:
-           this sends a question to the AI over your saved videos' content. -->
-      <div class="library-ask-wrap">
-        <div class="library-ask-row">
-          <input
-            id="libraryAskInput"
-            type="text"
-            placeholder="Ask a question across your whole library…"
-            autocomplete="off"
-            spellcheck="false"
-            aria-label="Ask a question across your saved videos"
-          />
-          <button
-            id="libraryAskBtn"
-            aria-label="Submit question across your library"
-          >Ask library</button>
-        </div>
-        <div id="libraryAskResult" class="library-ask-result" aria-live="polite" aria-atomic="true"></div>
-      </div>
       <!-- Compare action bar — visible when 2+ cards are selected in compare mode -->
       <div id="compareBar" hidden role="status" aria-live="polite">
         <span id="compareCountLabel">0 selected</span>
@@ -5593,17 +5416,16 @@
        rejected: it would require multi-store transactions
        for every write with no benefit at this data scale.)
     =============================================== */
-    // Client-side mirror of store.js's buildLibraryFtsQuery() stopword list —
-    // used by IndexedDbLibrary.searchLibrary() so natural-language questions
-    // ("What is discussed about living in Germany?") reduce to signal tokens
-    // ("discussed", "living", "germany") instead of matching nothing.
+    // Stopword list used by IndexedDbLibrary.searchLibrary() so free-text
+    // search queries ("videos about living in Germany") reduce to signal
+    // tokens ("videos", "living", "germany") instead of matching nothing.
     const IDB_FTS_STOPWORDS = new Set([
       'what', 'is', 'are', 'the', 'a', 'an', 'of', 'to', 'in', 'on', 'for',
       'and', 'or', 'about', 'does', 'do', 'did', 'how', 'why', 'this', 'that',
       'with', 'from', 'your', 'my',
     ]);
 
-    /** Tokenize free text into lowercase signal words (mirrors buildLibraryFtsQuery). */
+    /** Tokenize free text into lowercase signal words. */
     function idbFtsTokens(text) {
       const raw = String(text || '').trim();
       if (!raw) return [];
@@ -5818,12 +5640,11 @@
 
       /**
        * Simple client-side keyword filter (web mode has no server-side FTS5
-       * index). Used by submitLibraryAsk() in web mode to retrieve candidate
-       * videos for a natural-language question. Tokenizes the query and
-       * matches ANY surviving token (mirrors store.js's buildLibraryFtsQuery
-       * OR-of-tokens approach) — a naive whole-string substring match would
-       * almost never hit since real questions are full of stopwords/phrasing
-       * that won't appear verbatim in the source text.
+       * index). Used by triggerSearch() in web mode as the search-box
+       * backend. Tokenizes the query and matches ANY surviving token — a
+       * naive whole-string substring match would almost never hit since
+       * real queries are full of stopwords/phrasing that won't appear
+       * verbatim in the source text.
        * -> { results, mode }, 200
        */
       async searchLibrary(q, limit = 50) {
@@ -5924,9 +5745,6 @@
     const libraryBtn         = document.getElementById('libraryBtn');
     const libraryCountEl     = document.getElementById('libraryCount');
     const savedOutput        = document.getElementById('savedOutput');
-    const libraryAskInput    = document.getElementById('libraryAskInput');
-    const libraryAskBtn      = document.getElementById('libraryAskBtn');
-    const libraryAskResult   = document.getElementById('libraryAskResult');
     const discoveryBtn            = document.getElementById('discoveryBtn');
     const paneDiscovery           = document.getElementById('paneDiscovery');
     const discoverySearchInput    = document.getElementById('discoverySearchInput');
@@ -8351,138 +8169,6 @@
       askInputEl.value            = '';
       askInputEl.focus();
       saveSession();
-    });
-
-    /* ==============================================
-       ASK ACROSS YOUR LIBRARY HANDLER
-       Distinct from #savedSearchInput (title/tag filter): this sends a
-       question to the AI over the content of saved videos.
-       - local/desktop: server does FTS5 retrieval — just forward {question}.
-       - web: server can't see the client-side IndexedDB library, so we do
-         the retrieval here (via Library.searchLibrary) and send trimmed
-         candidates alongside the question.
-    =============================================== */
-    const LIBRARY_ASK_CANDIDATE_DIGEST_CAP = 3000;
-
-    function renderLibraryAskStatus(text, isError) {
-      libraryAskResult.innerHTML = '';
-      const status = document.createElement('div');
-      status.className   = isError ? 'library-ask-status error' : 'library-ask-status';
-      status.textContent = text;
-      libraryAskResult.appendChild(status);
-    }
-
-    function renderLibraryAskAnswer(data) {
-      libraryAskResult.innerHTML = '';
-
-      if (data.empty) {
-        renderLibraryAskStatus('Nothing in your library matches that yet. Save some videos first.', false);
-        return;
-      }
-
-      const card = document.createElement('div');
-      card.className = 'library-ask-card';
-
-      const answerEl = document.createElement('div');
-      answerEl.className   = 'library-ask-answer';
-      answerEl.innerHTML   = renderMarkdown(data.answer || '');
-      card.appendChild(answerEl);
-
-      if (data.truncated) {
-        const n = Array.isArray(data.citations) ? data.citations.length : undefined;
-        const notice = document.createElement('div');
-        notice.className   = 'library-ask-notice';
-        notice.textContent  = n
-          ? `Answered from your top ${n} matching video${n === 1 ? '' : 's'}.`
-          : 'Answered from your top matching videos.';
-        card.appendChild(notice);
-      }
-
-      if (Array.isArray(data.citations) && data.citations.length) {
-        const citWrap = document.createElement('div');
-        citWrap.className = 'library-ask-citations';
-
-        const label = document.createElement('div');
-        label.className   = 'library-ask-citations-label';
-        label.textContent  = 'Sources';
-        citWrap.appendChild(label);
-
-        data.citations.forEach((c) => {
-          if (!c || !c.videoId) return;
-          const chip = document.createElement('button');
-          chip.type        = 'button';
-          chip.className   = 'library-ask-citation-chip';
-          chip.textContent = c.title || c.videoId;
-          chip.setAttribute('aria-label', `Open saved video: ${c.title || c.videoId}`);
-          chip.addEventListener('click', () => openSavedEntry(c.videoId));
-          citWrap.appendChild(chip);
-        });
-
-        card.appendChild(citWrap);
-      }
-
-      libraryAskResult.appendChild(card);
-    }
-
-    async function submitLibraryAsk() {
-      const question = libraryAskInput.value.trim();
-      if (!question) return;
-      if (!requireApiKey()) return; // no-op outside web mode
-
-      libraryAskBtn.disabled = true;
-      renderLibraryAskStatus('Thinking…', false);
-
-      try {
-        let res;
-
-        if (ECHO.mode === 'web') {
-          const searchRes = await Library.searchLibrary(question);
-          const searchData = await searchRes.json().catch(() => ({ results: [] }));
-          const hits = Array.isArray(searchData.results) ? searchData.results.slice(0, 5) : [];
-
-          if (!hits.length) {
-            renderLibraryAskStatus('Nothing in your library matches that yet. Save some videos first.', false);
-            return;
-          }
-
-          const candidates = hits.map((e) => {
-            const candidate = { videoId: e.videoId, title: e.title || e.videoId };
-            if (e.digest) candidate.digest = String(e.digest).slice(0, LIBRARY_ASK_CANDIDATE_DIGEST_CAP);
-            return candidate;
-          });
-
-          res = await aiFetch('/api/library/ask', { question, candidates });
-        } else {
-          res = await aiFetch('/api/library/ask', { question });
-        }
-
-        const data = await res.json();
-
-        if (!res.ok) {
-          renderLibraryAskStatus(apiErrorMessage(data, 'Failed to answer question.'), true);
-          handleApiError(data, 'Failed to answer question.');
-          return;
-        }
-
-        renderLibraryAskAnswer(data);
-        libraryAskInput.value = '';
-
-      } catch (err) {
-        console.error('[echo] submitLibraryAsk network error:', err);
-        renderLibraryAskStatus('Network error — could not reach the server.', true);
-        showToast('error', 'Network error: ' + err.message);
-      } finally {
-        libraryAskBtn.disabled = false;
-      }
-    }
-
-    libraryAskBtn.addEventListener('click', submitLibraryAsk);
-
-    libraryAskInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        submitLibraryAsk();
-      }
     });
 
     /* ==============================================

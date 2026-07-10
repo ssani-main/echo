@@ -454,49 +454,6 @@ export async function searchLibrary(query, limit = 20) {
   }
 }
 
-// Small English stopword set used to strip low-signal tokens from natural-
-// language questions before they're used as an FTS5 MATCH query. FTS5 ANDs
-// all bareword tokens together, so leaving stopwords in ("what is about in")
-// can force zero matches even when the library clearly has relevant content.
-const FTS_STOPWORDS = new Set([
-  'what', 'is', 'are', 'the', 'a', 'an', 'of', 'to', 'in', 'on', 'for',
-  'and', 'or', 'about', 'does', 'do', 'did', 'how', 'why', 'this', 'that',
-  'with', 'from', 'your', 'my',
-]);
-
-/**
- * Build a safe, relevance-oriented FTS5 MATCH query from free-form text
- * (e.g. a natural-language question). Tokenizes on unicode word characters,
- * drops very short tokens and common English stopwords, quotes each
- * remaining token as an FTS5 phrase (avoiding syntax errors from special
- * characters), and OR-joins them for good recall (FTS5 `rank` still orders
- * results by relevance). Falls back to an unfiltered OR-joined query, and
- * finally to the raw trimmed text, if stripping leaves nothing usable.
- *
- * Does not alter searchLibrary()'s own semantics — callers opt into this by
- * passing its output as the `query` argument.
- *
- * @param {string} text - raw user input (question, phrase, keywords, etc.)
- * @returns {string} an FTS5 query string
- */
-export function buildLibraryFtsQuery(text) {
-  const raw = String(text || '').trim();
-  if (!raw) return '';
-
-  const tokens = raw.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
-  const filtered = tokens.filter((t) => t.length > 2 && !FTS_STOPWORDS.has(t));
-
-  if (filtered.length > 0) {
-    return filtered.map((t) => `"${t}"`).join(' OR ');
-  }
-
-  if (tokens.length > 0) {
-    return tokens.map((t) => `"${t}"`).join(' OR ');
-  }
-
-  return raw;
-}
-
 // ---------------------------------------------------------------------------
 // Channel / creator following
 // ---------------------------------------------------------------------------
