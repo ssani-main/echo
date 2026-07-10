@@ -47,7 +47,7 @@ You've been there: you find a great video, but you'd rather *read* it than sit t
 | 🎛️ | **Shared reading controls** | Font size (A−/A+) and column width (Narrow/Medium/Wide: ~620 / 760 / 940 px) apply to both Transcript and Digest lenses, share one preference, and scale the reading column responsively. Digest AI output is typeset as a readable article |
 | ⏱️ | **Timecoded mode** | Subtitle-editor style with monospace timecode gutter; every timestamp deep-links YouTube (`&t=<sec>s`) |
 | 💾 | **Session restore** | Refreshing the page restores the current transcript, digest, view mode, lens, and Library state via sessionStorage—no re-fetch |
-| 🤖 | **AI Workspace** | **Summary**: AI-generated digest with short/detailed, bullets/prose, and output language options |
+| 🤖 | **AI Digest** | Switch to the Digest lens for an AI-generated digest — short/detailed, bullets/prose, and output-language options |
 | 🔎 | **Selection-driven enrich** | Select any passage in the Digest to show an ephemeral floating popover with **Explain** (Claude's own knowledge), **Background** (live web search with citations), and **Verify** (claim verification via web search). Results render inside the popover; dismiss on click-outside, Esc, or new selection—nothing persists |
 | 📑 | **Reader & Library** | Transcript and Digest are lens tabs—two views of the current video. Saved videos open from a **Library** button in the header (with count) |
 | 🟢 | **Live status indicator** | Fixed pill shows "AI is digesting…" → "Digest ready ✓" as it processes; click to jump to the Digest pane |
@@ -61,11 +61,11 @@ You've been there: you find a great video, but you'd rather *read* it than sit t
 | 🛟 | **Automatic fallback** | If the transcript library hiccups, `yt-dlp` steps in |
 | 🏠 | **Fully local** | Your own machine, your own browser — nothing leaves the room |
 
-## 🤖 About the AI Workspace
+## 🤖 About the AI Digest
 
-The AI Workspace **doesn't need an Anthropic API key or any billing setup** when running locally. Echo shells out to your locally-installed [**Claude Code**](https://claude.com/claude-code) CLI in headless mode, reusing your existing login and subscription quota.
+The AI digest **doesn't need an Anthropic API key or any billing setup** when running locally. Echo shells out to your locally-installed [**Claude Code**](https://claude.com/claude-code) CLI in headless mode, reusing your existing login and subscription quota.
 
-- **Summary**: AI-generated digest with TL;DR, key points, and topic-by-topic breakdown. Choose short or detailed, bullets or prose, and pick your output language (default English).
+Switch to the **Digest** lens and Echo generates the digest directly — a TL;DR, key points, and a topic-by-topic breakdown. Choose short or detailed, bullets or prose, and pick your output language (default English).
 
 **Selection-driven lookups on the Digest.** Highlight any passage in a generated Digest and a floating popover appears with three actions:
 
@@ -83,7 +83,7 @@ The prompts live in [`digest.js`](./digest.js) — tweak them if you'd rather ha
 
 - **[Node.js](https://nodejs.org/) ≥ 22.5**
 - **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** _(optional)_ — the reliability fallback. `winget install yt-dlp` or `pip install yt-dlp`, and make sure it's on your `PATH`.
-- **[Claude Code](https://claude.com/claude-code)** _(optional)_ — only needed for the **AI Workspace** (Summary and Explain/Background/Verify tools). Desktop mode can use BYOK (Bring Your Own Key) from Anthropic as a fallback.
+- **[Claude Code](https://claude.com/claude-code)** _(optional)_ — only needed for the **AI features** (the digest and Explain/Background/Verify lookups). Desktop mode can use BYOK (Bring Your Own Key) from Anthropic as a fallback.
 
 ### Install & run
 
@@ -179,7 +179,7 @@ See [`.env.example`](./.env.example) for the full list of variables and detailed
 
 1. **Paste** a YouTube URL, optionally pick a caption language, and hit **Get transcript** — it lands in the **Transcript** tab.
 2. **Read** — toggle between Readable and Timecoded views. Adjust font size (A−/A+) and column width (Narrow/Medium/Wide). Use `/` to search and Prev/Next to navigate.
-3. **AI Workspace** — click the **Digest** tab, then **Summary**. A fixed status pill shows "AI is digesting…" and "Digest ready ✓" when done _(takes ~10–30s while Claude reads the transcript)._ Once generated, highlight any passage in the Digest to Explain, get Background, or Verify claims — results render in an ephemeral floating popover.
+3. **Digest** — switch to the **Digest** lens and Echo generates the digest directly. A fixed status pill shows "AI is digesting…" and "Digest ready ✓" when done _(takes ~10–30s while Claude reads the transcript)._ Once generated, highlight any passage in the Digest to Explain, get Background, or Verify claims — results render in an ephemeral floating popover.
 4. **Copy or download** the transcript or digest as Markdown using the download button.
 5. **Save** — click **Save** to store the video in your library; access saved videos via the **Library** button in the header (keyboard: `3`). Search, sort, tag, and manage your collection. Export your whole library as a ZIP of Markdown files or JSON backup.
 6. **Playlist mode** — paste a `list=` URL to browse and load videos from a playlist (local/desktop only).
@@ -193,7 +193,7 @@ See [`.env.example`](./.env.example) for the full list of variables and detailed
 echo/
 ├── server.js         # Express server: API routes + serves the UI
 ├── transcript.js     # video-ID parsing + transcript fetch (library + yt-dlp fallback)
-├── digest.js         # AI workspace tools: Summary, Explain/Background/Verify
+├── digest.js         # AI tools: digest generation + Explain/Background/Verify enrich
 ├── store.js          # library storage layer (local: file-based; web: IndexedDB)
 ├── data/             # (gitignored, local mode only) persistent video library
 │   └── library.db    # SQLite database of saved videos, tags, follows, inbox
@@ -244,7 +244,7 @@ echo/
 
 - Videos with **captions disabled**, or that are **private / age-restricted**, can't be transcribed — Echo says so clearly instead of crashing.
 - YouTube occasionally shifts its internals; that's exactly what the `yt-dlp` fallback is there to cover.
-- The **AI Workspace** tools need Claude Code installed and logged in (local mode) or an Anthropic API key (web/desktop modes). Without AI, transcript reading, search, and library features work just fine.
+- The **AI features** (digest + enrich) need Claude Code installed and logged in (local mode) or an Anthropic API key (web/desktop modes). Without AI, transcript reading, search, and library features work just fine.
 - Your **saved library** (`data/library.db`) is **gitignored** — it never leaves your machine and doesn't get pushed to any repo (local/desktop modes only; web mode uses client-side IndexedDB).
 - **Explain** is grounded in Claude's own training knowledge with **no live web access**; **Background** and **Verify** run a live web search for citations, but always verify anything consequential via other sources.
 - Each enrich lookup shows its own **tokens · cost · duration**.
