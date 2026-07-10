@@ -637,6 +637,41 @@ app.post('/api/playlist/digest/cancel', (req, res) => {
 // Digest
 // ---------------------------------------------------------------------------
 
+// Auto-tagging must never delay or break the digest response. It runs in
+// parallel with generateDigest() (on the raw transcript text, same input the
+// digest itself reads, so there's no extra serialization cost) under its own
+// try/catch + bounded timeout — any failure, timeout, or missing tags just
+// resolves to an empty array. See CLAUDE.md "never break the digest path".
+const AUTO_TAG_TIMEOUT_MS = 15_000;
+
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timed out')), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); }
+    );
+  });
+}
+
+async function suggestTagsBestEffort(text, { apiKey, language, videoId } = {}) {
+  const t0 = Date.now();
+  try {
+    const result = await withTimeout(suggestTags(text, { apiKey, language }), AUTO_TAG_TIMEOUT_MS);
+    logEvent('tags-suggest', {
+      videoId: videoId || null,
+      chars: (text || '').length,
+      tagCount: Array.isArray(result.tags) ? result.tags.length : 0,
+      costUsd: result.usage && result.usage.costUsd,
+      ok: true, ms: Date.now() - t0,
+    });
+    return Array.isArray(result.tags) ? result.tags : [];
+  } catch (err) {
+    logEvent('tags-suggest', { videoId: videoId || null, chars: (text || '').length, ok: false, err: errLabel(err), ms: Date.now() - t0 });
+    return [];
+  }
+}
+
 app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
   const { text, length, format, language, title, videoId } = req.body;
 
@@ -646,8 +681,12 @@ app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
   if (requireWebKey(req, res)) return;
 
   const t0 = Date.now();
+  const apiKey = readApiKey(req);
   try {
-    const result = await generateDigest(text, { length, format, language, title, apiKey: readApiKey(req) });
+    const [result, suggestedTags] = await Promise.all([
+      generateDigest(text, { length, format, language, title, apiKey }),
+      suggestTagsBestEffort(text, { apiKey, language, videoId }),
+    ]);
     logEvent('digest', {
       videoId: videoId || null,
       chars: (text || '').length,
@@ -659,36 +698,9 @@ app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
       tokOut: result.usage && result.usage.outputTokens,
       ok: true, ms: Date.now() - t0,
     });
-    return res.json(result);
+    return res.json({ ...result, suggestedTags });
   } catch (err) {
     logEvent('digest', { videoId: videoId || null, chars: (text || '').length, length, format, ok: false, err: errLabel(err), ms: Date.now() - t0 });
-    return sendCaughtError(res, err);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Tag suggestion
-// ---------------------------------------------------------------------------
-
-app.post('/api/tags/suggest', webLimit(20, 60_000), async (req, res) => {
-  const { digest, transcriptExcerpt, language, lang, videoId } = req.body;
-  const material = digest || transcriptExcerpt;
-  if (!requireText(res, material, 'digest or transcriptExcerpt is required.')) return;
-  if (rejectOversizeAiPayload(res, { text: material })) return;
-  if (requireWebKey(req, res)) return;
-  const t0 = Date.now();
-  try {
-    const result = await suggestTags(material, { apiKey: readApiKey(req), language: language || lang });
-    logEvent('tags-suggest', {
-      videoId: videoId || null,
-      chars: (material || '').length,
-      tagCount: Array.isArray(result.tags) ? result.tags.length : 0,
-      costUsd: result.usage && result.usage.costUsd,
-      ok: true, ms: Date.now() - t0,
-    });
-    return res.json(result);
-  } catch (err) {
-    logEvent('tags-suggest', { videoId: videoId || null, chars: (material || '').length, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);
   }
 });

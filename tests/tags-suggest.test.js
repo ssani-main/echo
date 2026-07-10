@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { rmSync } from 'node:fs';
 import { suggestTags } from '../digest.js';
 import { ApiKeyProvider } from '../providers.js';
 
@@ -115,4 +118,108 @@ test('suggestTags: very long material is truncated before prompting and does not
   // The prompt sent to the provider should not contain the full 250k-char
   // material — it must have been truncated well below the original length.
   assert.ok(capturedPrompt.length < longMaterial.length);
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/digest — suggestedTags is computed in parallel with the digest
+// and included in the response. The separate /api/tags/suggest route has
+// been removed: auto-tagging is now folded into the digest request itself
+// (never a second round-trip, never shown before Save — see CLAUDE.md /
+// public/index.html maybeAutoSuggestTags()).
+//
+// The provider is discriminated by prompt content so a single mock can
+// stand in for both the digest call and the tag-suggestion call that fire
+// in parallel inside the route handler.
+// ---------------------------------------------------------------------------
+
+const DB = join(tmpdir(), `echo-test-tags-digest-${process.pid}-${Date.now()}.db`);
+process.env.ECHO_DB_PATH = DB;
+// Desktop mode: readApiKey() only honors the X-Echo-Api-Key header in
+// web/desktop mode (see server.js readApiKey()) — in default local mode a
+// keyless fallthrough would hit the real `claude` CLI instead of the mocked
+// ApiKeyProvider. Desktop (not web) is used so no rate limiting/BYOK-required
+// gating gets in the way of a plain apiKey-supplied request.
+process.env.ECHO_MODE = 'desktop';
+
+const { app } = await import('../server.js');
+const server = app.listen(0);
+const port = server.address().port;
+const base = `http://127.0.0.1:${port}`;
+
+test.after(async () => {
+  await new Promise((resolve) => server.close(resolve));
+  for (const suffix of ['', '-wal', '-shm']) {
+    try { rmSync(DB + suffix, { force: true }); } catch { /* ignore */ }
+  }
+});
+
+function fakeUsage2() {
+  return {
+    costUsd: 0.0005,
+    inputTokens: 50,
+    outputTokens: 10,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    totalTokens: 60,
+    durationMs: 5,
+  };
+}
+
+test('POST /api/digest returns both digest and suggestedTags, computed via a single request (no /api/tags/suggest round-trip)', async (t) => {
+  let digestCalls = 0;
+  let tagCalls = 0;
+
+  t.mock.method(ApiKeyProvider, 'call', async (prompt) => {
+    if (prompt.includes('MATERIAL:') && prompt.includes('"tags"')) {
+      tagCalls += 1;
+      return { result: JSON.stringify({ tags: ['cooking', 'recipes'] }), usage: fakeUsage2() };
+    }
+    digestCalls += 1;
+    return { result: 'A short synthesized digest of the video.', usage: fakeUsage2() };
+  });
+
+  const res = await fetch(`${base}/api/digest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Echo-Api-Key': 'sk-test' },
+    body: JSON.stringify({ text: 'Today we are making a delicious pasta dish from scratch.' }),
+  });
+
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(typeof body.digest, 'string');
+  assert.ok(body.digest.length > 0);
+  assert.ok(Array.isArray(body.suggestedTags));
+  assert.deepEqual(body.suggestedTags, ['cooking', 'recipes']);
+
+  assert.equal(digestCalls, 1);
+  assert.equal(tagCalls, 1);
+});
+
+test('POST /api/digest still succeeds with suggestedTags: [] when the tag-suggestion call fails — the digest must never be broken by a tagging failure', async (t) => {
+  t.mock.method(ApiKeyProvider, 'call', async (prompt) => {
+    if (prompt.includes('MATERIAL:') && prompt.includes('"tags"')) {
+      throw new Error('simulated tag-suggestion provider failure');
+    }
+    return { result: 'Digest text that must still come through.', usage: fakeUsage2() };
+  });
+
+  const res = await fetch(`${base}/api/digest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Echo-Api-Key': 'sk-test' },
+    body: JSON.stringify({ text: 'A transcript about something entirely unrelated to tags.' }),
+  });
+
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.digest, 'Digest text that must still come through.');
+  assert.deepEqual(body.suggestedTags, []);
+});
+
+test('POST /api/tags/suggest no longer exists — auto-tagging is folded into /api/digest', async () => {
+  const res = await fetch(`${base}/api/tags/suggest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ transcriptExcerpt: 'some material' }),
+  });
+  assert.equal(res.status, 404);
 });

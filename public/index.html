@@ -5541,6 +5541,7 @@
     let indicatorTimer = null;
     let currentMeta    = null;  // { videoId, url, title }
     let currentDigest  = null;  // string | null
+    let currentSuggestedTags = []; // string[] — computed server-side alongside the digest, applied at save time
     let currentClaims  = null;  // Array<{claim,status,note,sources}> | null
 
     // Saved library state
@@ -7258,6 +7259,7 @@
       // Reset meta state on new fetch
       currentMeta       = null;
       currentDigest     = null;
+      currentSuggestedTags = [];
       currentSegments   = null;
       askThread         = [];
       clearSession(); // new fetch in flight — drop any stale prior-video snapshot
@@ -7336,6 +7338,7 @@
           channel: data.channel || null, channelUrl: data.channelUrl || null,
         };
         currentDigest   = null;
+        currentSuggestedTags = [];
         // The server reports which caption track was actually loaded (not
         // just the language that was requested) — the picker uses this to
         // pre-select the right option instead of falling back to whatever
@@ -7855,6 +7858,9 @@
 
         // Capture digest text so Save can include it
         currentDigest = data.digest;
+        // Auto-tag suggestions were computed server-side in parallel with the
+        // digest itself (never shown until Save) — stash for maybeAutoSuggestTags().
+        currentSuggestedTags = Array.isArray(data.suggestedTags) ? data.suggestedTags.filter(Boolean) : [];
         // A fresh digest invalidates any previously-verified claims / share
         // link — drop them so stale UI doesn't linger next to new content.
         currentClaims = null;
@@ -8487,35 +8493,24 @@
     }
 
     /**
-     * Best-effort auto-tag suggestion, fired after a fresh save of a
+     * Best-effort auto-tag application, fired after a fresh save of a
      * currently-untagged entry (when the "Auto-suggest tags" setting is on).
-     * Uses the digest if one was generated, else a transcript excerpt.
-     * Applies suggestions via the same patchSavedTags() path the manual tag
+     * Tags were already computed server-side in parallel with the digest
+     * itself (see currentSuggestedTags / POST /api/digest's `suggestedTags`
+     * field) — there is no extra network round-trip here, just applying the
+     * stashed suggestions via the same patchSavedTags() path the manual tag
      * editor uses, so the resulting chips are normal, editable/removable
-     * chips. Any failure (no key, rate limit, network, empty result) is
-     * swallowed silently — this must never surface an error or block saving.
+     * chips. Any failure is swallowed silently — this must never surface an
+     * error or block saving.
      */
     async function maybeAutoSuggestTags(videoId) {
       try {
         if (!getAutoTags()) return;
-        if ((ECHO.mode === 'web' || ECHO.mode === 'desktop') && !getApiKey()) return;
 
         const entry = savedList.find(e => e.videoId === videoId);
         if (!entry || (entry.tags && entry.tags.length > 0)) return;
 
-        const body = {};
-        if (currentDigest) {
-          body.digest = currentDigest;
-        } else {
-          const transcriptText = getTranscriptText();
-          if (!transcriptText) return;
-          body.transcriptExcerpt = transcriptText.slice(0, 6000);
-        }
-
-        const res = await aiFetch('/api/tags/suggest', body);
-        if (!res.ok) return;
-        const data = await res.json().catch(() => null);
-        const tags = Array.isArray(data?.tags) ? data.tags.filter(Boolean) : [];
+        const tags = Array.isArray(currentSuggestedTags) ? currentSuggestedTags.filter(Boolean) : [];
         if (tags.length === 0) return;
 
         await patchSavedTags(videoId, tags);
@@ -8671,6 +8666,7 @@
           channel: entry.channel ?? null, channelUrl: entry.channelUrl ?? null,
         };
         currentDigest   = entry.digest || null;
+        currentSuggestedTags = []; // opening an already-saved entry — nothing to auto-suggest
 
         // Sync UI — command bar and now-reading strip
         urlInput.value = entry.url;
@@ -9902,6 +9898,7 @@
         channelUrl: currentMeta.channelUrl || null,
         segments: currentSegments || lastSegments || null,
         digest:   currentDigest,
+        suggestedTags: Array.isArray(currentSuggestedTags) ? currentSuggestedTags : [],
         digestUsageLine: (usageStatsEl && usageStatsEl.classList.contains('visible'))
           ? usageStatsEl.innerHTML
           : '',
@@ -9976,6 +9973,7 @@
           channel: snap.channel || null, channelUrl: snap.channelUrl || null,
         };
         currentDigest     = snap.digest || null;
+        currentSuggestedTags = Array.isArray(snap.suggestedTags) ? snap.suggestedTags : [];
         urlInput.value = snap.url;
 
         if (snap.viewMode) {
