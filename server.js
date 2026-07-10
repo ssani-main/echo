@@ -701,6 +701,15 @@ app.post('/api/enrich', webLimit(20, 60_000), async (req, res) => {
   const { selection, context, mode, language, videoId } = req.body;
   if (!requireText(res, selection, 'selection is required.')) return;
   if (rejectOversizeAiPayload(res, { text: (selection || '') + (context || '') })) return;
+  if (isWeb && mode === 'factcheck') {
+    return sendError(
+      res,
+      'FACTCHECK_DISABLED_IN_WEB',
+      'Fact-checking is disabled in web mode.',
+      'Use the local or desktop app for claim verification.',
+      400
+    );
+  }
   if (requireWebKey(req, res)) return;
   const t0 = Date.now();
   try {

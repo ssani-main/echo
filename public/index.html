@@ -10888,6 +10888,16 @@
       discoveryBtn.hidden = true;
     }
     if (ECHO.mode === 'web') {
+      // Verify affordances hit routes that are disabled/gated in web mode
+      // (POST /api/claims is blockInWeb; POST /api/enrich mode:'factcheck'
+      // is rejected server-side) — hide both entry points. `.mini-btn[hidden]`
+      // is already in the scoped [hidden] guard (see the CSS block near the
+      // top of this file), so setting .hidden = true here actually hides
+      // these buttons rather than being overridden by the mini-btn display.
+      if (digestVerifyBtn) digestVerifyBtn.hidden = true;
+      if (enrichBtnFactcheck) enrichBtnFactcheck.hidden = true;
+    }
+    if (ECHO.mode === 'web') {
       // Channel following's backend routes 503 in web mode — hide every entry point.
       if (inboxBtn) inboxBtn.hidden = true;
       if (followChannelBtn) followChannelBtn.hidden = true;

@@ -157,6 +157,38 @@ test('web mode: POST /api/playlist with a real playlist URL body returns 503 WEB
   assert.equal(body.error.code, 'WEB_MODE_UNSUPPORTED');
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/enrich mode:'factcheck' ("Verify") is disabled in web mode (the
+// enrich Verify button and the "Verify claims" button are also hidden
+// client-side — see public/index.html's ECHO.mode==='web' init block), while
+// every other enrich mode stays available (gated the normal way, behind
+// requireWebKey since no API key is sent here).
+// ---------------------------------------------------------------------------
+
+test('web mode: POST /api/enrich mode:"factcheck" returns 400 FACTCHECK_DISABLED_IN_WEB', async () => {
+  const res = await fetch(`${webServer.base}/api/enrich`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ selection: 'The sky is blue.', mode: 'factcheck' }),
+  });
+  assert.equal(res.status, 400, `expected 400, got ${res.status}`);
+  const body = await res.json();
+  assert.equal(body.error.code, 'FACTCHECK_DISABLED_IN_WEB');
+});
+
+test('web mode: POST /api/enrich mode:"explain" is not blocked by the factcheck gate (falls through to the normal API-key requirement)', async () => {
+  const res = await fetch(`${webServer.base}/api/enrich`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ selection: 'The sky is blue.', mode: 'explain' }),
+  });
+  // No API key was sent, so this hits requireWebKey rather than succeeding —
+  // the point of this test is that it is NOT rejected as FACTCHECK_DISABLED_IN_WEB.
+  const body = await res.json();
+  assert.notEqual(body.error && body.error.code, 'FACTCHECK_DISABLED_IN_WEB');
+  assert.equal(body.error.code, 'API_NOT_AUTHED');
+});
+
 test('tears down the web-mode server', async () => {
   await webServer.stop();
 });
