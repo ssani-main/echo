@@ -260,7 +260,6 @@
        Narrow/Medium/Wide reading control changes. */
     .site-header,
     .command-bar,
-    .batch-paste-row,
     #status,
     .next-action-nudge {
       max-width: var(--chrome-max);
@@ -4373,89 +4372,6 @@
     .legal-modal-body p { margin: 0 0 var(--space-8); }
     .legal-modal-body p:last-child { margin-bottom: 0; }
 
-    /* ==============================================
-       44. BATCH PASTE PANEL (multi-video digest queue)
-       Reuses .shortcuts-backdrop / .shortcuts-modal / .mini-btn /
-       .digest-opt-label / .settings-note / .settings-actions for
-       visual consistency with the Settings and Shortcuts modals.
-    =============================================== */
-    .batch-paste-row {
-      /* margin-inline:auto (from the chrome-max group) keeps this aligned with
-         the command bar's left edge — use longhand top/bottom only so the
-         shorthand doesn't reset the horizontal auto-centering back to 0. */
-      margin: 0 auto var(--space-9);
-    }
-
-    .batch-paste-toggle {
-      display: inline-flex;
-      align-items: center;
-      gap: var(--space-4);
-      background: none;
-      border: none;
-      padding: 0;
-      font-family: var(--font-ui);
-      font-size: var(--text-sm);
-      font-weight: 500;
-      color: var(--muted);
-      cursor: pointer;
-      outline: none;
-      transition: color 0.12s;
-    }
-
-    .batch-paste-toggle svg { opacity: 0.8; }
-
-    .batch-paste-toggle:hover {
-      color: var(--accent);
-    }
-
-    .batch-paste-toggle:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
-    }
-
-    #batchOverlay {
-      position: fixed;
-      inset: 0;
-      z-index: 19000;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    #batchOverlay[hidden] {
-      display: none;
-    }
-
-    .batch-modal {
-      max-width: 460px;
-    }
-
-    .batch-textarea {
-      width: 100%;
-      box-sizing: border-box;
-      padding: var(--space-5) var(--space-7);
-      font-family: var(--font-mono);
-      font-size: var(--text-sm);
-      line-height: 1.5;
-      color: var(--ink);
-      background: var(--surface);
-      border: 1px solid var(--rule);
-      border-radius: var(--radius-sm);
-      outline: none;
-      resize: vertical;
-      margin: var(--space-4) 0 var(--space-7);
-      transition: border-color 0.15s, box-shadow 0.15s;
-    }
-
-    .batch-textarea::placeholder {
-      color: var(--muted);
-      opacity: 1;
-    }
-
-    .batch-textarea:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--accent-soft);
-    }
   </style>
 </head>
 <body>
@@ -4601,11 +4517,6 @@
         }
       })();
     </script>
-
-    <!-- BATCH PASTE AFFORDANCE — opens #batchOverlay to digest several videos at once -->
-    <div class="batch-paste-row">
-      <button type="button" id="batchPasteToggle" class="batch-paste-toggle"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Paste many</button>
-    </div>
 
     <!-- STATUS LINE -->
     <div id="status"></div>
@@ -5248,31 +5159,6 @@
             <button class="mini-btn" id="vaultZipBtn">Download vault (.zip)</button>
           </div>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- BATCH PASTE PANEL — paste multiple YouTube URLs/IDs, digest them as a queue -->
-  <div id="batchOverlay" role="dialog" aria-modal="true" aria-label="Paste many videos" hidden>
-    <div class="shortcuts-backdrop" id="batchBackdrop"></div>
-    <div class="shortcuts-modal batch-modal">
-      <div class="shortcuts-modal-header">
-        <span class="shortcuts-modal-title">Paste many</span>
-        <button class="shortcuts-close-btn" id="batchClose" aria-label="Close paste-many panel">✕</button>
-      </div>
-      <label class="digest-opt-label" for="batchInput">YouTube URLs or IDs — one per line, or comma-separated</label>
-      <textarea
-        id="batchInput"
-        class="batch-textarea"
-        rows="8"
-        placeholder="https://youtube.com/watch?v=...&#10;https://youtu.be/...&#10;dQw4w9WgXcQ"
-        autocomplete="off"
-        spellcheck="false"
-      ></textarea>
-      <p id="batchNotice" class="settings-note" hidden></p>
-      <div class="settings-actions">
-        <button class="mini-btn" id="batchCancelBtn">Cancel</button>
-        <button class="mini-btn" id="batchDigestAllBtn">Digest all</button>
       </div>
     </div>
   </div>
@@ -7008,7 +6894,6 @@
       crossDigestOverlay: closeCrossDigestModal,
       settingsOverlay:    closeSettingsModal,
       legalOverlay:       closeLegalOverlay,
-      batchOverlay:       closeBatchOverlay,
     };
     document.addEventListener('keydown', e => {
       if (e.key !== 'Escape') return;
@@ -9267,17 +9152,10 @@
     let activePlaylistIdx = -1;
     let currentPlaylistUrl = null;
 
-    // True while playlistVideos/playlistPanelEl represent a batch-digest job
-    // (see startBatchDigestAll/runWebBatch) rather than a real playlist —
-    // used to preserve the "Batch digest" header + hidden "Digest all" button
-    // across re-renders (e.g. clicking a row to load that video).
-    let playlistIsBatchJob = false;
-
-    // Batch playlist digest job state
+    // Playlist digest job state
     let playlistJobId      = null;
     let playlistPollTimer  = null;
     let playlistPollInFlight = false;
-    let batchTruncatedNotified = false;
 
     const PLAYLIST_DISPLAY_CAP = 20;
 
@@ -9287,10 +9165,7 @@
         return;
       }
 
-      // Batch-digest jobs (see startBatchDigestAll/runWebBatch) have no source
-      // playlist URL/title and shouldn't offer a redundant "Digest all" button
-      // since the job is already running by the time this renders.
-      const displayTitle   = title || (opts.kind === 'batch' ? 'Batch digest' : 'Playlist');
+      const displayTitle   = title || 'Playlist';
       const digestAllBtnHtml = opts.hideDigestAllBtn ? '' :
         `<button class="mini-btn" id="playlistDigestAllBtn"` +
           ` aria-label="Digest all videos in this playlist"${playlistJobId ? ' disabled' : ''}>Digest all</button>`;
@@ -9366,7 +9241,6 @@
         playlistPanelEl.hidden = true;
         playlistVideos         = [];
         activePlaylistIdx      = -1;
-        playlistIsBatchJob     = false;
       });
 
       // Video row clicks
@@ -9378,10 +9252,8 @@
           if (!v) return;
           activePlaylistIdx = idx;
           // Re-render panel with updated active state (capture title before re-render).
-          // Preserve batch-job rendering (header + hidden "Digest all") across re-renders.
           const panelTitle = playlistPanelEl.querySelector('.playlist-header-title')?.textContent || '';
-          renderPlaylist(panelTitle, playlistVideos,
-            playlistIsBatchJob ? { kind: 'batch', hideDigestAllBtn: true } : {});
+          renderPlaylist(panelTitle, playlistVideos);
           // Load the video through normal fetch flow, preserving the playlist panel
           const ytUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(v.videoId)}`;
           urlInput.value   = ytUrl;
@@ -9413,7 +9285,6 @@
         playlistVideos      = data.videos;
         activePlaylistIdx   = -1;
         currentPlaylistUrl  = url;
-        playlistIsBatchJob  = false;
         renderPlaylist(data.playlistTitle || 'Playlist', data.videos);
       } catch (err) {
         /* Silently ignore network errors for playlist (non-critical) */
@@ -9493,13 +9364,6 @@
             `Digesting… ${job.saved} saved · ${job.failed} failed · ${job.skipped} skipped of ${job.total}`;
         }
 
-        // Server-side batch jobs may cap the accepted item list (see /api/batch/digest) —
-        // surface that once per job rather than nagging on every poll tick.
-        if (job.truncated && !batchTruncatedNotified) {
-          batchTruncatedNotified = true;
-          showToast('warning', 'Batch was truncated — only some of the pasted videos were queued.');
-        }
-
         // Best-effort per-item status badges, matched by videoId.
         if (Array.isArray(job.items)) {
           const badgeByStatus = { saved: ' ✓', failed: ' ✕', skipped: ' –' };
@@ -9549,307 +9413,6 @@
       }
 
       playlistPollInFlight = false;
-    }
-
-    /* ==============================================
-       BATCH PASTE / DIGEST QUEUE — FEATURE 9
-       "Paste many" lets the user drop several YouTube URLs/IDs at once and
-       digest them as a queue, reusing the same progress panel (renderPlaylist)
-       and poller (pollPlaylistJob) as the playlist "Digest all" flow.
-
-       - local/desktop: POST /api/batch/digest (server-side job, same shape
-         as /api/playlist/digest) — polled exactly like a playlist job.
-       - web: no server-side job store (stateless BYOK server), so the queue
-         runs client-side in runWebBatch(), one video at a time, rendered
-         through the same renderPlaylist()/badge UI for visual parity.
-    =============================================== */
-
-    /** Extract an 11-char YouTube video ID from a URL or bare ID; null if none found.
-     *  Mirrors transcript.js's extractVideoId() so web mode can dedupe/resolve
-     *  videos client-side without a server round-trip. */
-    function extractVideoIdClient(raw) {
-      if (!raw) return null;
-      const s = String(raw).trim();
-      const patterns = [
-        /[?&]v=([A-Za-z0-9_-]{11})(?:[&\s]|$)/,
-        /youtu\.be\/([A-Za-z0-9_-]{11})(?:[?&\s/]|$)/,
-        /youtube\.com\/shorts\/([A-Za-z0-9_-]{11})(?:[?&\s/]|$)/,
-        /youtube\.com\/embed\/([A-Za-z0-9_-]{11})(?:[?&\s/]|$)/,
-      ];
-      for (const re of patterns) {
-        const m = s.match(re);
-        if (m) return m[1];
-      }
-      if (/^[A-Za-z0-9_-]{11}$/.test(s)) return s;
-      return null;
-    }
-
-    const BATCH_WEB_CAP = 5;
-
-    const batchOverlayEl = document.getElementById('batchOverlay');
-    const batchInputEl   = document.getElementById('batchInput');
-    const batchNoticeEl  = document.getElementById('batchNotice');
-
-    function openBatchOverlay() {
-      if (!batchOverlayEl) return;
-      if (batchNoticeEl) { batchNoticeEl.hidden = true; batchNoticeEl.textContent = ''; }
-      batchOverlayEl.hidden = false;
-      batchInputEl?.focus();
-    }
-
-    function closeBatchOverlay() {
-      if (!batchOverlayEl) return;
-      batchOverlayEl.hidden = true;
-    }
-
-    /** Splits pasted text into trimmed, non-empty tokens on newlines and/or commas. */
-    function parseBatchInput(raw) {
-      return String(raw || '')
-        .split(/[\n,]+/)
-        .map(s => s.trim())
-        .filter(Boolean);
-    }
-
-    document.getElementById('batchPasteToggle')?.addEventListener('click', openBatchOverlay);
-    document.getElementById('batchClose')?.addEventListener('click', closeBatchOverlay);
-    document.getElementById('batchCancelBtn')?.addEventListener('click', closeBatchOverlay);
-    document.getElementById('batchBackdrop')?.addEventListener('click', closeBatchOverlay);
-
-    document.getElementById('batchDigestAllBtn')?.addEventListener('click', () => {
-      const items = parseBatchInput(batchInputEl?.value);
-      if (items.length === 0) {
-        showToast('warning', 'Paste at least one YouTube URL or video ID.');
-        return;
-      }
-      startBatchDigestAll(items);
-    });
-
-    /**
-     * Entry point for the "Digest all" button in the Paste-many panel.
-     * local/desktop -> server-side job via /api/batch/digest (polled like a
-     * playlist job). web -> runWebBatch() drives the queue in the browser.
-     */
-    async function startBatchDigestAll(items) {
-      if (playlistJobId) {
-        showToast('warning', 'A digest job is already running — wait for it to finish first.');
-        return;
-      }
-      if (!requireApiKey()) return;
-
-      if (ECHO.mode === 'web') {
-        closeBatchOverlay();
-        runWebBatch(items);
-        return;
-      }
-
-      const lengthOpt = document.querySelector('input[name="digestLength"]:checked')?.value || 'detailed';
-      const formatOpt = document.querySelector('input[name="digestFormat"]:checked')?.value || 'digest';
-      const langOpt   = (typeof digestLangInput !== 'undefined' && digestLangInput.value.trim()) || 'English';
-
-      const digestAllBtn = document.getElementById('batchDigestAllBtn');
-      if (digestAllBtn) digestAllBtn.disabled = true;
-
-      try {
-        const res = await fetch('/api/batch/digest', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({
-            items,
-            length:   lengthOpt,
-            format:   formatOpt,
-            language: langOpt,
-          }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          if (digestAllBtn) digestAllBtn.disabled = false;
-          handleApiError(data, 'Could not start batch digest.');
-          return;
-        }
-
-        closeBatchOverlay();
-        if (batchInputEl) batchInputEl.value = '';
-
-        playlistJobId          = data.jobId;
-        currentPlaylistUrl     = null; // batch jobs have no source playlist URL
-        playlistIsBatchJob     = true;
-        batchTruncatedNotified = false;
-
-        // Seed the progress panel with placeholder rows in submission order —
-        // the server fills in real titles/statuses as the poller runs.
-        playlistVideos = items.map(raw => {
-          const vid = extractVideoIdClient(raw) || raw;
-          return { videoId: vid, title: vid };
-        });
-        activePlaylistIdx = -1;
-        renderPlaylist('Batch digest', playlistVideos, { kind: 'batch', hideDigestAllBtn: true });
-
-        showToast('info', 'Digesting batch…', 'This can take a while for large batches.');
-
-        const progressEl = document.getElementById('playlistDigestProgress');
-        if (progressEl) {
-          progressEl.hidden = false;
-          progressEl.textContent = 'Digesting… starting up';
-        }
-
-        if (playlistPollTimer) clearInterval(playlistPollTimer);
-        playlistPollTimer = setInterval(pollPlaylistJob, 1500);
-      } catch (err) {
-        if (digestAllBtn) digestAllBtn.disabled = false;
-        showToast('error', 'Network error starting batch digest: ' + err.message);
-      }
-    }
-
-    /**
-     * Web-mode batch queue: no server-side job store (the web server is
-     * stateless/BYOK), so this drives the transcript -> digest -> save
-     * pipeline sequentially in the browser, one video at a time, updating
-     * a job-shaped object rendered through the SAME renderPlaylist()/badge
-     * UI as the local/desktop server-side job for visual parity.
-     */
-    async function runWebBatch(rawItems) {
-      let items = rawItems.slice();
-      if (items.length > BATCH_WEB_CAP) {
-        showToast('warning',
-          `Web mode processes up to ${BATCH_WEB_CAP} at a time — only the first ${BATCH_WEB_CAP} were queued.`);
-        items = items.slice(0, BATCH_WEB_CAP);
-      }
-
-      const job = {
-        kind:         'batch',
-        total:        items.length,
-        completed:    0,
-        saved:        0,
-        failed:       0,
-        skipped:      0,
-        currentIndex: -1,
-        status:       'running',
-        items: items.map(raw => {
-          const vid = extractVideoIdClient(raw) || raw;
-          return { videoId: vid, title: vid, status: 'pending' };
-        }),
-      };
-
-      playlistJobId      = 'web-batch'; // sentinel so the "already running" guard works
-      currentPlaylistUrl = null;
-      playlistIsBatchJob = true;
-      playlistVideos     = job.items.map(it => ({ videoId: it.videoId, title: it.title }));
-      activePlaylistIdx  = -1;
-      renderPlaylist('Batch digest', playlistVideos, { kind: 'batch', hideDigestAllBtn: true });
-
-      const progressEl = document.getElementById('playlistDigestProgress');
-
-      function renderJobProgress() {
-        if (progressEl) {
-          progressEl.hidden = false;
-          progressEl.textContent =
-            `Digesting… ${job.saved} saved · ${job.failed} failed · ${job.skipped} skipped of ${job.total}`;
-        }
-        const badgeByStatus = { saved: ' ✓', failed: ' ✕', skipped: ' –', working: ' …' };
-        job.items.forEach((item, idx) => {
-          const rowEl = playlistPanelEl && playlistPanelEl.querySelector(`.playlist-item[data-idx="${idx}"]`);
-          if (!rowEl) return;
-          const badge = badgeByStatus[item.status];
-          let badgeEl = rowEl.querySelector('.playlist-item-badge');
-          if (badge) {
-            if (!badgeEl) {
-              badgeEl = document.createElement('span');
-              badgeEl.className = 'playlist-item-badge';
-              rowEl.appendChild(badgeEl);
-            }
-            badgeEl.textContent = badge;
-          } else if (badgeEl) {
-            badgeEl.remove();
-          }
-        });
-      }
-      renderJobProgress();
-
-      const lengthOpt = document.querySelector('input[name="digestLength"]:checked')?.value || 'detailed';
-      const formatOpt = document.querySelector('input[name="digestFormat"]:checked')?.value || 'digest';
-      const langOpt   = (typeof digestLangInput !== 'undefined' && digestLangInput.value.trim()) || 'English';
-
-      for (let i = 0; i < items.length; i++) {
-        job.currentIndex = i;
-        const item   = job.items[i];
-        const videoId = item.videoId;
-
-        if (!videoId) {
-          item.status = 'failed';
-          job.failed++;
-          job.completed++;
-          renderJobProgress();
-          continue;
-        }
-
-        item.status = 'working';
-        renderJobProgress();
-
-        try {
-          // Dedupe: skip videos already saved WITH a digest — no point re-spending an AI call.
-          const existingRes = await Library.getEntry(videoId).catch(() => null);
-          const existing = existingRes && existingRes.ok ? await existingRes.json().catch(() => null) : null;
-          if (existing && existing.digest) {
-            item.status = 'skipped';
-            item.title  = existing.title || item.title;
-            job.skipped++;
-            job.completed++;
-            renderJobProgress();
-            continue;
-          }
-
-          const ytUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
-
-          const tRes  = await aiFetch('/api/transcript', { url: ytUrl });
-          const tData = await tRes.json().catch(() => ({}));
-          if (!tRes.ok) throw new Error(apiErrorMessage(tData, 'Could not fetch transcript.'));
-
-          item.title = tData.title || item.title;
-          renderPlaylist('Batch digest',
-            job.items.map(it => ({ videoId: it.videoId, title: it.title })),
-            { kind: 'batch', hideDigestAllBtn: true });
-          renderJobProgress();
-
-          const plainText = buildPlainTranscript(tData.segments || []);
-
-          const dRes  = await aiFetch('/api/digest', {
-            text: plainText, length: lengthOpt, format: formatOpt, language: langOpt,
-            title: tData.title || '', videoId,
-          });
-          const dData = await dRes.json().catch(() => ({}));
-          if (!dRes.ok) throw new Error(apiErrorMessage(dData, 'Failed to generate digest.'));
-
-          const saveRes = await Library.saveEntry({
-            url: ytUrl, videoId, title: tData.title || videoId,
-            channel: tData.channel || null, channelUrl: tData.channelUrl || null,
-            segments: tData.segments, digest: dData.digest,
-          });
-          if (!saveRes.ok) throw new Error('Could not save to library.');
-
-          item.status = 'saved';
-          job.saved++;
-        } catch (err) {
-          console.warn('[echo] runWebBatch item error:', videoId, err);
-          item.status = 'failed';
-          job.failed++;
-        }
-
-        job.completed++;
-        renderJobProgress();
-      }
-
-      job.status = 'done';
-      job.currentIndex = -1;
-      playlistJobId = null;
-
-      if (job.failed > 0) {
-        showToast('warning', `Batch digest finished with ${job.failed} failure${job.failed !== 1 ? 's' : ''}.`,
-          `${job.saved} saved, ${job.skipped} skipped.`);
-      } else {
-        showToast('success', `Batch digest complete — ${job.saved} saved, ${job.skipped} skipped.`);
-      }
-
-      loadSaved();
     }
 
     /* ==============================================

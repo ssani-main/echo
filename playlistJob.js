@@ -1,6 +1,6 @@
-// In-memory background job manager for batch playlist digesting.
+// In-memory background job manager for playlist digesting.
 // No external dependencies; jobs live only for the lifetime of the process.
-import { extractPlaylist, fetchTranscript, extractVideoId } from './transcript.js';
+import { extractPlaylist, fetchTranscript } from './transcript.js';
 import { generateDigest, mergeUsage } from './digest.js';
 import { saveEntry, getEntry } from './store.js';
 
@@ -8,12 +8,6 @@ const jobs = new Map();
 let _jobCounter = 0;
 
 const MAX_JOBS = 20;
-
-// Hard cap on how many videos a single multi-paste batch job can enqueue —
-// keeps a single request from fanning out into an unbounded number of
-// Claude CLI calls. Truncated silently (job.truncated=true), not rejected,
-// so a big paste still runs for the first N items.
-const MAX_BATCH_ITEMS = 50;
 
 // Default dependencies, overridable via `startPlaylistDigest(url, opts, deps)`
 // so tests can inject fakes without hitting the network or the Claude CLI.
@@ -49,10 +43,9 @@ function pruneJobs() {
 }
 
 /**
- * Shared job runner: creates the in-memory job record, kicks off the async
- * worker, and returns { jobId } immediately. `resolveVideos()` is the only
- * thing that differs between a playlist job and a batch (multi-paste) job —
- * it must return `{ playlistTitle, videos }` where `videos` is an array of
+ * Job runner: creates the in-memory job record, kicks off the async
+ * worker, and returns { jobId } immediately. `resolveVideos()` must return
+ * `{ playlistTitle, videos }` where `videos` is an array of
  * `{ videoId, title }`.
  *
  * @param {object} jobDefaults - fields to seed onto the job (id/url/kind/etc. already handled by caller)
@@ -211,48 +204,6 @@ export function startPlaylistDigest(url, opts = {}, deps = {}) {
   return startJob(
     { url, kind: 'playlist' },
     () => extractPlaylist(url),
-    opts,
-    deps,
-  );
-}
-
-/**
- * Start a batch digest job over a list of raw pasted URLs/video IDs
- * (as opposed to a single playlist URL). Resolves each item via
- * `extractVideoId`, drops unresolvable ones, dedupes preserving order, and
- * caps the total at `MAX_BATCH_ITEMS` (truncating rather than rejecting, so
- * a big paste still runs for the first N items — `job.truncated` is set
- * when that happens).
- *
- * @param {string[]} items - raw pasted URLs or bare 11-char video IDs
- * @param {{ length?: string, format?: string, language?: string, lang?: string, skipExisting?: boolean, maxItems?: number }} [opts]
- * @param {Partial<typeof defaultDeps>} [deps] Injectable dependencies (tests only; defaults to real implementations)
- * @returns {{ jobId: string }}
- */
-export function startBatchDigest(items, opts = {}, deps = {}) {
-  const seen = new Set();
-  const ids = [];
-  for (const raw of Array.isArray(items) ? items : []) {
-    const videoId = extractVideoId(typeof raw === 'string' ? raw : '');
-    if (!videoId || seen.has(videoId)) continue;
-    seen.add(videoId);
-    ids.push(videoId);
-  }
-
-  if (ids.length === 0) {
-    const err = new Error('No valid YouTube URLs or video IDs were found in the pasted list.');
-    err.echoCode = 'INVALID_URL';
-    throw err;
-  }
-
-  const maxItems = Number.isFinite(opts.maxItems) && opts.maxItems > 0 ? opts.maxItems : MAX_BATCH_ITEMS;
-  const truncated = ids.length > maxItems;
-  const usedIds = truncated ? ids.slice(0, maxItems) : ids;
-  const videos = usedIds.map((videoId) => ({ videoId, title: null }));
-
-  return startJob(
-    { url: null, kind: 'batch', truncated },
-    async () => ({ playlistTitle: null, videos }),
     opts,
     deps,
   );

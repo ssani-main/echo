@@ -31,7 +31,7 @@ import {
 import { entryToMarkdown } from './markdown.js';
 import { syncVault } from './vault.js';
 import { renderSharePage } from './sharepage.js';
-import { startPlaylistDigest, startBatchDigest, getJob, cancelJob } from './playlistJob.js';
+import { startPlaylistDigest, getJob, cancelJob } from './playlistJob.js';
 import {
   generateDigest,
   generateCrossDigest,
@@ -632,29 +632,6 @@ app.post('/api/playlist/digest/cancel', (req, res) => {
   const { jobId } = req.body;
   const ok = cancelJob(jobId);
   return res.json({ cancelled: ok });
-});
-
-// ---------------------------------------------------------------------------
-// Batch digest (multi-paste queue) — local/desktop only. Reuses the same
-// job status/cancel routes as playlist digest above (job shape is identical,
-// distinguished only by `job.kind === 'batch'`).
-// ---------------------------------------------------------------------------
-
-const ECHO_MAX_BATCH_ITEMS = numFromEnv('ECHO_MAX_BATCH_ITEMS', 50, { min: 1 });
-
-app.post('/api/batch/digest', blockInWeb, (req, res) => {
-  const { items, length, format, language, lang, skipExisting } = req.body;
-  if (!Array.isArray(items) || items.length === 0) {
-    return sendError(res, 'INTERNAL', 'A non-empty list of URLs or video IDs is required.', '', 400);
-  }
-  const t0 = Date.now();
-  try {
-    const { jobId } = startBatchDigest(items, { length, format, language, lang, skipExisting, maxItems: ECHO_MAX_BATCH_ITEMS });
-    logEvent('batch-digest', { ok: true, ms: Date.now() - t0 });
-    return res.status(202).json({ jobId });
-  } catch (err) {
-    return sendCaughtError(res, err);
-  }
 });
 
 // ---------------------------------------------------------------------------
