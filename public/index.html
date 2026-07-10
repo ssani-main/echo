@@ -2048,60 +2048,6 @@
     }
 
     /* ==============================================
-       21. AI WORKSPACE — SUB-NAV
-    =============================================== */
-    .ai-subnav {
-      display: inline-flex;
-      align-items: center;
-      background: var(--paper);
-      border: 1px solid var(--rule);
-      border-radius: 999px;
-      padding: 3px;
-      gap: 2px;
-      margin-bottom: var(--space-10);
-      /* Mobile: horizontally scrollable without clipping pills */
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-      flex-wrap: nowrap;
-      max-width: 100%;
-    }
-
-    /* Hide scrollbar on desktop when not needed */
-    .ai-subnav::-webkit-scrollbar { height: 0; }
-
-    .ai-subnav-btn {
-      padding: var(--space-3) var(--space-9);
-      font-family: var(--font-sans);
-      font-size: var(--text-xs);
-      font-weight: 500;
-      letter-spacing: 0.03em;
-      color: var(--muted);
-      background: transparent;
-      border: none;
-      border-radius: 999px;
-      cursor: pointer;
-      outline: none;
-      transition: background 0.12s, color 0.12s, box-shadow 0.12s;
-      white-space: nowrap;
-      flex: 0 0 auto; /* prevent pills from shrinking */
-    }
-
-    .ai-subnav-btn[aria-selected="true"] {
-      background: var(--surface);
-      color: var(--ink);
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.10);
-    }
-
-    .ai-subnav-btn:hover:not([aria-selected="true"]) {
-      color: var(--ink);
-    }
-
-    .ai-subnav-btn:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 1px;
-    }
-
-    /* ==============================================
        22. DIGEST OPTIONS ROW
     =============================================== */
     .digest-opts {
@@ -4532,18 +4478,6 @@
     <!-- DIGEST PANE / AI WORKSPACE -->
     <div id="paneDigest" role="tabpanel" aria-labelledby="tabDigest" hidden>
 
-      <!-- AI Sub-nav (pill segmented control — visually distinct from top-level tabs) -->
-      <div class="ai-subnav" role="tablist" aria-label="AI tools">
-        <button
-          class="ai-subnav-btn"
-          id="aiTabSummary"
-          role="tab"
-          aria-selected="true"
-          aria-controls="aiPanelSummary"
-          tabindex="0"
-        >Summary</button>
-      </div>
-
       <!-- Reading controls (shared with Transcript pane) — same state + localStorage keys,
            so changing size/width here updates the Transcript controls too and vice versa. -->
       <div class="digest-toolbar">
@@ -4570,7 +4504,7 @@
       </div>
 
       <!-- SUMMARY PANEL — existing digest feature + options -->
-      <div id="aiPanelSummary" role="tabpanel" aria-labelledby="aiTabSummary">
+      <div id="aiPanelSummary">
         <!-- Compact options row -->
         <div class="digest-opts">
           <span class="digest-opt-label">Length</span>
@@ -5469,12 +5403,6 @@
     const findPrevBtn           = document.getElementById('findPrevBtn');
     const findNextBtn           = document.getElementById('findNextBtn');
 
-    // AI workspace — sub-nav tabs
-    const aiTabSummary   = document.getElementById('aiTabSummary');
-
-    // AI workspace — panels
-    const aiPanelSummary   = document.getElementById('aiPanelSummary');
-
     // Summary panel controls
     const digestRegenBtn  = document.getElementById('digestRegenBtn');
     const digestLangInput = document.getElementById('digestLangInput');
@@ -5770,7 +5698,6 @@
         topIndicator.setAttribute('role', 'button');
         const activate = () => {
           switchTab('digest');
-          switchAiTool('summary');
           setTopIndicator('idle');
         };
         topIndicator.onclick   = activate;
@@ -7042,8 +6969,6 @@
       usageStatsEl.innerHTML    = '';
       digestDot.style.display   = 'none';
       setTopIndicator('idle');
-      // Return to Summary sub-tab
-      switchAiTool('summary');
       switchTab('transcript');
 
       // Reset language picker for the new video
@@ -7421,39 +7346,6 @@
     }
 
     /* ==============================================
-       AI SUB-NAV SWITCHING
-    =============================================== */
-    function switchAiTool(name) {
-      const tools    = ['summary'];
-      const tabEls   = [aiTabSummary];
-      const panelEls = [aiPanelSummary];
-
-      tools.forEach((t, i) => {
-        const active = t === name;
-        tabEls[i].setAttribute('aria-selected', active ? 'true' : 'false');
-        tabEls[i].tabIndex = active ? 0 : -1;
-        panelEls[i].hidden = !active;
-      });
-    }
-
-    // Sub-nav click + arrow-key roving focus
-    const aiSubTabBtns  = [aiTabSummary];
-    const aiSubTabNames = ['summary'];
-    aiSubTabBtns.forEach((btn, i) => {
-      btn.addEventListener('click', () => switchAiTool(aiSubTabNames[i]));
-      btn.addEventListener('keydown', e => {
-        let next = null;
-        if (e.key === 'ArrowRight') next = (i + 1) % aiSubTabBtns.length;
-        if (e.key === 'ArrowLeft')  next = (i - 1 + aiSubTabBtns.length) % aiSubTabBtns.length;
-        if (next !== null) {
-          e.preventDefault();
-          aiSubTabBtns[next].focus();
-          switchAiTool(aiSubTabNames[next]);
-        }
-      });
-    });
-
-    /* ==============================================
        DIGEST PROGRESS TIMER — live elapsed mm:ss while a digest request is
        in flight, with an honest "large transcript / multiple parts" message
        once estimated transcript size crosses the backend's map-reduce
@@ -7529,9 +7421,8 @@
       const plainText = getTranscriptText();
       const isLargeTranscript = plainText.length > DIGEST_LONG_PATH_THRESHOLD_CHARS;
 
-      // Switch to Digest tab / Summary sub-panel and show loading state
+      // Switch to Digest tab and show loading state
       switchTab('digest');
-      switchAiTool('summary');
       digestEmptySt.classList.add('is-hidden');
       setTopIndicator('digesting');
       startDigestTimer(isLargeTranscript);
@@ -8310,7 +8201,6 @@
         usageStatsEl.innerHTML   = '';
         digestDot.style.display  = 'none';
         setTopIndicator('idle');
-        switchAiTool('summary');
 
         // Restore digest content if it was saved
         if (entry.digest) {
