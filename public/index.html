@@ -1172,9 +1172,8 @@
 
     /* ==============================================
        11b. AI READING TYPOGRAPHY (shared)
-       Applies to every rendered-markdown "reading surface" in the Digest
-       lens: the Summary digest, Ask answers, and the prose bits of
-       Fact-check/Chapters/Quotes. All of it honors --reading-scale
+       Applies to the rendered-markdown "reading surface" in the Digest
+       lens: the Summary digest. It honors --reading-scale
        (A-/A+) and --reading-measure (Narrow/Medium/Wide) set by the
        shared reading controls (see FEATURE A/C, applyReadingStyles()) —
        one preference drives both the Transcript and Digest lenses.
@@ -4328,7 +4327,7 @@
 
     <!-- NEXT-ACTION NUDGE — shown once per session after a transcript loads -->
     <div id="nextActionNudge" class="next-action-nudge" hidden>
-      <span>Tip: generate an AI digest or ask questions in the Digest tab</span>
+      <span>Tip: generate an AI digest in the Digest tab</span>
       <a href="#" id="nextActionNudgeLink">&rarr;</a>
       <button type="button" id="nextActionNudgeDismiss" aria-label="Dismiss tip">&times;</button>
     </div>
@@ -4515,7 +4514,7 @@
             get the transcript and an AI digest. No account needed.</p>
           <!-- Web-mode-only BYOK prompt — populated/shown by initOnboardCard() -->
           <div id="onboardKeyNote" class="onboard-key-note" hidden>
-            <p class="onboard-card-text">AI features (digest, Ask, fact-check) need your own Anthropic
+            <p class="onboard-card-text">AI features (digest and passage lookups) need your own Anthropic
               API key. Your key stays in this browser — Echo only relays it to Anthropic on your behalf
               and never stores it on our servers.</p>
             <div class="onboard-key-actions">
@@ -6632,10 +6631,10 @@
 
     /* ==============================================
        DIGEST SELECTION ENRICH — floating popover (Explain / Background /
-       Verify / Ask) shown when the user selects text inside #digestOutput.
+       Verify) shown when the user selects text inside #digestOutput.
        Verify/Explain/Background results render EPHEMERALLY inside the same
        popover (#enrichToolbarResult) — nothing is persisted, and closing the
-       popover discards the result. Ask keeps routing to the Ask thread.
+       popover discards the result. (Verify is hidden in web mode.)
        This is independent from find-in-transcript and does not touch #output
        state at all.
     =============================================== */
@@ -9484,7 +9483,7 @@
     /* ==============================================
        SESSION RESTORE — snapshot the working session to
        sessionStorage so refreshing the page doesn't lose the
-       loaded transcript / digest / Ask thread.
+       loaded transcript / digest.
     =============================================== */
     const SESSION_KEY = 'echo-session-v1';
 
