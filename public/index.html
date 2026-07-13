@@ -4854,6 +4854,21 @@
       <div id="vaultSyncSection" class="settings-block">
         <span class="settings-toggle-title">Markdown vault</span>
 
+        <!-- Folder-picker sync — all modes, Chromium only (File System Access API).
+             Reads the active library (server in local/desktop, IndexedDB in web)
+             and writes each entry as Markdown into a folder you pick. -->
+        <div id="vaultFolderSync" hidden>
+          <p class="settings-note">
+            Sync your whole library into an Obsidian vault — an Obsidian vault is just a
+            folder of Markdown files. Pick an existing vault folder, or create a new
+            (empty) folder to start one.
+          </p>
+          <p id="vaultWebSyncStatus" class="settings-note" aria-live="polite"></p>
+          <div class="settings-actions">
+            <button class="mini-btn" id="vaultFolderSyncBtn">Sync to vault folder…</button>
+          </div>
+        </div>
+
         <div id="vaultSyncLocal">
           <label class="digest-opt-label" for="vaultDirInput">Vault folder path</label>
           <input
@@ -4873,14 +4888,8 @@
         </div>
 
         <div id="vaultSyncWeb" hidden>
-          <p class="settings-note">
-            Sync your saved library straight into an Obsidian vault — an Obsidian vault is
-            just a folder of Markdown files. Pick an existing vault folder, or create a new
-            (empty) folder to start one.
-          </p>
-          <p id="vaultWebSyncStatus" class="settings-note" aria-live="polite"></p>
+          <p class="settings-note">Or download your whole library as a Markdown ZIP.</p>
           <div class="settings-actions">
-            <button class="mini-btn" id="vaultFolderSyncBtn" hidden>Sync to vault folder…</button>
             <button class="mini-btn" id="vaultZipBtn">Download vault (.zip)</button>
           </div>
           <label class="digest-opt-label" for="obsidianVaultNameInput">Obsidian vault name (optional)</label>
@@ -9028,6 +9037,7 @@
     const vaultZipBtnEl      = document.getElementById('vaultZipBtn');
     const vaultFolderSyncBtnEl  = document.getElementById('vaultFolderSyncBtn');
     const vaultWebSyncStatusEl  = document.getElementById('vaultWebSyncStatus');
+    const vaultFolderSyncEl     = document.getElementById('vaultFolderSync');
     const obsidianVaultNameInputEl = document.getElementById('obsidianVaultNameInput');
 
     /* ==============================================
@@ -9164,8 +9174,18 @@
           }
         }
 
-        const msg = `Synced ${entries.length} to "${handle.name}": ${written} written, ${unchanged} unchanged` +
-          (failed ? `, ${failed} failed` : '') + '.';
+        let msg;
+        if (entries.length === 0) {
+          msg = 'No saved entries to sync yet.';
+        } else if (written === 0 && failed === 0) {
+          msg = `Vault already up to date — ${unchanged} file${unchanged === 1 ? '' : 's'} in "${handle.name}", nothing changed.`;
+        } else {
+          const parts = [];
+          if (written)   parts.push(`${written} written`);
+          if (unchanged) parts.push(`${unchanged} unchanged`);
+          if (failed)    parts.push(`${failed} failed`);
+          msg = `Synced ${entries.length} to "${handle.name}": ${parts.join(', ')}.`;
+        }
         setVaultWebStatus(msg);
         setVaultLastSync({ when: new Date().toISOString(), total: entries.length, written, unchanged, failed });
       } catch (err) {
@@ -9289,16 +9309,16 @@
       setObsidianVaultName(obsidianVaultNameInputEl.value.trim());
     });
 
-    // Vault sync UI: filesystem path in local/desktop, ZIP export (+ optional
-    // folder sync / Obsidian deep-link) in web (hosted mode has no
-    // server-side filesystem to sync into — everything below is client-side).
+    // Folder-picker sync (File System Access API) is Chromium-only but works in
+    // EVERY mode — it reads the active Library (server in local/desktop,
+    // IndexedDB in web) and writes client-side via the picked directory handle.
+    // Show it wherever the API exists; the typed-path (local) and ZIP (web)
+    // blocks below remain as the non-Chromium fallbacks.
+    if (vaultFolderSyncEl) vaultFolderSyncEl.hidden = !('showDirectoryPicker' in window);
+
     if (ECHO.mode === 'web') {
       if (vaultSyncLocalEl) vaultSyncLocalEl.hidden = true;
       if (vaultSyncWebEl) vaultSyncWebEl.hidden = false;
-      // File System Access API is Chromium-only — offer the folder-sync
-      // button only where it will actually work; ZIP export is the
-      // universal fallback everywhere else.
-      if (vaultFolderSyncBtnEl) vaultFolderSyncBtnEl.hidden = !('showDirectoryPicker' in window);
       if (obsidianVaultNameInputEl) obsidianVaultNameInputEl.value = getObsidianVaultName();
     } else {
       if (vaultSyncLocalEl) vaultSyncLocalEl.hidden = false;
