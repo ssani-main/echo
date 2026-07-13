@@ -2067,6 +2067,18 @@
       color: var(--muted);
     }
 
+    .digest-visuals-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+
+    .digest-visuals-toggle input {
+      accent-color: var(--accent);
+      margin: 0;
+    }
+
     /* Mini segmented toggle — mirrors .view-toggle at a smaller scale */
     .digest-seg {
       display: inline-flex;
@@ -2564,6 +2576,7 @@
     .discovery-chips[hidden],
     #paneInbox .empty-state[hidden],
     .share-result[hidden],
+    .digest-visuals-toggle[hidden],
     .mini-btn[hidden] {
       display: none !important;
     }
@@ -4540,6 +4553,10 @@
             placeholder="English"
             aria-label="Language for digest output"
           />
+          <label class="digest-opt-label digest-visuals-toggle" id="digestVisualsWrap" title="Also read still frames from the video (slides, charts, on-screen text) so the digest can capture what the transcript can't. Local/desktop only; adds time.">
+            <input type="checkbox" id="digestVisualsToggle" name="digestVisuals" />
+            Include visuals
+          </label>
           <button
             id="digestRegenBtn"
             class="mini-btn"
@@ -6494,6 +6511,17 @@
       syncReadingControls();
     })();
 
+    // Init: restore the persisted "Include visuals" digest toggle. Null-safe —
+    // the control can be hidden/absent (web mode).
+    (function initDigestVisualsToggle() {
+      const toggle = document.getElementById('digestVisualsToggle');
+      if (!toggle) return;
+      toggle.checked = localStorage.getItem('echo-visuals-enabled') === '1';
+      toggle.addEventListener('change', () => {
+        localStorage.setItem('echo-visuals-enabled', toggle.checked ? '1' : '0');
+      });
+    })();
+
     // Font-size buttons — wired for every cluster on the page (Transcript + Digest)
     document.querySelectorAll('[data-reading-action="dec"]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -7410,6 +7438,7 @@
       const lengthOpt = document.querySelector('input[name="digestLength"]:checked')?.value || 'detailed';
       const formatOpt = document.querySelector('input[name="digestFormat"]:checked')?.value || 'digest';
       const langOpt   = digestLangInput.value.trim() || 'English';
+      const visualsOpt = !!document.getElementById('digestVisualsToggle')?.checked;
 
       digestBtn.disabled      = true;
       digestRegenBtn.disabled = true;
@@ -7428,7 +7457,7 @@
       startDigestTimer(isLargeTranscript);
 
       try {
-        const res  = await aiFetch('/api/digest', { text: plainText, length: lengthOpt, format: formatOpt, language: langOpt, title: (currentMeta && currentMeta.title) || '', videoId: (currentMeta && currentMeta.videoId) || undefined });
+        const res  = await aiFetch('/api/digest', { text: plainText, length: lengthOpt, format: formatOpt, language: langOpt, title: (currentMeta && currentMeta.title) || '', videoId: (currentMeta && currentMeta.videoId) || undefined, includeVisuals: visualsOpt });
         const data = await res.json();
 
         if (!res.ok) {
@@ -7442,9 +7471,11 @@
         }
 
         // Render digest content
-        digestOutput.innerHTML =
-          '<div class="digest-eyebrow">AI Digest</div>' +
-          renderMarkdown(data.digest);
+        const framesUsed = Number(data.visualFrames) || 0;
+        const eyebrow = framesUsed > 0
+          ? '<div class="digest-eyebrow">AI Digest · read ' + framesUsed + ' on-screen frame' + (framesUsed === 1 ? '' : 's') + '</div>'
+          : '<div class="digest-eyebrow">AI Digest</div>';
+        digestOutput.innerHTML = eyebrow + renderMarkdown(data.digest);
         digestOutput.classList.add('visible');
 
         // Capture digest text so Save can include it
@@ -10368,6 +10399,9 @@
       // these buttons rather than being overridden by the mini-btn display.
       if (digestVerifyBtn) digestVerifyBtn.hidden = true;
       if (enrichBtnFactcheck) enrichBtnFactcheck.hidden = true;
+      // Frames are disabled server-side in web mode — hide the toggle entirely.
+      const digestVisualsWrap = document.getElementById('digestVisualsWrap');
+      if (digestVisualsWrap) digestVisualsWrap.hidden = true;
     }
     if (ECHO.mode === 'web') {
       // Channel following's backend routes 503 in web mode — hide every entry point.

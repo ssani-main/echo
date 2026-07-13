@@ -10,6 +10,7 @@ import {
   listCaptionTracks,
   extractPlaylist,
 } from './transcript.js';
+import { extractFrames, cleanupFrames, mapFramesError } from './frames.js';
 import {
   listEntries,
   getEntry,
@@ -217,6 +218,10 @@ const ECHO_ERROR_STATUS = {
   API_RATE_LIMITED:       429,
   API_FAILED:             502,
   WEB_MODE_UNSUPPORTED:   503,
+  FFMPEG_MISSING:  503,
+  VIDEO_TOO_LONG:  422,
+  FRAMES_FAILED:   502,
+  FRAMES_TIMEOUT:  504,
 };
 
 /**
@@ -672,19 +677,41 @@ async function suggestTagsBestEffort(text, { apiKey, language, videoId } = {}) {
   }
 }
 
+async function extractFramesBestEffort(videoId) {
+  const t0 = Date.now();
+  try {
+    const { dir, frames, count } = await extractFrames(videoId);
+    logEvent('frames-extract', { videoId, count, ok: true, ms: Date.now() - t0 });
+    return { dir, items: frames, count };
+  } catch (err) {
+    const mapped = mapFramesError(err);
+    logEvent('frames-extract', { videoId, ok: false, err: mapped.echoCode, ms: Date.now() - t0 });
+    return null;
+  }
+}
+
 app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
-  const { text, length, format, language, title, videoId } = req.body;
+  const { text, length, format, language, title, videoId, includeVisuals } = req.body;
 
   if (!requireText(res, text, 'No transcript text provided.', 'Load a transcript before generating a digest.')) return;
 
   if (rejectOversizeAiPayload(res, { text })) return;
   if (requireWebKey(req, res)) return;
 
+  // Frames are local/desktop only (heavy: video download + ffmpeg + multi-image digest) and need a videoId to fetch.
+  const wantVisuals = includeVisuals === true && !isWeb && typeof videoId === 'string' && /^[A-Za-z0-9_-]{11}$/.test(videoId);
+
   const t0 = Date.now();
   const apiKey = readApiKey(req);
+  let frameset = null;
   try {
+    if (wantVisuals) frameset = await extractFramesBestEffort(videoId);
+
     const [result, suggestedTags] = await Promise.all([
-      generateDigest(text, { length, format, language, title, apiKey }),
+      generateDigest(text, {
+        length, format, language, title, apiKey,
+        ...(frameset ? { frames: { dir: frameset.dir, items: frameset.items } } : {}),
+      }),
       suggestTagsBestEffort(text, { apiKey, language, videoId }),
     ]);
     logEvent('digest', {
@@ -696,12 +723,15 @@ app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
       costUsd: result.usage && result.usage.costUsd,
       tokIn: result.usage && result.usage.inputTokens,
       tokOut: result.usage && result.usage.outputTokens,
+      visualFrames: result.visualFrames || 0,
       ok: true, ms: Date.now() - t0,
     });
     return res.json({ ...result, suggestedTags });
   } catch (err) {
     logEvent('digest', { videoId: videoId || null, chars: (text || '').length, length, format, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);
+  } finally {
+    if (frameset) await cleanupFrames(frameset.dir);
   }
 });
 

@@ -20,10 +20,39 @@ const ISOLATED_SYSTEM_PROMPT =
   'Follow the instructions in the user message exactly and return only the requested output as Markdown. ' +
   'Do not add meta-commentary, do not ask questions, and never mention sessions, memory, files, tools, or any workspace or project.';
 
+// Frames variant of ISOLATED_SYSTEM_PROMPT — used only when a digest call
+// includes on-screen video frames for the CLI to Read. Kept free of cmd.exe
+// metacharacters (& | < > ^ % ") just like ISOLATED_SYSTEM_PROMPT, so it
+// survives the Windows `cmd.exe /c claude …` spawn path unescaped.
+const ISOLATED_SYSTEM_PROMPT_FRAMES =
+  'You are a precise summarization and digest engine for video transcripts and their on-screen frames. ' +
+  'Use the Read tool to view the provided frame image files, then follow the instructions in the user message exactly ' +
+  'and return only the requested digest as Markdown. ' +
+  'Do not add meta-commentary about your process, do not ask questions, and never mention sessions, memory, or the workspace.';
+
 const CLAUDE_ARGS = [
   '-p', '--model', 'sonnet', '--output-format', 'json',
   '--system-prompt', ISOLATED_SYSTEM_PROMPT,
 ];
+
+/**
+ * Builds the CLI args array for a `claude -p` invocation. When `framesDir`
+ * is supplied, swaps in the frames-aware system prompt and grants the CLI
+ * Read access to that directory (via --allowedTools/--add-dir) so it can
+ * view the sampled video frames. With no framesDir, returns the exact same
+ * array as the module-level CLAUDE_ARGS — the text-only path is unchanged.
+ *
+ * @param {{ framesDir?: string }} [opts]
+ * @returns {string[]}
+ */
+function buildClaudeArgs({ framesDir } = {}) {
+  if (!framesDir) return CLAUDE_ARGS;
+  return [
+    '-p', '--model', 'sonnet', '--output-format', 'json',
+    '--system-prompt', ISOLATED_SYSTEM_PROMPT_FRAMES,
+    '--allowedTools', 'Read', '--add-dir', framesDir,
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // Map-reduce chunking constants
@@ -44,12 +73,13 @@ const CHUNK_CONTENT_CHARS = 360_000; // ~90 k tokens per chunk
 // directly without shell:true. Instead, we invoke cmd.exe explicitly so we
 // keep shell:false on the spawn call itself (no deprecation warning) while
 // still being able to find the .cmd shim on PATH.
-export function buildSpawnTarget() {
+export function buildSpawnTarget(opts = {}) {
+  const args = buildClaudeArgs(opts);
   if (process.platform === 'win32') {
     const comspec = process.env.ComSpec || 'cmd.exe';
-    return { exe: comspec, args: ['/c', 'claude', ...CLAUDE_ARGS] };
+    return { exe: comspec, args: ['/c', 'claude', ...args] };
   }
-  return { exe: 'claude', args: CLAUDE_ARGS };
+  return { exe: 'claude', args };
 }
 
 // ---------------------------------------------------------------------------
@@ -183,11 +213,12 @@ export function parseJsonLoose(str) {
  * plus a mapped usage object.
  *
  * @param {string} prompt
- * @param {{ timeoutMs?: number }} [opts]
+ * @param {{ timeoutMs?: number, framesDir?: string }} [opts]
  * @returns {Promise<{ result: string, usage: object }>}
  */
-export async function runClaude(prompt, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
-  const { exe, args } = buildSpawnTarget();
+export async function runClaude(prompt, opts = {}) {
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, framesDir } = opts;
+  const { exe, args } = buildSpawnTarget({ framesDir });
   const isWin = process.platform === 'win32';
 
   return new Promise((resolve, reject) => {
@@ -198,8 +229,10 @@ export async function runClaude(prompt, { timeoutMs = DEFAULT_TIMEOUT_MS } = {})
       stdio: ['pipe', 'pipe', 'pipe'],
       // Run from the OS temp dir, not the project dir, so the CLI does not
       // auto-load this project's Claude Code memory or a project CLAUDE.md
-      // (which would leak workspace context into the digest output).
-      cwd: tmpdir(),
+      // (which would leak workspace context into the digest output). When
+      // frames are involved, framesDir is itself under the OS temp dir (see
+      // frames.js), so isolation is preserved.
+      cwd: framesDir || tmpdir(),
       // On non-Windows, run in its own process group so we can kill the
       // whole tree (child + any grandchildren) on timeout via a negative pid.
       ...(isWin ? {} : { detached: true }),
@@ -432,6 +465,36 @@ function languageDirective(language) {
     return 'Answer in English using concise Markdown.';
   }
   return `Answer in ${trimmed} using concise Markdown.`;
+}
+
+/**
+ * Builds the prompt block instructing the model to view and ground itself in
+ * the sampled video frames saved alongside the CLI's working directory
+ * (see buildClaudeArgs' --add-dir). Only used on the single-shot fast path.
+ * Kept free of cmd.exe metacharacters (& | < > ^ % ") for the same reason as
+ * ISOLATED_SYSTEM_PROMPT.
+ *
+ * @param {number} count
+ * @returns {string}
+ */
+function buildFramePromptBlock(count) {
+  const last = 'frame-' + String(count).padStart(3, '0') + '.jpg';
+  return (
+    `\n\nYou ALSO have ${count} still frames sampled from this video, saved as image files ` +
+    `frame-001.jpg through ${last} in your current working directory, in chronological order. ` +
+    `FIRST use the Read tool to view ALL ${count} frames. They show what was ON SCREEN — charts, prices, slides, ` +
+    `code, UI, product screenshots, and on-screen text — which the transcript's spoken words point at but usually ` +
+    `do NOT state. This on-screen detail is the main reason the digest can beat the transcript alone, so USE IT. ` +
+    `Numbers you can read are the highest-value, lowest-risk detail: whenever a frame clearly shows an exact price, ` +
+    `percentage, stat, metric, count, or date the transcript lacks, WORK IT INTO the digest and prefer that ` +
+    `specific figure over a vague paraphrase ("+23% sign-ups", not "more sign-ups"). ` +
+    `Be much stricter with NAMES: only name an app, company, product, or person if that name is plainly printed on ` +
+    `a frame or stated in the transcript. Do NOT infer a name from a logo you cannot read, from an app's look, or ` +
+    `from your own outside knowledge — recognizing a spin-wheel or a paywall style is NOT a licence to name the app. ` +
+    `Overall accuracy rule: state only what you can actually READ in a frame or that appears in the transcript; if ` +
+    `text is illegible or a frame is generic, leave it out rather than guessing, and never write "(referred to as X ` +
+    `in the transcript)" unless X is plainly what a frame shows.`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -688,22 +751,31 @@ export async function generateDigest(transcriptText, opts = {}) {
   }
 
   // --- Fast path ---
+  // Optional multimodal grounding: still frames sampled from the video.
+  // Only applies to the single-shot fast path (long/map-reduce videos fall
+  // back to text-only).
+  const frames = opts.frames && Array.isArray(opts.frames.items) && opts.frames.items.length
+    ? opts.frames
+    : null;
+  const frameBlock = frames ? buildFramePromptBlock(frames.items.length) : '';
+
   // Article and digest modes use their own self-contained instructions
   // (already include the language directive) instead of the generic
   // summary-oriented prefix below.
   const prompt =
     format === 'article' || format === 'digest'
-      ? `Write your entire response in ${language}, regardless of what language the transcript is in.\n\n${titleContext}${structureInstructions}\n\nHere is the transcript:\n\n${transcriptText}`
+      ? `Write your entire response in ${language}, regardless of what language the transcript is in.\n\n${titleContext}${structureInstructions}${frameBlock}\n\nHere is the transcript:\n\n${transcriptText}`
       : 'You are given the raw auto-generated transcript of a YouTube video. ' +
         'It may be in any language. ' +
         `Write your entire response in ${language}. ` +
         titleContext +
         structureInstructions +
+        frameBlock +
         '\n\nHere is the transcript:\n\n' +
         transcriptText;
 
-  const { result, usage } = await callProvider(prompt, opts);
-  return { digest: result, usage, strategy: 'single' };
+  const { result, usage } = await callProvider(prompt, { ...opts, frames });
+  return { digest: result, usage, strategy: 'single', visualFrames: frames ? frames.items.length : 0 };
 }
 
 /**

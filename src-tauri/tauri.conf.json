@@ -44,6 +44,7 @@
       "../digest.js": "digest.js",
       "../providers.js": "providers.js",
       "../transcript.js": "transcript.js",
+      "../frames.js": "frames.js",
       "../store.js": "store.js",
       "../markdown.js": "markdown.js",
       "../vault.js": "vault.js",
