@@ -5,7 +5,7 @@
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { listEntries, getEntry } from './store.js';
-import { entryToMarkdown } from './markdown.js';
+import { entryToMarkdown, extractSummary, buildVaultIndex } from './markdown.js';
 
 const MAX_SLUG_LEN = 60;
 const VIDEO_ID_RE = /^[A-Za-z0-9_-]{1,20}$/;
@@ -37,7 +37,7 @@ export function slugify(str) {
  *
  * @param {string} dir - target directory (created if missing)
  * @param {{ includeTranscript?: boolean }} [opts]
- * @returns {Promise<{ dir: string, total: number, written: number, unchanged: number, failed: number }>}
+ * @returns {Promise<{ dir: string, total: number, written: number, unchanged: number, failed: number, index: string }>}
  */
 export async function syncVault(dir, opts = {}) {
   if (typeof dir !== 'string' || !dir.trim()) {
@@ -55,6 +55,7 @@ export async function syncVault(dir, opts = {}) {
   let written = 0;
   let unchanged = 0;
   let failed = 0;
+  const indexItems = [];
 
   for (const meta of metas) {
     try {
@@ -71,6 +72,14 @@ export async function syncVault(dir, opts = {}) {
       }
 
       const filename = `${slugify(entry.title || videoId)}-${videoId}.md`;
+      indexItems.push({
+        link: filename.replace(/\.md$/, ''),
+        title: entry.title || videoId,
+        savedAt: entry.savedAt || '',
+        tags: Array.isArray(entry.tags) ? entry.tags.filter(Boolean) : [],
+        summary: extractSummary(entry.digest),
+      });
+
       const md = entryToMarkdown(entry, { includeTranscript });
       const filePath = join(target, filename);
 
@@ -94,5 +103,25 @@ export async function syncVault(dir, opts = {}) {
     }
   }
 
-  return { dir: target, total: metas.length, written, unchanged, failed };
+  let index = 'skipped';
+  if (indexItems.length > 0) {
+    const indexMd = buildVaultIndex(indexItems);
+    const indexPath = join(target, 'Echo Library.md');
+    let existingIndex = null;
+    if (existsSync(indexPath)) {
+      try {
+        existingIndex = readFileSync(indexPath, 'utf8');
+      } catch {
+        existingIndex = null;
+      }
+    }
+    if (existingIndex === indexMd) {
+      index = 'unchanged';
+    } else {
+      writeFileSync(indexPath, indexMd, 'utf8');
+      index = 'written';
+    }
+  }
+
+  return { dir: target, total: metas.length, written, unchanged, failed, index };
 }

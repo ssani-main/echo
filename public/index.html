@@ -4892,6 +4892,11 @@
           <div class="settings-actions">
             <button class="mini-btn" id="vaultZipBtn">Download vault (.zip)</button>
           </div>
+        </div>
+
+        <!-- Obsidian vault name — used by the per-note "Send to Obsidian" deep-link
+             on each saved entry. Shared across all modes (not gated). -->
+        <div id="obsidianDeepLink">
           <label class="digest-opt-label" for="obsidianVaultNameInput">Obsidian vault name (optional)</label>
           <input
             id="obsidianVaultNameInput"
@@ -4901,8 +4906,8 @@
             placeholder="My Vault"
           />
           <p class="settings-note">
-            Used by the per-note "Send to Obsidian" button. Leave blank to use whichever
-            vault is currently open in the Obsidian app.
+            Used by the per-note "Send to Obsidian" button on each saved entry. Leave
+            blank to use whichever vault is currently open in the Obsidian app.
           </p>
         </div>
       </div>
@@ -5007,11 +5012,152 @@
        matches the template that was previously inlined in
        exportSavedLibrary() before this extraction.
     =============================================== */
+    // YAML-escape a scalar for use inside a double-quoted frontmatter value.
+    const escapeYamlClient = (s) => String(s || '').replace(/"/g, '\\"');
+
+    /**
+     * Client-side mirror of markdown.js's extractSummary() — prefers a
+     * "## TL;DR" section, falls back to the first non-heading paragraph.
+     * Kept byte-for-byte in sync with the server algorithm.
+     */
+    function extractSummaryClient(digest, maxLen = 240) {
+      const text = String(digest || '').trim();
+      if (!text) return '';
+
+      const lines = text.split('\n');
+      const tldrRe = /^#{1,6}\s*tl;?dr/i;
+      const headingRe = /^#{1,6}\s/;
+
+      let collected = [];
+      const tldrIdx = lines.findIndex((l) => tldrRe.test(l.trim()));
+      if (tldrIdx !== -1) {
+        for (let i = tldrIdx + 1; i < lines.length; i++) {
+          const line = lines[i];
+          if (!line.trim()) break;
+          if (headingRe.test(line.trim())) break;
+          collected.push(line);
+        }
+      } else {
+        let started = false;
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!started) {
+            if (!trimmed) continue;
+            if (headingRe.test(trimmed)) continue;
+            started = true;
+            collected.push(line);
+          } else {
+            if (!trimmed) break;
+            if (headingRe.test(trimmed)) break;
+            collected.push(line);
+          }
+        }
+      }
+
+      let summary = collected
+        .join(' ')
+        .replace(/[*_`>#]/g, '')
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (summary.length > maxLen) {
+        summary = summary.slice(0, maxLen - 1).trimEnd() + '…';
+      }
+
+      return summary;
+    }
+
+    const MONTHS_CLIENT = ['January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'];
+
+    function wikilinkAliasClient(title) {
+      return String(title || '').replace(/[[\]]/g, '').replace(/\|/g, '-');
+    }
+
+    /**
+     * Client-side mirror of markdown.js's buildVaultIndex() — renders the
+     * "Echo Library.md" dashboard note. Kept byte-for-byte in sync with the
+     * server algorithm.
+     */
+    function buildVaultIndexClient(items) {
+      const list = Array.isArray(items) ? items : [];
+      const lines = [];
+      lines.push('---', 'title: Echo Library', 'tags: [echo/index]', '---', '');
+      lines.push('# Echo Library', '');
+      lines.push('`' + list.length + ' saved video' + (list.length === 1 ? '' : 's') + '`', '');
+
+      // By date
+      const buckets = new Map();
+      for (const item of list) {
+        let label = 'Undated', year = -Infinity, month = -Infinity;
+        const d = item.savedAt ? new Date(item.savedAt) : null;
+        if (d && !isNaN(d.getTime())) { year = d.getUTCFullYear(); month = d.getUTCMonth(); label = MONTHS_CLIENT[month] + ' ' + year; }
+        if (!buckets.has(label)) buckets.set(label, { year, month, items: [] });
+        buckets.get(label).items.push(item);
+      }
+      const bucketLabels = Array.from(buckets.keys()).sort((a, b) => {
+        if (a === 'Undated') return 1; if (b === 'Undated') return -1;
+        const ba = buckets.get(a), bb = buckets.get(b);
+        if (ba.year !== bb.year) return bb.year - ba.year;
+        return bb.month - ba.month;
+      });
+      lines.push('## By date', '');
+      for (const label of bucketLabels) {
+        const sorted = [...buckets.get(label).items];
+        if (label !== 'Undated') sorted.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
+        lines.push('### ' + label, '');
+        for (const item of sorted) {
+          const alias = wikilinkAliasClient(item.title);
+          lines.push('- [[' + item.link + '|' + alias + ']]' + (item.summary ? ' — ' + item.summary : ''));
+        }
+        lines.push('');
+      }
+
+      // By topic (clusters of >= 2 only)
+      const tagMap = new Map();
+      for (const item of list) {
+        const tags = Array.isArray(item.tags) ? item.tags.filter(Boolean) : [];
+        for (const tag of tags) { if (!tagMap.has(tag)) tagMap.set(tag, []); tagMap.get(tag).push(item); }
+      }
+      const clustered = Array.from(tagMap.keys()).filter((t) => tagMap.get(t).length >= 2);
+      if (clustered.length) {
+        const tagNames = clustered.sort((a, b) => { const ca = tagMap.get(a).length, cb = tagMap.get(b).length; if (ca !== cb) return cb - ca; return a.localeCompare(b); });
+        lines.push('## By topic', '');
+        for (const tag of tagNames) {
+          const members = [...tagMap.get(tag)].sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
+          lines.push('- **' + tag + '** (' + members.length + ')');
+          for (const item of members) lines.push('  - [[' + item.link + '|' + wikilinkAliasClient(item.title) + ']]');
+        }
+        lines.push('');
+      }
+
+      // All notes
+      lines.push('## All notes', '');
+      const allSorted = [...list].sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
+      for (const item of allSorted) lines.push('- [[' + item.link + '|' + wikilinkAliasClient(item.title) + ']]');
+
+      return lines.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '') + '\n';
+    }
+
     function entryToMarkdownClient(entry, opts = {}) {
       const includeTranscript = opts.includeTranscript !== false;
       const e = entry || {};
+      const title = e.title || e.videoId || 'Untitled';
       const safeSrc = safeHttpUrl(e.url);
-      let md = `# ${e.title || e.videoId}\n\n${safeSrc ? `Source: ${safeSrc}\n\n` : ''}`;
+      const tags = Array.isArray(e.tags) ? e.tags.filter(Boolean) : [];
+
+      const fm = ['---'];
+      fm.push(`title: "${escapeYamlClient(title)}"`);
+      if (safeSrc) fm.push(`url: "${escapeYamlClient(safeSrc)}"`);
+      fm.push(`videoId: "${escapeYamlClient(e.videoId || '')}"`);
+      if (tags.length) fm.push(`tags: [${tags.map((t) => `"${escapeYamlClient(t)}"`).join(', ')}]`);
+      const summary = extractSummaryClient(e.digest);
+      if (summary) fm.push(`summary: "${escapeYamlClient(summary)}"`);
+      fm.push(`savedAt: "${escapeYamlClient(e.savedAt || '')}"`);
+      fm.push('---', '');
+
+      let md = fm.join('\n') + `# ${title}\n\n${safeSrc ? `Source: ${safeSrc}\n\n` : ''}`;
 
       if (e.digest) {
         md += `## AI digest\n\n${e.digest}\n\n`;
@@ -7773,15 +7919,14 @@
                    data-title="${escapeAttr(title)}"
                    aria-label="Export ${escapeAttr(title)} as Markdown">⬇ .md</button>`;
 
-        // "Send to Obsidian" deep-link button — web mode only (local/desktop
-        // already has full-vault sync via #vaultSyncBtn, so a per-note
-        // shortcut isn't needed there and would just clutter the card).
-        const obsidianBtn = ECHO.mode === 'web'
-          ? `<button class="saved-obsidian-btn"
-                     data-videoid="${escapeAttr(entry.videoId)}"
-                     data-title="${escapeAttr(title)}"
-                     aria-label="Send ${escapeAttr(title)} to Obsidian">Send to Obsidian</button>`
-          : '';
+        // "Send to Obsidian" deep-link button — shown in all modes. Opens the
+        // entry as a new note in Obsidian via the obsidian://new URI (digest-only,
+        // length-guarded); complements full-vault sync for one-off pushes.
+        const obsidianBtn =
+          `<button class="saved-obsidian-btn"
+                   data-videoid="${escapeAttr(entry.videoId)}"
+                   data-title="${escapeAttr(title)}"
+                   aria-label="Send ${escapeAttr(title)} to Obsidian">Send to Obsidian</button>`;
 
         // Compare-mode checkbox — hidden via CSS until compareMode is active
         const compareCheck =
@@ -7878,7 +8023,7 @@
         });
       });
 
-      // Send-to-Obsidian buttons (web mode only — see obsidianBtn above)
+      // Send-to-Obsidian buttons (all modes — see obsidianBtn above)
       savedOutput.querySelectorAll('.saved-obsidian-btn').forEach(btn => {
         btn.addEventListener('click', e => {
           e.stopPropagation();
@@ -9149,11 +9294,20 @@
         const data = await res.json();
         entries    = Array.isArray(data.entries) ? data.entries : [];
 
+        const indexItems = [];
         for (const entry of entries) {
           try {
             const slug = slugify(entry.title || entry.videoId) || entry.videoId;
             const name = `${slug}-${entry.videoId}.md`;
             const md   = entryToMarkdownClient(entry);
+
+            indexItems.push({
+              link: `${slug}-${entry.videoId}`,
+              title: entry.title || entry.videoId,
+              savedAt: entry.savedAt || '',
+              tags: Array.isArray(entry.tags) ? entry.tags.filter(Boolean) : [],
+              summary: extractSummaryClient(entry.digest),
+            });
 
             const fh = await handle.getFileHandle(name, { create: true });
             let existingText = null;
@@ -9171,6 +9325,22 @@
           } catch (entryErr) {
             console.error('[echo] vault folder sync entry error:', entryErr);
             failed++;
+          }
+        }
+
+        if (indexItems.length > 0) {
+          try {
+            const indexMd = buildVaultIndexClient(indexItems);
+            const idxFh = await handle.getFileHandle('Echo Library.md', { create: true });
+            let existingIdx = null;
+            try { existingIdx = await (await idxFh.getFile()).text(); } catch { existingIdx = null; }
+            if (existingIdx !== indexMd) {
+              const w = await idxFh.createWritable();
+              await w.write(indexMd);
+              await w.close();
+            }
+          } catch (idxErr) {
+            console.error('[echo] vault index note error:', idxErr);
           }
         }
 

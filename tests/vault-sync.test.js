@@ -47,6 +47,15 @@ test('syncVault writes one .md per entry with the expected idempotent filename',
   assert.match(contents, /a short digest/);
 });
 
+test('syncVault writes an Echo Library.md index note linking each entry', async () => {
+  const result = await syncVault(VAULT_DIR);
+  assert.ok(['written', 'unchanged'].includes(result.index));
+  const idxPath = join(VAULT_DIR, 'Echo Library.md');
+  const idx = readFileSync(idxPath, 'utf8');
+  assert.match(idx, /# Echo Library/);
+  assert.match(idx, /\[\[.*vaultVid1\|My Great Video!!\]\]/);
+});
+
 test('a second sync with no changes reports files as unchanged, not written', async () => {
   const result = await syncVault(VAULT_DIR);
   assert.equal(result.total, 1);
