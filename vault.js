@@ -30,6 +30,22 @@ export function slugify(str) {
 }
 
 /**
+ * Bucket an entry into a `YYYY-MM` subfolder by its save date (UTC) so the
+ * vault's file tree stays browsable instead of a flat wall. Invalid/missing
+ * dates go to an `Undated` folder. Returns a single path-safe segment.
+ *
+ * @param {string} savedAt - ISO date string
+ * @returns {string}
+ */
+export function monthFolder(savedAt) {
+  const d = savedAt ? new Date(savedAt) : null;
+  if (!d || isNaN(d.getTime())) return 'Undated';
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+/**
  * Sync the full saved library to `dir` as one Markdown file per entry.
  * Idempotent: re-running with no changes reports files as `unchanged`
  * rather than rewriting them. Never aborts on a single bad entry — those
@@ -81,7 +97,9 @@ export async function syncVault(dir, opts = {}) {
       });
 
       const md = entryToMarkdown(entry, { includeTranscript });
-      const filePath = join(target, filename);
+      const subDir = join(target, monthFolder(entry.savedAt));
+      mkdirSync(subDir, { recursive: true });
+      const filePath = join(subDir, filename);
 
       let existingContents = null;
       if (existsSync(filePath)) {

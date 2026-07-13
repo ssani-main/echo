@@ -9277,6 +9277,18 @@
     }
 
     /** Writes every saved entry as a Markdown file into the given directory handle. */
+    /**
+     * Client-side mirror of vault.js's monthFolder() — groups notes into a
+     * YYYY-MM subfolder by save date so the vault file tree stays browsable.
+     */
+    function monthFolderClient(savedAt) {
+      const d = savedAt ? new Date(savedAt) : null;
+      if (!d || isNaN(d.getTime())) return 'Undated';
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+      return `${y}-${m}`;
+    }
+
     async function runVaultFolderSync(handle) {
       const granted = await ensureVaultPermission(handle);
       if (!granted) {
@@ -9309,7 +9321,9 @@
               summary: extractSummaryClient(entry.digest),
             });
 
-            const fh = await handle.getFileHandle(name, { create: true });
+            const sub = monthFolderClient(entry.savedAt);
+            const dirHandle = await handle.getDirectoryHandle(sub, { create: true });
+            const fh = await dirHandle.getFileHandle(name, { create: true });
             let existingText = null;
             try { existingText = await (await fh.getFile()).text(); } catch { existingText = null; }
 

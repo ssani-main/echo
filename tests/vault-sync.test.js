@@ -8,7 +8,7 @@ const DB = join(tmpdir(), `echo-test-vault-db-${process.pid}-${Date.now()}.db`);
 process.env.ECHO_DB_PATH = DB;
 
 const store = await import('../store.js');
-const { syncVault, slugify } = await import('../vault.js');
+const { syncVault, slugify, monthFolder } = await import('../vault.js');
 
 const VAULT_DIR = join(tmpdir(), `echo-test-vault-${process.pid}-${Date.now()}`);
 
@@ -39,12 +39,24 @@ test('syncVault writes one .md per entry with the expected idempotent filename',
   assert.equal(result.failed, 0);
 
   const expectedName = `${slugify('My Great Video!!')}-vaultVid1.md`;
-  const files = readdirSync(result.dir);
-  assert.ok(files.includes(expectedName), `expected ${expectedName} in ${files.join(', ')}`);
+  const entry = await store.getEntry('vaultVid1');
+  const sub = monthFolder(entry.savedAt);
 
-  const contents = readFileSync(join(result.dir, expectedName), 'utf8');
+  // Notes live in a YYYY-MM/ subfolder, not the vault root.
+  const subFiles = readdirSync(join(result.dir, sub));
+  assert.ok(subFiles.includes(expectedName), `expected ${expectedName} in ${sub}/ (${subFiles.join(', ')})`);
+
+  const contents = readFileSync(join(result.dir, sub, expectedName), 'utf8');
   assert.match(contents, /My Great Video!!/);
   assert.match(contents, /a short digest/);
+});
+
+test('monthFolder buckets by UTC year-month and handles bad dates', () => {
+  assert.equal(monthFolder('2026-07-13T10:00:00.000Z'), '2026-07');
+  assert.equal(monthFolder('2026-01-01T00:00:00.000Z'), '2026-01');
+  assert.equal(monthFolder(''), 'Undated');
+  assert.equal(monthFolder('not-a-date'), 'Undated');
+  assert.ok(!monthFolder('2026-07-13T10:00:00.000Z').includes('/'));
 });
 
 test('syncVault writes an Echo Library.md index note linking each entry', async () => {
