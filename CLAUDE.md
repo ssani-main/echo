@@ -64,3 +64,6 @@ Direction: **ship to others** — a hosted web BYOK app + a free desktop app, fr
 - [`DEPLOY.md`](DEPLOY.md) — Fly.io runbook (+ Railway note).
 - [`DESKTOP.md`](DESKTOP.md) — Tauri desktop shell (Linux installers build; macOS/Windows + signing pending).
 - [`PLAN.md`](PLAN.md) — feature-cut plan (now completed).
+- [`FRAMES.md`](FRAMES.md) — frame-augmented digest (P1+P2 **shipped**): feed on-screen frames into the digest.
+- [`P3.md`](P3.md) — proposed next step for frames: transcript↔frame alignment (anchored-slide selection; research-grade, gated on an experiment).
+- [`WHISPER.md`](WHISPER.md) — proposed Whisper transcription fallback (not built; fixes bad/missing captions).
