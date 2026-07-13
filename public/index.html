@@ -2736,7 +2736,8 @@
       flex-wrap: wrap;
     }
 
-    .saved-export-btn {
+    .saved-export-btn,
+    .saved-obsidian-btn {
       display: inline-flex;
       align-items: center;
       gap: var(--space-2);
@@ -2755,13 +2756,15 @@
       transition: color 0.12s, border-color 0.12s, background 0.12s;
     }
 
-    .saved-export-btn:hover {
+    .saved-export-btn:hover,
+    .saved-obsidian-btn:hover {
       color: var(--accent);
       border-color: var(--accent);
       background: var(--accent-soft);
     }
 
-    .saved-export-btn:focus-visible {
+    .saved-export-btn:focus-visible,
+    .saved-obsidian-btn:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 1px;
     }
@@ -4870,10 +4873,28 @@
         </div>
 
         <div id="vaultSyncWeb" hidden>
-          <p class="settings-note">In hosted mode your library exports as a Markdown ZIP.</p>
+          <p class="settings-note">
+            Sync your saved library straight into an Obsidian vault — an Obsidian vault is
+            just a folder of Markdown files. Pick an existing vault folder, or create a new
+            (empty) folder to start one.
+          </p>
+          <p id="vaultWebSyncStatus" class="settings-note" aria-live="polite"></p>
           <div class="settings-actions">
+            <button class="mini-btn" id="vaultFolderSyncBtn" hidden>Sync to vault folder…</button>
             <button class="mini-btn" id="vaultZipBtn">Download vault (.zip)</button>
           </div>
+          <label class="digest-opt-label" for="obsidianVaultNameInput">Obsidian vault name (optional)</label>
+          <input
+            id="obsidianVaultNameInput"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="My Vault"
+          />
+          <p class="settings-note">
+            Used by the per-note "Send to Obsidian" button. Leave blank to use whichever
+            vault is currently open in the Obsidian app.
+          </p>
         </div>
       </div>
     </div>
@@ -7743,6 +7764,16 @@
                    data-title="${escapeAttr(title)}"
                    aria-label="Export ${escapeAttr(title)} as Markdown">⬇ .md</button>`;
 
+        // "Send to Obsidian" deep-link button — web mode only (local/desktop
+        // already has full-vault sync via #vaultSyncBtn, so a per-note
+        // shortcut isn't needed there and would just clutter the card).
+        const obsidianBtn = ECHO.mode === 'web'
+          ? `<button class="saved-obsidian-btn"
+                     data-videoid="${escapeAttr(entry.videoId)}"
+                     data-title="${escapeAttr(title)}"
+                     aria-label="Send ${escapeAttr(title)} to Obsidian">Send to Obsidian</button>`
+          : '';
+
         // Compare-mode checkbox — hidden via CSS until compareMode is active
         const compareCheck =
           `<input type="checkbox"
@@ -7792,6 +7823,7 @@
             ${tagsRow}
             <div class="saved-card-actions">
               ${exportBtn}
+              ${obsidianBtn}
               <button class="saved-delete-btn"
                       data-videoid="${escapeAttr(entry.videoId)}"
                       aria-label="Delete ${escapeAttr(title)}">✕ Delete</button>
@@ -7810,6 +7842,7 @@
           if (e.target.closest('.saved-tag-input'))     return;
           if (e.target.closest('.saved-compare-check')) return;
           if (e.target.closest('.saved-export-btn'))    return;
+          if (e.target.closest('.saved-obsidian-btn'))  return;
           openSavedEntry(card.dataset.videoid);
         });
         card.addEventListener('keydown', e => {
@@ -7833,6 +7866,14 @@
         btn.addEventListener('click', e => {
           e.stopPropagation();
           exportEntryMd(btn.dataset.videoid, btn.dataset.title);
+        });
+      });
+
+      // Send-to-Obsidian buttons (web mode only — see obsidianBtn above)
+      savedOutput.querySelectorAll('.saved-obsidian-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          sendEntryToObsidian(btn.dataset.videoid, btn.dataset.title);
         });
       });
 
@@ -8985,6 +9026,204 @@
     const vaultSyncLocalEl   = document.getElementById('vaultSyncLocal');
     const vaultSyncWebEl     = document.getElementById('vaultSyncWeb');
     const vaultZipBtnEl      = document.getElementById('vaultZipBtn');
+    const vaultFolderSyncBtnEl  = document.getElementById('vaultFolderSyncBtn');
+    const vaultWebSyncStatusEl  = document.getElementById('vaultWebSyncStatus');
+    const obsidianVaultNameInputEl = document.getElementById('obsidianVaultNameInput');
+
+    /* ==============================================
+       VAULT FOLDER SYNC (web mode) — File System Access API
+       Chromium-only client-side folder sync, the web-mode
+       equivalent of the local /api/vault/sync route. Entirely
+       in-browser: no server route, no server filesystem.
+    =============================================== */
+    /** Writes a status message into the web-mode vault sync status line. */
+    function setVaultWebStatus(msg) {
+      if (vaultWebSyncStatusEl) vaultWebSyncStatusEl.textContent = msg || '';
+    }
+
+    // Dedicated tiny IndexedDB (separate from the main ECHO_DB) that holds
+    // just the one persisted FileSystemDirectoryHandle the user picked, so
+    // repeat syncs don't need to re-prompt the folder picker every time.
+    const VAULT_FS_DB_NAME = 'echo-vault-fs';
+    const VAULT_FS_DB_VERSION = 1;
+    let _vaultFsDbPromise = null;
+
+    function vaultFsDbOpen() {
+      if (_vaultFsDbPromise) return _vaultFsDbPromise;
+      _vaultFsDbPromise = new Promise((resolve, reject) => {
+        const req = indexedDB.open(VAULT_FS_DB_NAME, VAULT_FS_DB_VERSION);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains('handles')) {
+            db.createObjectStore('handles');
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror   = () => reject(req.error);
+      });
+      return _vaultFsDbPromise;
+    }
+
+    async function vaultFsGetHandle() {
+      try {
+        const db = await vaultFsDbOpen();
+        return await new Promise((resolve, reject) => {
+          const tx  = db.transaction('handles', 'readonly');
+          const req = tx.objectStore('handles').get('dir');
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror   = () => reject(req.error);
+        });
+      } catch { return null; }
+    }
+
+    async function vaultFsPutHandle(handle) {
+      try {
+        const db = await vaultFsDbOpen();
+        return await new Promise((resolve, reject) => {
+          const tx  = db.transaction('handles', 'readwrite');
+          tx.objectStore('handles').put(handle, 'dir');
+          tx.oncomplete = () => resolve();
+          tx.onerror    = () => reject(tx.error);
+        });
+      } catch { /* non-fatal — worst case we just re-prompt next time */ }
+    }
+
+    /** Verifies (and if needed, re-requests) readwrite permission on a persisted directory handle. */
+    async function ensureVaultPermission(handle) {
+      try {
+        const opts = { mode: 'readwrite' };
+        if ((await handle.queryPermission(opts)) === 'granted') return true;
+        return (await handle.requestPermission(opts)) === 'granted';
+      } catch { return false; }
+    }
+
+    /**
+     * Entry point for the "Sync to vault folder…" button. Reuses a
+     * previously-persisted folder handle if permission is still granted;
+     * otherwise prompts the native folder picker (also how a user "creates"
+     * a new vault — pointing it at a fresh empty folder works fine).
+     */
+    async function pickAndSyncVaultFolder() {
+      try {
+        const existing = await vaultFsGetHandle();
+        if (existing && await ensureVaultPermission(existing)) {
+          await runVaultFolderSync(existing);
+          return;
+        }
+
+        const handle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'echo-vault' });
+        await vaultFsPutHandle(handle);
+        await runVaultFolderSync(handle);
+      } catch (err) {
+        if (err && err.name === 'AbortError') return; // user cancelled the picker
+        console.error('[echo] vault folder sync error:', err);
+        setVaultWebStatus('Could not open that folder.');
+      }
+    }
+
+    /** Writes every saved entry as a Markdown file into the given directory handle. */
+    async function runVaultFolderSync(handle) {
+      const granted = await ensureVaultPermission(handle);
+      if (!granted) {
+        setVaultWebStatus('Permission to write to that folder was denied.');
+        return;
+      }
+
+      setVaultWebStatus('Syncing…');
+      if (vaultFolderSyncBtnEl) vaultFolderSyncBtnEl.disabled = true;
+
+      let written = 0, unchanged = 0, failed = 0;
+      let entries = [];
+      try {
+        const res  = await Library.exportAll();
+        const data = await res.json();
+        entries    = Array.isArray(data.entries) ? data.entries : [];
+
+        for (const entry of entries) {
+          try {
+            const slug = slugify(entry.title || entry.videoId) || entry.videoId;
+            const name = `${slug}-${entry.videoId}.md`;
+            const md   = entryToMarkdownClient(entry);
+
+            const fh = await handle.getFileHandle(name, { create: true });
+            let existingText = null;
+            try { existingText = await (await fh.getFile()).text(); } catch { existingText = null; }
+
+            if (existingText === md) {
+              unchanged++;
+              continue;
+            }
+
+            const writable = await fh.createWritable();
+            await writable.write(md);
+            await writable.close();
+            written++;
+          } catch (entryErr) {
+            console.error('[echo] vault folder sync entry error:', entryErr);
+            failed++;
+          }
+        }
+
+        const msg = `Synced ${entries.length} to "${handle.name}": ${written} written, ${unchanged} unchanged` +
+          (failed ? `, ${failed} failed` : '') + '.';
+        setVaultWebStatus(msg);
+        setVaultLastSync({ when: new Date().toISOString(), total: entries.length, written, unchanged, failed });
+      } catch (err) {
+        console.error('[echo] vault folder sync error:', err);
+        setVaultWebStatus('Vault sync failed: ' + (err && err.message || err));
+      } finally {
+        if (vaultFolderSyncBtnEl) vaultFolderSyncBtnEl.disabled = false;
+      }
+    }
+
+    // Optional Obsidian vault name — used by the per-note "Send to Obsidian"
+    // deep-link button so it can target a specific vault instead of
+    // whichever one is currently open in the Obsidian app.
+    const OBSIDIAN_VAULT_NAME_STORAGE_KEY = 'echo-obsidian-vault';
+
+    function getObsidianVaultName() {
+      try { return localStorage.getItem(OBSIDIAN_VAULT_NAME_STORAGE_KEY) || ''; }
+      catch { return ''; }
+    }
+
+    function setObsidianVaultName(v) {
+      try { localStorage.setItem(OBSIDIAN_VAULT_NAME_STORAGE_KEY, v || ''); }
+      catch { /* localStorage unavailable — non-fatal */ }
+    }
+
+    /**
+     * Sends a single saved entry to Obsidian via the obsidian://new URI
+     * scheme (works cross-browser, no filesystem API required). Builds a
+     * digest-only Markdown body (transcript omitted — URIs have a practical
+     * length ceiling) and opens it as a new note in the user's vault.
+     */
+    async function sendEntryToObsidian(videoId, title) {
+      try {
+        const res = await Library.entryMarkdown(videoId, { includeTranscript: false });
+        if (!res.ok) {
+          const d = await res.json().catch(() => null);
+          if (d) return handleApiError(d);
+          return showToast('error', 'Could not open that entry for Obsidian.');
+        }
+        const md   = await res.text();
+        const slug = slugify(title || videoId) || videoId;
+        const vaultName = getObsidianVaultName();
+
+        const uri = 'obsidian://new?' +
+          (vaultName ? `vault=${encodeURIComponent(vaultName)}&` : '') +
+          `file=${encodeURIComponent(slug)}&content=${encodeURIComponent(md)}&silent=true`;
+
+        if (uri.length > 8000) {
+          showToast('error', 'This digest is too long to send via link.',
+            'Use "Sync to vault folder" or the ZIP export instead.');
+          return;
+        }
+
+        window.location.href = uri;
+      } catch (e) {
+        showToast('error', 'Could not send to Obsidian', String(e && e.message || e));
+      }
+    }
 
     /** Renders the last-synced indicator from a stored {when, written, total, unchanged} record. */
     function renderVaultSyncStatus() {
@@ -9045,12 +9284,22 @@
 
     vaultSyncBtnEl?.addEventListener('click', syncVault);
     vaultZipBtnEl?.addEventListener('click', exportSavedLibrary);
+    vaultFolderSyncBtnEl?.addEventListener('click', pickAndSyncVaultFolder);
+    obsidianVaultNameInputEl?.addEventListener('change', () => {
+      setObsidianVaultName(obsidianVaultNameInputEl.value.trim());
+    });
 
-    // Vault sync UI: filesystem path in local/desktop, ZIP export only in web
-    // (hosted mode has no server-side filesystem to sync into).
+    // Vault sync UI: filesystem path in local/desktop, ZIP export (+ optional
+    // folder sync / Obsidian deep-link) in web (hosted mode has no
+    // server-side filesystem to sync into — everything below is client-side).
     if (ECHO.mode === 'web') {
       if (vaultSyncLocalEl) vaultSyncLocalEl.hidden = true;
       if (vaultSyncWebEl) vaultSyncWebEl.hidden = false;
+      // File System Access API is Chromium-only — offer the folder-sync
+      // button only where it will actually work; ZIP export is the
+      // universal fallback everywhere else.
+      if (vaultFolderSyncBtnEl) vaultFolderSyncBtnEl.hidden = !('showDirectoryPicker' in window);
+      if (obsidianVaultNameInputEl) obsidianVaultNameInputEl.value = getObsidianVaultName();
     } else {
       if (vaultSyncLocalEl) vaultSyncLocalEl.hidden = false;
       if (vaultSyncWebEl) vaultSyncWebEl.hidden = true;
@@ -9070,6 +9319,7 @@
       if (autoDigestToggleEl) autoDigestToggleEl.checked = getAutoDigest();
       if (autoTagToggleEl) autoTagToggleEl.checked = getAutoTags();
       if (vaultDirInputEl) vaultDirInputEl.value = getVaultDir();
+      if (obsidianVaultNameInputEl) obsidianVaultNameInputEl.value = getObsidianVaultName();
       renderVaultSyncStatus();
       settingsOverlayEl.hidden = false;
       // Focus the key field in web mode; otherwise the (visible) auto-digest toggle.
