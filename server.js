@@ -41,7 +41,7 @@ import {
   verifyClaims,
 } from './digest.js';
 import { logEvent, errLabel } from './usagelog.js';
-import { searchVideos, forYou, normalizeChannel, enumerateChannelUploads, getChannelUploadsPage } from './discovery.js';
+import { searchVideos, forYou, normalizeChannel, enumerateChannelUploads, enumerateChannelUploadsBounded, getChannelUploadsPage } from './discovery.js';
 import { validateApiKey } from './providers.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1201,6 +1201,8 @@ const ECHO_MAX_FOLLOWS       = numFromEnv('ECHO_MAX_FOLLOWS', 25, { min: 1 });
 const ECHO_FOLLOW_UPLOADS    = numFromEnv('ECHO_FOLLOW_UPLOADS', 10, { min: 1 });
 const ECHO_CHANNEL_PAGE_SIZE = numFromEnv('ECHO_CHANNEL_PAGE_SIZE', 12, { min: 1 });
 const ECHO_CHANNEL_PAGE_MAX  = 30;
+const ECHO_INBOX_CONCURRENCY       = numFromEnv('ECHO_INBOX_CONCURRENCY', 4, { min: 1 });
+const ECHO_INBOX_CHANNEL_BUDGET_MS = numFromEnv('ECHO_INBOX_CHANNEL_BUDGET_MS', 5000, { min: 500 });
 
 /**
  * GET /api/follows
@@ -1247,6 +1249,25 @@ app.delete('/api/follows/:channelId', blockInWeb, async (req, res) => {
 });
 
 /**
+ * Map over items running at most `limit` async fns concurrently, preserving
+ * input order in the results. Caps how many yt-dlp subprocesses the inbox
+ * spawns at once instead of firing one per followed channel simultaneously.
+ */
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const idx = next++;
+      results[idx] = await fn(items[idx], idx);
+    }
+  };
+  const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
+  await Promise.all(workers);
+  return results;
+}
+
+/**
  * GET /api/follows/inbox
  * For each followed channel, enumerate recent uploads and diff against
  * what's already been seen. Resilient to per-channel yt-dlp failures —
@@ -1258,7 +1279,7 @@ app.get('/api/follows/inbox', blockInWeb, async (_req, res) => {
   try {
     const follows = (await listFollows()).slice(0, ECHO_MAX_FOLLOWS);
 
-    const channels = await Promise.all(follows.map(async (follow) => {
+    const channels = await mapLimit(follows, ECHO_INBOX_CONCURRENCY, async (follow) => {
       const base = {
         channelId: follow.channelId,
         title: follow.title,
@@ -1266,18 +1287,21 @@ app.get('/api/follows/inbox', blockInWeb, async (_req, res) => {
         lastCheckedAt: follow.lastCheckedAt,
       };
       try {
-        const [uploads, seen] = await Promise.all([
-          enumerateChannelUploads(follow.url, ECHO_FOLLOW_UPLOADS),
+        const [{ uploads, stale, error }, seen] = await Promise.all([
+          enumerateChannelUploadsBounded(follow.url, ECHO_FOLLOW_UPLOADS, ECHO_INBOX_CHANNEL_BUDGET_MS),
           getSeenSet(follow.channelId),
         ]);
         const unseen = uploads
           .filter((u) => !seen.has(u.videoId))
           .map((u) => ({ videoId: u.videoId, title: u.title }));
-        return { ...base, unseen };
+        const out = { ...base, unseen };
+        if (stale) out.stale = true;   // background refresh still in flight
+        if (error) out.error = error;
+        return out;
       } catch (err) {
         return { ...base, unseen: [], error: err.message || 'Failed to check channel.' };
       }
-    }));
+    });
 
     logEvent('follows-inbox', {
       nChannels: channels.length,

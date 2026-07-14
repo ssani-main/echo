@@ -10438,7 +10438,27 @@
         // Best-effort — a failed mark-as-seen just means the badge stays inflated
         // until the next successful check; not worth surfacing as an error.
       }
-      await refreshInboxSummaryQuietly();
+      // Update local state instead of re-fetching GET /api/follows/inbox, which
+      // would re-trigger the server-side per-channel yt-dlp fan-out on every
+      // video open. Marking seen only ever shrinks unseen counts, so a local
+      // diff is authoritative enough; the full aggregate is refreshed on the
+      // next explicit inbox load / "Check now".
+      applySeenLocally(channelId, videoIds);
+    }
+
+    /** Removes the given videoIds from the matching channel's unseen[] in
+     *  inboxSummary, then refreshes the nav badge, chip row, and channel header
+     *  — no network call. */
+    function applySeenLocally(channelId, videoIds) {
+      const seen = new Set(Array.isArray(videoIds) ? videoIds : []);
+      const ch = inboxSummary.find(c => c.channelId === channelId);
+      if (ch && Array.isArray(ch.unseen)) {
+        ch.unseen = ch.unseen.filter(u => !seen.has(u.videoId));
+      }
+      const unseenTotal = inboxSummary.reduce((sum, c) => sum + (Array.isArray(c.unseen) ? c.unseen.length : 0), 0);
+      updateInboxBadge(unseenTotal);
+      renderInboxChips();
+      renderChannelHeader();
     }
 
     /** Loads a followed channel's video into the reader via the same path

@@ -356,6 +356,47 @@ export async function enumerateChannelUploads(channelUrl, limit = 10, { force = 
   return uploads;
 }
 
+/**
+ * Like enumerateChannelUploads, but bounded by a soft timeout. If the live
+ * yt-dlp fetch doesn't finish within softTimeoutMs, resolve immediately with
+ * the last cached uploads (even if the 15-min TTL has lapsed) — or an empty
+ * list if nothing is cached — while the real fetch keeps running in the
+ * background to warm the cache for the next poll. This keeps one slow/dead
+ * channel from stalling the whole inbox up to the full yt-dlp timeout.
+ * Never rejects: transport errors resolve as { stale:true, error }.
+ *
+ * @param {string} channelUrl
+ * @param {number} [limit=10]
+ * @param {number} [softTimeoutMs=5000]
+ * @returns {Promise<{ uploads: Array<object>, stale: boolean, error?: string }>}
+ */
+export function enumerateChannelUploadsBounded(channelUrl, limit = 10, softTimeoutMs = 5000) {
+  const count = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 50);
+  const now = Date.now();
+  const cached = channelCache.get(channelUrl);
+  if (cached && (now - cached.ts) < CHANNEL_CACHE_TTL_MS) {
+    return Promise.resolve({ uploads: cached.data.slice(0, count), stale: false });
+  }
+  const fallback = () => (cached ? cached.data.slice(0, count) : []);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (val) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(val);
+    };
+    const timer = setTimeout(() => done({ uploads: fallback(), stale: true }), softTimeoutMs);
+    // enumerateChannelUploads writes through to channelCache on success, so a
+    // fetch that lands after the timeout still warms the cache for next time.
+    enumerateChannelUploads(channelUrl, count).then(
+      (uploads) => done({ uploads, stale: false }),
+      (err) => done({ uploads: fallback(), stale: true, error: err.message || 'Failed to check channel.' })
+    );
+  });
+}
+
 // Cache of paginated channel-uploads pages, keyed by
 // `${channelUrl}::${offset}::${limit}`. Separate from `channelCache` (which
 // only ever stores the first N uploads) since pages address arbitrary
