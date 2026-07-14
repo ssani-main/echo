@@ -1,5 +1,11 @@
 # Echo — Feature Roadmap & Bun Evaluation
 
+> **⚠️ SUPERSEDED (2026-07-14) — historical, do not act on this.** This 2026-07-06 plan is kept
+> only as a record of the ingestion/interop/knowledge-base direction. Several features it lists
+> as shipped (A1 multi-paste, C1 ask-across-library) were **later cut** in the public-launch audit
+> ([`PLAN.md`](PLAN.md)). For the current feature set and what's left, see [`CLAUDE.md`](CLAUDE.md)
+> ("Where things stand"); trust the code + git history over anything below.
+
 > Drafted 2026-07-06. This is a **continue-tomorrow** working plan, not a spec set in stone.
 > Directions chosen: **ingestion**, **interop/export**, **library-as-knowledge-base**.
 > Hard constraint: every feature must work (or gracefully degrade) across **local / desktop / web** modes.
