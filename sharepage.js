@@ -427,7 +427,7 @@ export function renderSharePage({ id, title, sourceUrl, digestMd, claims, create
     --radius:     9px;
     --radius-sm:  6px;
     --radius-lg:  14px;
-    --font-display: 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-display: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     --font-read:    'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, 'Times New Roman', serif;
     --font-mono:    ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
   }
@@ -728,7 +728,7 @@ export function renderSharePage({ id, title, sourceUrl, digestMd, claims, create
     ${claimsHtml}
     <section class="cta-card">
       ${waveformSvg('cta')}
-      <p class="cta-headline">Read it, don't watch it.</p>
+      <p class="cta-headline">Read it, don’t watch it.</p>
       <p class="cta-sub">Echo turns a YouTube link into a clean, readable digest — like this one.</p>
       <a class="cta-button" href="/">Try Echo →</a>
     </section>

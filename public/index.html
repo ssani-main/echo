@@ -597,7 +597,7 @@
     .hero-landing {
       max-width: var(--chrome-max);
       margin: clamp(var(--space-11), 5vh, var(--space-15)) auto var(--space-11);
-      text-align: center;
+      text-align: left;
     }
 
     body.has-transcript .hero-landing {
@@ -607,11 +607,11 @@
     .hero-wave {
       display: flex;
       align-items: flex-end;
-      justify-content: center;
+      justify-content: flex-start;
       gap: 3px;
       height: 46px;
       width: min(300px, 62%);
-      margin: 0 auto var(--space-12);
+      margin: 0 0 var(--space-12);
       opacity: 0.92;
     }
 
@@ -649,10 +649,7 @@
     }
 
     .hero-title .grad {
-      background: linear-gradient(100deg, var(--signal), var(--signal-2));
-      -webkit-background-clip: text;
-      background-clip: text;
-      -webkit-text-fill-color: transparent;
+      color: var(--accent);
     }
 
     .hero-sub {
@@ -661,7 +658,7 @@
       line-height: 1.6;
       color: var(--muted);
       max-width: 33rem;
-      margin: 0 auto;
+      margin: 0;
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -4717,7 +4714,7 @@
 
       <div id="inboxStatusMsg" class="saved-status-msg" aria-live="polite" aria-atomic="true"></div>
       <div id="inboxContent" class="inbox-content">
-        <p id="inboxEmptyState" class="empty-state" hidden>You're not following any channels yet — follow one from Discovery or a loaded video.</p>
+        <p id="inboxEmptyState" class="empty-state" hidden>You’re not following any channels yet — follow one from Discovery or a loaded video.</p>
         <div id="inboxCardGrid" class="discovery-results inbox-card-grid"></div>
         <div class="discovery-loadmore-wrap">
           <button id="inboxLoadMoreBtn" class="mini-btn" hidden>Load more</button>
