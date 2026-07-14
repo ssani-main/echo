@@ -86,6 +86,15 @@
       --shadow-badge: 0 1px 4px rgba(0, 0, 0, 0.18);
       --focus:    0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
       --ease:     cubic-bezier(.2,.7,.3,1);
+      --dur-fast: 0.12s;  /* micro transitions: hover / border / color */
+      --dur:      0.15s;  /* base UI transition */
+      --dur-slow: 0.25s;  /* larger state changes */
+
+      /* z-index scale — global overlay layers (local 1–3 stacking stays inline) */
+      --z-indicator: 8000;   /* top status indicator */
+      --z-panel:     8500;   /* elevated panel, below overlays */
+      --z-overlay:   19000;  /* modals, shortcuts, popovers */
+      --z-toast:     20000;  /* toasts, above everything */
 
       --font-sans:  'Space Grotesk', system-ui, sans-serif;      /* display / headings */
       --font-serif: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;  /* UI + reading body */
@@ -340,7 +349,7 @@
       cursor: pointer;
       outline: none;
       white-space: nowrap;
-      transition: background 0.12s, color 0.12s, border-color 0.12s;
+      transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
     }
 
     .library-btn:hover {
@@ -715,7 +724,7 @@
       border: none;
       cursor: pointer;
       outline: none;
-      transition: color 0.12s;
+      transition: color var(--dur-fast);
       /* Prevent button from shrinking text */
       white-space: nowrap;
     }
@@ -795,7 +804,7 @@
       opacity: 0.75;
       cursor: pointer;
       user-select: none;
-      transition: background 0.12s, color 0.12s, opacity 0.12s;
+      transition: background var(--dur-fast), color var(--dur-fast), opacity var(--dur-fast);
     }
 
     .view-toggle label:not(:last-child) {
@@ -846,7 +855,7 @@
       cursor: pointer;
       white-space: nowrap;
       outline: none;
-      transition: background 0.15s, color 0.15s;
+      transition: background var(--dur), color var(--dur);
     }
 
     #digestBtn:hover:not(:disabled) {
@@ -882,12 +891,12 @@
       cursor: pointer;
       white-space: nowrap;
       outline: none;
-      transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
+      transition: background var(--dur), color var(--dur), border-color var(--dur), box-shadow var(--dur);
     }
 
     .header-save-btn .save-ico {
       flex-shrink: 0;
-      transition: fill 0.15s;
+      transition: fill var(--dur);
     }
 
     .header-save-btn:hover:not(:disabled) {
@@ -990,7 +999,7 @@
 
     #output.visible {
       display: block;
-      animation: fade-slide-in 0.25s ease;
+      animation: fade-slide-in var(--dur-slow) ease;
     }
 
     @keyframes fade-slide-in {
@@ -1153,7 +1162,7 @@
 
     #digestOutput.visible {
       display: block;
-      animation: fade-slide-in 0.25s ease;
+      animation: fade-slide-in var(--dur-slow) ease;
     }
 
     /* Eyebrow label — injected before markdown content */
@@ -1359,7 +1368,7 @@
       top: 12px;
       left: 50%;
       transform: translateX(-50%);
-      z-index: 8000;
+      z-index: var(--z-indicator);
       display: none;
       align-items: center;
       gap: var(--space-4);
@@ -1591,7 +1600,7 @@
       cursor: pointer;
       outline: none;
       white-space: nowrap;
-      transition: color 0.12s, border-color 0.12s, background 0.12s;
+      transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
     }
 
     .saved-delete-btn:hover {
@@ -1616,7 +1625,7 @@
     @media (hover: hover) {
       .saved-card-actions {
         opacity: 0;
-        transition: opacity 0.15s;
+        transition: opacity var(--dur);
       }
       .saved-card:hover .saved-card-actions,
       .saved-card:focus-within .saved-card-actions {
@@ -1677,8 +1686,8 @@
       .library-btn,
       .usage-stats,
       .theme-toggle {
-        transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease,
-                    box-shadow 150ms ease;
+        transition: background-color var(--dur) ease, color var(--dur) ease, border-color var(--dur) ease,
+                    box-shadow var(--dur) ease;
       }
     }
 
@@ -1744,7 +1753,7 @@
       cursor: pointer;
       white-space: nowrap;
       outline: none;
-      transition: background 0.12s, color 0.12s, border-color 0.12s;
+      transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
     }
 
     .mini-btn:hover:not(:disabled) {
@@ -1953,7 +1962,7 @@
       outline: none;
       width: 100%;       /* fills the input-wrap, which itself is flex: 1 */
       min-width: 0;
-      transition: border-color 0.15s, box-shadow 0.15s;
+      transition: border-color var(--dur), box-shadow var(--dur);
     }
 
     #findInput::placeholder {
@@ -2099,7 +2108,7 @@
       color: var(--muted);
       cursor: pointer;
       user-select: none;
-      transition: background 0.12s, color 0.12s;
+      transition: background var(--dur-fast), color var(--dur-fast);
     }
 
     .digest-seg label:not(:last-child) {
@@ -2136,7 +2145,7 @@
       border-radius: var(--radius-sm);
       outline: none;
       width: 105px;
-      transition: border-color 0.15s, box-shadow 0.15s;
+      transition: border-color var(--dur), box-shadow var(--dur);
     }
 
     #digestLangInput::placeholder {
@@ -2176,7 +2185,7 @@
       border: 1px solid var(--rule);
       border-radius: 6px;
       outline: none;
-      transition: border-color 0.15s, box-shadow 0.15s;
+      transition: border-color var(--dur), box-shadow var(--dur);
     }
 
     #savedSearchInput::placeholder,
@@ -2207,7 +2216,7 @@
       border-radius: 6px;
       outline: none;
       cursor: pointer;
-      transition: border-color 0.15s, box-shadow 0.15s;
+      transition: border-color var(--dur), box-shadow var(--dur);
       max-width: 150px;
     }
 
@@ -2262,7 +2271,7 @@
       border-radius: 999px;
       cursor: pointer;
       outline: none;
-      transition: background 0.12s, border-color 0.12s, color 0.12s;
+      transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
     }
 
     .discovery-chip:hover {
@@ -2342,7 +2351,7 @@
       cursor: pointer;
       outline: none;
       white-space: nowrap;
-      transition: color 0.12s, border-color 0.12s, background 0.12s;
+      transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
     }
 
     .discovery-follow-btn:hover:not(:disabled) {
@@ -2434,7 +2443,7 @@
       cursor: pointer;
       outline: none;
       white-space: nowrap;
-      transition: color 0.12s, border-color 0.12s, background 0.12s;
+      transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
     }
 
     .followed-unfollow-btn:hover {
@@ -2691,7 +2700,7 @@
       cursor: pointer;
       outline: none;
       white-space: nowrap;
-      transition: color 0.12s, border-color 0.12s;
+      transition: color var(--dur-fast), border-color var(--dur-fast);
     }
 
     .saved-tag-add-btn:hover {
@@ -2715,7 +2724,7 @@
       border-radius: 999px;
       outline: none;
       width: 88px;
-      transition: box-shadow 0.12s;
+      transition: box-shadow var(--dur-fast);
     }
 
     .saved-tag-input:focus {
@@ -2750,7 +2759,7 @@
       outline: none;
       white-space: nowrap;
       text-decoration: none;
-      transition: color 0.12s, border-color 0.12s, background 0.12s;
+      transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
     }
 
     .saved-export-btn:hover,
@@ -2792,7 +2801,7 @@
       border-radius: var(--radius-sm);
       cursor: pointer;
       outline: none;
-      transition: color 0.12s, border-color 0.12s, background 0.12s;
+      transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
       white-space: nowrap;
       letter-spacing: -0.02em;
     }
@@ -2835,7 +2844,7 @@
       color: var(--muted);
       cursor: pointer;
       user-select: none;
-      transition: background 0.12s, color 0.12s;
+      transition: background var(--dur-fast), color var(--dur-fast);
       white-space: nowrap;
     }
 
@@ -2893,7 +2902,7 @@
          so we set display:none here and expose via :not([hidden]) below. */
       display: none;
       position: fixed;
-      z-index: 8500; /* below shortcuts modal (19000), above topIndicator (8000) */
+      z-index: var(--z-panel); /* below overlay (19000), above indicator (8000) */
       background: var(--surface);
       border: 1px solid var(--rule);
       border-radius: var(--radius);
@@ -3203,7 +3212,7 @@
       border-radius: 6px;
       outline: none;
       cursor: pointer;
-      transition: border-color 0.15s, box-shadow 0.15s;
+      transition: border-color var(--dur), box-shadow var(--dur);
       max-width: 280px;
     }
 
@@ -3393,7 +3402,7 @@
       cursor: pointer;
       outline: none;
       margin-left: var(--space-4);
-      transition: color 0.12s, border-color 0.12s;
+      transition: color var(--dur-fast), border-color var(--dur-fast);
     }
 
     .shortcuts-toggle:hover {
@@ -3409,7 +3418,7 @@
     #shortcutsOverlay {
       position: fixed;
       inset: 0;
-      z-index: 19000;
+      z-index: var(--z-overlay);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -3540,7 +3549,7 @@
       color: var(--muted);
       cursor: pointer;
       outline: none;
-      transition: color 0.12s, border-color 0.12s;
+      transition: color var(--dur-fast), border-color var(--dur-fast);
     }
 
     .settings-toggle:hover {
@@ -3556,7 +3565,7 @@
     #settingsOverlay {
       position: fixed;
       inset: 0;
-      z-index: 19000;
+      z-index: var(--z-overlay);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -3578,7 +3587,7 @@
       border-radius: var(--radius-sm);
       outline: none;
       margin: var(--space-4) 0 var(--space-7);
-      transition: border-color 0.15s, box-shadow 0.15s;
+      transition: border-color var(--dur), box-shadow var(--dur);
     }
 
     #apiKeyInput:focus {
@@ -3637,7 +3646,7 @@
       border-radius: var(--radius-sm);
       outline: none;
       margin: var(--space-4) 0 var(--space-7);
-      transition: border-color 0.15s, box-shadow 0.15s;
+      transition: border-color var(--dur), box-shadow var(--dur);
     }
     .settings-block input[type="text"]:focus {
       border-color: var(--accent);
@@ -3651,7 +3660,7 @@
       position: fixed;
       bottom: 1.5rem;
       right: 1.25rem;
-      z-index: 20000;   /* above shortcuts overlay (19000) */
+      z-index: var(--z-toast);   /* above overlay (19000) */
       display: flex;
       flex-direction: column;
       gap: var(--space-5);
@@ -3800,7 +3809,7 @@
     #crossDigestOverlay {
       position: fixed;
       inset: 0;
-      z-index: 19000;
+      z-index: var(--z-overlay);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -4124,7 +4133,7 @@
     #legalOverlay {
       position: fixed;
       inset: 0;
-      z-index: 19000;
+      z-index: var(--z-overlay);
       display: flex;
       align-items: center;
       justify-content: center;
