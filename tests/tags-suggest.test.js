@@ -121,6 +121,100 @@ test('suggestTags: very long material is truncated before prompting and does not
 });
 
 // ---------------------------------------------------------------------------
+// Regression coverage for the suggestTags language-leak bug: suggestTags()
+// used to inject languageDirective(language) ("Answer in English using
+// concise Markdown.") into its prompt, which contradicted the STRICT JSON
+// instruction that immediately follows. Models dropped the contradictory
+// directive and echoed tags back in the SOURCE material's language instead
+// of the requested one (e.g. Indonesian tags for an Indonesian video even
+// with language:'English'). These tests assert prompt CONTENT, not just
+// input/output shape, so a future edit can't silently reintroduce the
+// contradiction.
+// ---------------------------------------------------------------------------
+
+test('suggestTags: prompt pins the tag language to English when language is "English"', async (t) => {
+  let capturedPrompt = '';
+  t.mock.method(ApiKeyProvider, 'call', async (prompt) => {
+    capturedPrompt = prompt;
+    return { result: JSON.stringify({ tags: ['tag'] }), usage: fakeUsage() };
+  });
+
+  await suggestTags('some material', { apiKey: 'sk-test', language: 'English' });
+
+  assert.ok(
+    capturedPrompt.includes('Write every tag in English'),
+    'prompt should explicitly name English as the tag language'
+  );
+});
+
+test('suggestTags: prompt defaults the tag language to English when language is omitted', async (t) => {
+  let capturedPrompt = '';
+  t.mock.method(ApiKeyProvider, 'call', async (prompt) => {
+    capturedPrompt = prompt;
+    return { result: JSON.stringify({ tags: ['tag'] }), usage: fakeUsage() };
+  });
+
+  await suggestTags('some material', { apiKey: 'sk-test' });
+
+  assert.ok(
+    capturedPrompt.includes('Write every tag in English'),
+    'omitting language should still pin the tag language to English'
+  );
+});
+
+test('suggestTags: prompt pins the tag language to Indonesian when language is "Indonesian"', async (t) => {
+  let capturedPrompt = '';
+  t.mock.method(ApiKeyProvider, 'call', async (prompt) => {
+    capturedPrompt = prompt;
+    return { result: JSON.stringify({ tags: ['tag'] }), usage: fakeUsage() };
+  });
+
+  await suggestTags('some material', { apiKey: 'sk-test', language: 'Indonesian' });
+
+  assert.ok(
+    capturedPrompt.includes('Write every tag in Indonesian'),
+    'prompt should explicitly name Indonesian as the tag language'
+  );
+});
+
+test('suggestTags: prompt does not ask for Markdown (contradicts STRICT JSON)', async (t) => {
+  let capturedPrompt = '';
+  t.mock.method(ApiKeyProvider, 'call', async (prompt) => {
+    capturedPrompt = prompt;
+    return { result: JSON.stringify({ tags: ['tag'] }), usage: fakeUsage() };
+  });
+
+  await suggestTags('some material', { apiKey: 'sk-test', language: 'English' });
+
+  // Regression guard: the prompt previously called languageDirective(), which
+  // asks for "concise Markdown" — directly contradicting the STRICT JSON
+  // instruction a few lines later. The model resolved the contradiction by
+  // dropping the language directive entirely and echoing tags back in the
+  // SOURCE material's language (e.g. Indonesian tags for an Indonesian
+  // video, even with language:'English' requested). Do not reintroduce any
+  // Markdown request into this prompt.
+  assert.ok(
+    !capturedPrompt.includes('Markdown'),
+    'suggestTags prompt must never request Markdown output'
+  );
+});
+
+test('suggestTags: prompt still contains the STRICT JSON instruction', async (t) => {
+  let capturedPrompt = '';
+  t.mock.method(ApiKeyProvider, 'call', async (prompt) => {
+    capturedPrompt = prompt;
+    return { result: JSON.stringify({ tags: ['tag'] }), usage: fakeUsage() };
+  });
+
+  await suggestTags('some material', { apiKey: 'sk-test', language: 'English' });
+
+  assert.ok(
+    capturedPrompt.includes('Return STRICT JSON and nothing else'),
+    'prompt should still demand STRICT JSON output'
+  );
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/digest — suggestedTags is computed in parallel with the digest
 // and included in the response. The separate /api/tags/suggest route has
 // been removed: auto-tagging is now folded into the digest request itself

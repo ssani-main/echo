@@ -1084,10 +1084,17 @@ export async function suggestTags(material, opts = {}) {
     trimmed.slice(0, MAX_TAG_MATERIAL_CHARS) +
     (truncated ? ' … [excerpt truncated]' : '');
 
+  // Not languageDirective(): that asks for Markdown prose, which contradicts the
+  // STRICT JSON instruction below and gets dropped — leaving tags in the
+  // material's own language. Tags need translating, not answering.
+  const tagLanguage = (language || '').trim() || 'English';
+
   const prompt =
     'Read the following video digest or transcript excerpt and suggest 3-5 short topical tags ' +
     '(single words or short phrases) that a reader could use to categorise or search for this video. ' +
-    languageDirective(language) + '\n\n' +
+    `Write every tag in ${tagLanguage}. The material may be in a different language; ` +
+    `translate the concepts into ${tagLanguage} rather than copying the material's wording. ` +
+    `Proper nouns keep their usual ${tagLanguage} form (for example a country name is written as ${tagLanguage} spells it).\n\n` +
     'Return STRICT JSON and nothing else — no prose before or after, no code fences:\n' +
     '{"tags": ["tag1", "tag2", "tag3"]}\n\n' +
     'MATERIAL:\n\n' +
