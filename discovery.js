@@ -3,6 +3,9 @@ import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
 
+const YTDLP_JS_RUNTIME = process.env.ECHO_YTDLP_JS_RUNTIME ?? 'node';
+const YTDLP_JS_RUNTIME_ARGS = YTDLP_JS_RUNTIME ? ['--js-runtimes', YTDLP_JS_RUNTIME] : [];
+
 // yt-dlp search calls can return a fair amount of JSON for 20-40 results —
 // give ourselves headroom and a hard timeout so a hung process doesn't
 // block the request indefinitely.
@@ -95,7 +98,7 @@ export async function searchVideos(query, { n = 20 } = {}) {
   try {
     ({ stdout } = await execFileAsync(
       'yt-dlp',
-      [`ytsearch${count}:${q}`, '--flat-playlist', '-J', '--no-warnings'],
+      [...YTDLP_JS_RUNTIME_ARGS, `ytsearch${count}:${q}`, '--flat-playlist', '-J', '--no-warnings'],
       { maxBuffer: YTDLP_MAX_BUFFER, timeout: YTDLP_TIMEOUT_MS }
     ));
   } catch (err) {
@@ -320,7 +323,7 @@ export async function enumerateChannelUploads(channelUrl, limit = 10, { force = 
   try {
     ({ stdout } = await execFileAsync(
       'yt-dlp',
-      [channelUrl, '--flat-playlist', '--playlist-end', String(count), '-J', '--no-warnings'],
+      [...YTDLP_JS_RUNTIME_ARGS, channelUrl, '--flat-playlist', '--playlist-end', String(count), '-J', '--no-warnings'],
       { maxBuffer: YTDLP_MAX_BUFFER, timeout: YTDLP_TIMEOUT_MS }
     ));
   } catch (err) {
@@ -436,6 +439,7 @@ export async function getChannelUploadsPage(channelUrl, { offset = 0, limit = 12
     ({ stdout } = await execFileAsync(
       'yt-dlp',
       [
+        ...YTDLP_JS_RUNTIME_ARGS,
         channelUrl,
         '--flat-playlist',
         '--playlist-start', String(playlistStart),

@@ -172,6 +172,7 @@ docker run -e PORT=3000 -e ECHO_MODE=web -p 3000:3000 echo
 | `ECHO_DB_PATH` | `data/library.db` | SQLite library database path |
 | `ECHO_MAX_TRANSCRIPT_CHARS` | `200000` | Web-mode transcript character limit |
 | `ECHO_MAX_AI_PAYLOAD_CHARS` | `200000` | Web-mode AI payload character limit |
+| `ECHO_YTDLP_JS_RUNTIME` | `'node'` | JavaScript runtime for yt-dlp (Node >=22 supported); set to empty string to disable (required for older yt-dlp builds) |
 
 See [`.env.example`](./.env.example) for the full list of variables and detailed documentation for each. **Node version requirement:** ≥ 22.5 (for `node:sqlite` support).
 

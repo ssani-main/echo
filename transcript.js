@@ -7,6 +7,9 @@ import os from 'os';
 
 const execFileAsync = promisify(execFile);
 
+const YTDLP_JS_RUNTIME = process.env.ECHO_YTDLP_JS_RUNTIME ?? 'node';
+const YTDLP_JS_RUNTIME_ARGS = YTDLP_JS_RUNTIME ? ['--js-runtimes', YTDLP_JS_RUNTIME] : [];
+
 /**
  * Extract an 11-character YouTube video ID from various URL forms,
  * or return the input itself if it already looks like a bare ID.
@@ -151,6 +154,7 @@ async function fetchViaYtDlp(videoId, lang) {
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
   await execFileAsync('yt-dlp', [
+    ...YTDLP_JS_RUNTIME_ARGS,
     '--skip-download',
     '--write-auto-subs',
     '--write-subs',
@@ -309,6 +313,7 @@ export async function listCaptionTracks(videoId) {
 
   try {
     const { stdout } = await execFileAsync('yt-dlp', [
+      ...YTDLP_JS_RUNTIME_ARGS,
       '-J',
       '--skip-download',
       videoUrl,
@@ -445,6 +450,7 @@ export async function extractPlaylist(url) {
 
   try {
     const { stdout } = await execFileAsync('yt-dlp', [
+      ...YTDLP_JS_RUNTIME_ARGS,
       '--flat-playlist',
       '-J',
       targetUrl,

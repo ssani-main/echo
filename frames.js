@@ -6,6 +6,9 @@ import path from 'node:path';
 
 const execFileAsync = promisify(execFile);
 
+const YTDLP_JS_RUNTIME = process.env.ECHO_YTDLP_JS_RUNTIME ?? 'node';
+const YTDLP_JS_RUNTIME_ARGS = YTDLP_JS_RUNTIME ? ['--js-runtimes', YTDLP_JS_RUNTIME] : [];
+
 /**
  * Extract a small set of deduplicated scene-change frames from a YouTube
  * video, for feeding into a multimodal digest. Downloads a low-res (<=480p)
@@ -40,6 +43,7 @@ export async function extractFrames(videoId, opts = {}) {
     // can't be parsed (some videos/streams don't report a clean duration).
     try {
       const { stdout } = await execFileAsync(ytdlp, [
+        ...YTDLP_JS_RUNTIME_ARGS,
         '--skip-download',
         '--no-warnings',
         '--print', '%(duration)s',
@@ -62,6 +66,7 @@ export async function extractFrames(videoId, opts = {}) {
 
     // Download a small, low-resolution copy of the video.
     await execFileAsync(ytdlp, [
+      ...YTDLP_JS_RUNTIME_ARGS,
       '-f', 'bv*[height<=480]/best[height<=480]',
       '--no-warnings',
       '-o', path.join(dir, 'video.%(ext)s'),
@@ -94,6 +99,7 @@ export async function extractFrames(videoId, opts = {}) {
       let durationSec = null;
       try {
         const { stdout } = await execFileAsync(ytdlp, [
+          ...YTDLP_JS_RUNTIME_ARGS,
           '--skip-download',
           '--no-warnings',
           '--print', '%(duration)s',
