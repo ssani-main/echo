@@ -24,6 +24,8 @@ import {
   getSeenSet,
   recordSeen,
   touchChecked,
+  recordVideoFlags,
+  getVideoFlags,
   createShare,
   getShare,
   deleteShare,
@@ -212,6 +214,7 @@ const ECHO_ERROR_STATUS = {
   CLAUDE_NOT_AUTHED:      503,
   CLAUDE_FAILED:          502,
   YTDLP_MISSING:          503,
+  MEMBERS_ONLY:           422,
   RATE_LIMITED:           429,
   INTERNAL:               500,
   API_NOT_AUTHED:         401,
@@ -516,6 +519,14 @@ app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
     // for) — the language picker uses this to pre-select the right option.
     const langCode = segments.langUsed || lang || null;
 
+    if (!isWeb) {
+      try {
+        await recordVideoFlags(videoId, { hasTranscript: 1, membersOnly: 0 });
+      } catch (flagErr) {
+        console.error('[echo] recordVideoFlags failed:', flagErr);
+      }
+    }
+
     if (isWeb) {
       const totalChars = segments.reduce((sum, s) => sum + String(s.text || '').length, 0);
       if (totalChars > ECHO_MAX_TRANSCRIPT_CHARS) {
@@ -532,6 +543,17 @@ app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
     logEvent('transcript', { videoId, chars, langCode, ok: true, ms: Date.now() - t0 });
     return res.json({ videoId, url: req.body.url, title, channel, channelUrl, segments, langCode });
   } catch (err) {
+    if (!isWeb && (err.echoCode === 'MEMBERS_ONLY' || err.echoCode === 'TRANSCRIPT_UNAVAILABLE')) {
+      try {
+        if (err.echoCode === 'MEMBERS_ONLY') {
+          await recordVideoFlags(videoId, { membersOnly: 1 });
+        } else {
+          await recordVideoFlags(videoId, { hasTranscript: 0 });
+        }
+      } catch (flagErr) {
+        console.error('[echo] recordVideoFlags failed:', flagErr);
+      }
+    }
     logEvent('transcript', { videoId, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);
   }
@@ -1291,9 +1313,17 @@ app.get('/api/follows/inbox', blockInWeb, async (_req, res) => {
           enumerateChannelUploadsBounded(follow.url, ECHO_FOLLOW_UPLOADS, ECHO_INBOX_CHANNEL_BUDGET_MS),
           getSeenSet(follow.channelId),
         ]);
-        const unseen = uploads
-          .filter((u) => !seen.has(u.videoId))
-          .map((u) => ({ videoId: u.videoId, title: u.title }));
+        const unseenUploads = uploads.filter((u) => !seen.has(u.videoId));
+        const flags = await getVideoFlags(unseenUploads.map((u) => u.videoId));
+        const unseen = unseenUploads.map((u) => {
+          const f = flags[u.videoId];
+          return {
+            videoId: u.videoId,
+            title: u.title,
+            membersOnly: f ? f.membersOnly : false,
+            hasTranscript: f ? f.hasTranscript : null,
+          };
+        });
         const out = { ...base, unseen };
         if (stale) out.stale = true;   // background refresh still in flight
         if (error) out.error = error;
@@ -1364,12 +1394,18 @@ app.get('/api/follows/channel', blockInWeb, async (req, res) => {
       listEntries(),
     ]);
     const savedIds = new Set((entries || []).map((e) => e?.videoId).filter(Boolean));
+    const flags = await getVideoFlags(items.map((item) => item.videoId));
 
-    const annotated = items.map((item) => ({
-      ...item,
-      seen: seenSet.has(item.videoId),
-      saved: savedIds.has(item.videoId),
-    }));
+    const annotated = items.map((item) => {
+      const f = flags[item.videoId];
+      return {
+        ...item,
+        seen: seenSet.has(item.videoId),
+        saved: savedIds.has(item.videoId),
+        membersOnly: f ? f.membersOnly : false,
+        hasTranscript: f ? f.hasTranscript : null,
+      };
+    });
 
     logEvent('follows-channel', {
       channelId, offset, limit, nItems: annotated.length, hasMore, ok: true, ms: Date.now() - t0,

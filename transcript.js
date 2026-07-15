@@ -361,6 +361,8 @@ export async function listCaptionTracks(videoId) {
  *               dependency injection in tests). Defaults to the real
  *               youtube-transcript-backed fetchViaPackage.
  */
+export const MEMBERS_ONLY_PATTERNS = [/members-only/i, /join this channel/i, /channel's members/i];
+
 export async function fetchTranscript(videoId, opts = {}) {
   const lang = opts.lang || undefined;
   const retryDelaysMs = opts.retryDelaysMs !== undefined ? opts.retryDelaysMs : DEFAULT_RETRY_DELAYS_MS;
@@ -389,6 +391,14 @@ export async function fetchTranscript(videoId, opts = {}) {
       );
       e.echoCode = 'YTDLP_MISSING';
       e.hint = 'Install yt-dlp: `pip install yt-dlp` or `winget install yt-dlp`.';
+      throw e;
+    }
+    // Video requires channel membership
+    const ytDlpDetail = ytDlpErr.stderr || ytDlpErr.message || '';
+    if (MEMBERS_ONLY_PATTERNS.some((p) => p.test(ytDlpDetail))) {
+      const e = new Error('This video is for channel members only.');
+      e.echoCode = 'MEMBERS_ONLY';
+      e.hint = 'This video is for channel members only.';
       throw e;
     }
     // Both methods failed — video likely has no captions or is inaccessible

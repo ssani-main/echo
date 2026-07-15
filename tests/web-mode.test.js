@@ -112,3 +112,7 @@ test('ECHO_ERROR_STATUS maps API error codes from providers.js to correct HTTP s
   assert.equal(ECHO_ERROR_STATUS.API_RATE_LIMITED, 429);
   assert.equal(ECHO_ERROR_STATUS.API_FAILED, 502);
 });
+
+test('ECHO_ERROR_STATUS maps MEMBERS_ONLY to 422 (pinned: a missing entry would silently degrade to 500)', () => {
+  assert.equal(ECHO_ERROR_STATUS.MEMBERS_ONLY, 422);
+});

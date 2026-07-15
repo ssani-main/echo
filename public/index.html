@@ -2590,13 +2590,29 @@
       display: none !important;
     }
 
-    /* "New" badge overlaid on a channel-card thumbnail (top-left, distinct
-       corner from the bottom-right duration badge). */
-    .inbox-card-new-badge {
+    /* Informational flag badges (Membership / No transcript) overlaid on a
+       channel-card thumbnail (top-left, distinct corner from the bottom-right
+       duration badge). Stacked in a column so both can appear at once. */
+    .inbox-flag-badges {
       position: absolute;
       left: 0.5rem;
       top: 0.5rem;
       z-index: 3;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--space-2);
+    }
+
+    .inbox-flag-badge {
+      font-family: var(--font-mono);
+      font-size: var(--text-3xs);
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #fff;
+      background: rgba(0, 0, 0, 0.72);
+      border-radius: 4px;
+      padding: var(--space-1) var(--space-4);
     }
 
     .inbox-saved-badge {
@@ -10534,17 +10550,23 @@
 
     /** Builds the card markup for a single channel-catalog item, mirroring
      *  discoveryCardHtml()'s .saved-card structure so channel uploads look
-     *  native alongside the Library/Discovery grids. Adds a "new" badge for
-     *  unseen uploads and a "Saved" marker for uploads already in the
-     *  local library. */
+     *  native alongside the Library/Discovery grids. Adds "Membership" and
+     *  "No transcript" badges and a "Saved" marker for uploads already in
+     *  the local library. */
     function inboxCardHtml(item, channelId) {
       const title    = item.title || item.videoId || 'Untitled';
       const viewsStr = formatViews(item.views);
       const durBadge = item.durationText
         ? `<span class="discovery-duration-badge">${escapeHtml(item.durationText)}</span>`
         : '';
-      const newBadge = !item.seen
-        ? `<span class="inbox-new-badge inbox-card-new-badge">New</span>`
+      const flagBadges = [
+        item.membersOnly ? `<span class="inbox-flag-badge">Membership</span>` : '',
+        (item.hasTranscript === false || item.hasTranscript === 0)
+          ? `<span class="inbox-flag-badge">No transcript</span>`
+          : '',
+      ].filter(Boolean).join('');
+      const flagBadgesHtml = flagBadges
+        ? `<div class="inbox-flag-badges">${flagBadges}</div>`
         : '';
       const savedBadge = item.saved
         ? `<span class="inbox-saved-badge">&#10003; Saved</span>`
@@ -10571,7 +10593,7 @@
             </svg>
           </div>
           ${thumbHtml}
-          ${newBadge}
+          ${flagBadgesHtml}
           ${durBadge}
         </div>
         <div class="saved-card-body">
@@ -10589,8 +10611,8 @@
 
     /** Appends a page of channel-catalog items to #inboxCardGrid (does NOT
      *  clear existing cards) and wires up click/keydown handling on just the
-     *  newly-added cards — loads the video via openInboxItem() and clears
-     *  its own "new" badge immediately (no full grid re-render). */
+     *  newly-added cards — loads the video via openInboxItem()
+     *  (no full grid re-render). */
     function appendChannelCards(items, channelId) {
       if (!Array.isArray(items) || items.length === 0 || !inboxCardGridEl) return;
       inboxCardGridEl.insertAdjacentHTML('beforeend', items.map(it => inboxCardHtml(it, channelId)).join(''));
@@ -10600,8 +10622,6 @@
       newCards.forEach(card => {
         const openCard = () => {
           openInboxItem(card.dataset.channelid, card.dataset.videoid);
-          const badge = card.querySelector('.inbox-card-new-badge');
-          if (badge) badge.remove();
         };
         card.addEventListener('click', openCard);
         card.addEventListener('keydown', e => {
@@ -10768,11 +10788,6 @@
         inboxMarkAllSeenBtn.disabled = true;
         await markChannelSeen(channelId, videoIds);
         inboxMarkAllSeenBtn.disabled = false;
-        // Clear any "new" badges currently rendered for this channel without
-        // resetting the grid's pagination.
-        if (inboxCardGridEl) {
-          inboxCardGridEl.querySelectorAll('.inbox-card-new-badge').forEach(b => b.remove());
-        }
       });
     }
     if (inboxManageBtn) {

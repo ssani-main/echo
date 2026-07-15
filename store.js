@@ -73,6 +73,13 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_follow_seen_channel ON follow_seen(channelId);
 
+  CREATE TABLE IF NOT EXISTS video_flags (
+    videoId       TEXT PRIMARY KEY,
+    membersOnly   INTEGER NOT NULL DEFAULT 0,
+    hasTranscript INTEGER,
+    lastCheckedAt TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS shares (
     id         TEXT PRIMARY KEY,
     videoId    TEXT,
@@ -538,6 +545,65 @@ export async function touchChecked(channelId) {
   const now = new Date().toISOString();
   db.prepare('UPDATE follows SET lastCheckedAt = ? WHERE channelId = ?').run(now, channelId);
   return now;
+}
+
+// ---------------------------------------------------------------------------
+// Video flags (per-video facts observed from real fetch attempts — never
+// probed speculatively). Keyed on videoId, not channelId, so the fact
+// survives an unfollow.
+// ---------------------------------------------------------------------------
+
+/**
+ * Record observed facts about a video (members-only gate, transcript
+ * availability). Only overwrites fields that are explicitly provided, so a
+ * partial update (e.g. just membersOnly) never clobbers a previously known
+ * hasTranscript value with undefined.
+ * @param {string} videoId
+ * @param {{ membersOnly?: boolean|number, hasTranscript?: boolean|number }} flags
+ */
+export async function recordVideoFlags(videoId, flags = {}) {
+  const now = new Date().toISOString();
+  const membersOnlyProvided = flags.membersOnly !== undefined;
+  const hasTranscriptProvided = flags.hasTranscript !== undefined;
+  const membersOnlyVal = membersOnlyProvided ? (flags.membersOnly ? 1 : 0) : 0;
+  const hasTranscriptVal = hasTranscriptProvided ? (flags.hasTranscript ? 1 : 0) : null;
+
+  db.prepare(`
+    INSERT INTO video_flags (videoId, membersOnly, hasTranscript, lastCheckedAt)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(videoId) DO UPDATE SET
+      membersOnly   = CASE WHEN ? THEN excluded.membersOnly   ELSE video_flags.membersOnly   END,
+      hasTranscript = CASE WHEN ? THEN excluded.hasTranscript ELSE video_flags.hasTranscript END,
+      lastCheckedAt = excluded.lastCheckedAt
+  `).run(
+    videoId, membersOnlyVal, hasTranscriptVal, now,
+    membersOnlyProvided ? 1 : 0,
+    hasTranscriptProvided ? 1 : 0
+  );
+}
+
+/**
+ * Look up known flags for a batch of videoIds.
+ * @param {string[]} videoIds
+ * @returns {Promise<Object<string, { membersOnly: boolean, hasTranscript: boolean|null }>>}
+ */
+export async function getVideoFlags(videoIds) {
+  const ids = Array.isArray(videoIds) ? [...new Set(videoIds.filter(Boolean))] : [];
+  const out = {};
+  if (ids.length === 0) return out;
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = db.prepare(
+    `SELECT videoId, membersOnly, hasTranscript FROM video_flags WHERE videoId IN (${placeholders})`
+  ).all(...ids);
+
+  for (const row of rows) {
+    out[row.videoId] = {
+      membersOnly: !!row.membersOnly,
+      hasTranscript: row.hasTranscript === null ? null : !!row.hasTranscript,
+    };
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

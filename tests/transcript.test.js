@@ -8,6 +8,7 @@ import {
   isPermanentFetchError,
   fetchTranscript,
   extractPlaylist,
+  MEMBERS_ONLY_PATTERNS,
 } from '../transcript.js';
 
 // ---------------------------------------------------------------------------
@@ -256,4 +257,65 @@ test('extractPlaylist: rejects an unparsable URL', async () => {
 test('extractPlaylist: null/empty input resolves to an empty result without throwing', async () => {
   assert.deepEqual(await extractPlaylist(null), { playlistTitle: null, videos: [] });
   assert.deepEqual(await extractPlaylist(''), { playlistTitle: null, videos: [] });
+});
+
+// ---------------------------------------------------------------------------
+// MEMBERS_ONLY_PATTERNS — the classification hinge for the inbox "Membership"
+// badge. fetchTranscript() tests these patterns against yt-dlp's stderr/message
+// to decide whether to raise echoCode MEMBERS_ONLY vs. the generic
+// TRANSCRIPT_UNAVAILABLE. A false positive here mislabels an ordinary broken
+// video (deleted, private, age-gated, captions-disabled) as "Membership".
+// ---------------------------------------------------------------------------
+
+test('MEMBERS_ONLY_PATTERNS: matches verbatim yt-dlp members-only stderr', () => {
+  const msg =
+    "ERROR: [youtube] abc123: Join this channel to get access to members-only " +
+    "content like this video, and other exclusive perks.";
+  assert.ok(
+    MEMBERS_ONLY_PATTERNS.some((p) => p.test(msg)),
+    'expected at least one pattern to match the standard members-only message'
+  );
+});
+
+test('MEMBERS_ONLY_PATTERNS: matches the tiered-membership variant wording', () => {
+  const msg =
+    "ERROR: [youtube] abc123: Join this channel's members on level Tier 2 to " +
+    "get access to members-only content like this video.";
+  assert.ok(
+    MEMBERS_ONLY_PATTERNS.some((p) => p.test(msg)),
+    "expected at least one pattern to match the \"channel's members on level\" tiered wording"
+  );
+});
+
+test('MEMBERS_ONLY_PATTERNS: does NOT match "Video unavailable" (deleted/private/invalid all collapse to this)', () => {
+  const msg = 'ERROR: [youtube] abc123: Video unavailable';
+  assert.ok(
+    !MEMBERS_ONLY_PATTERNS.some((p) => p.test(msg)),
+    'must not mislabel a generic unavailable video as members-only'
+  );
+});
+
+test('MEMBERS_ONLY_PATTERNS: does NOT match "Private video" sign-in message', () => {
+  const msg =
+    "ERROR: [youtube] abc123: Private video. Sign in if you've been granted access to this video";
+  assert.ok(
+    !MEMBERS_ONLY_PATTERNS.some((p) => p.test(msg)),
+    'must not mislabel a private video as members-only'
+  );
+});
+
+test('MEMBERS_ONLY_PATTERNS: does NOT match "Sign in to confirm your age"', () => {
+  const msg = 'ERROR: [youtube] abc123: Sign in to confirm your age';
+  assert.ok(
+    !MEMBERS_ONLY_PATTERNS.some((p) => p.test(msg)),
+    'must not mislabel an age-gated video as members-only'
+  );
+});
+
+test('MEMBERS_ONLY_PATTERNS: does NOT match a captions-disabled message', () => {
+  const msg = 'Transcript is disabled on this video';
+  assert.ok(
+    !MEMBERS_ONLY_PATTERNS.some((p) => p.test(msg)),
+    'must not mislabel a captions-disabled video as members-only'
+  );
 });

@@ -283,3 +283,70 @@ test('deleteEntry removes the entry', async () => {
   const afterCount = (await store.listEntries()).length;
   assert.equal(afterCount, beforeCount - 1);
 });
+
+// ---------------------------------------------------------------------------
+// recordVideoFlags / getVideoFlags — video_flags table backing the inbox
+// "Membership" / "No transcript" badges.
+// ---------------------------------------------------------------------------
+
+test('recordVideoFlags then getVideoFlags: round-trips membersOnly and hasTranscript', async () => {
+  await store.recordVideoFlags('flag-vid-001', { membersOnly: true, hasTranscript: false });
+
+  const flags = await store.getVideoFlags(['flag-vid-001']);
+  assert.ok(flags['flag-vid-001']);
+  assert.equal(flags['flag-vid-001'].membersOnly, true);
+  assert.equal(flags['flag-vid-001'].hasTranscript, false);
+});
+
+test('recordVideoFlags: a partial update (membersOnly only) does not clobber a previously recorded hasTranscript', async () => {
+  await store.recordVideoFlags('flag-vid-002', { hasTranscript: false });
+  await store.recordVideoFlags('flag-vid-002', { membersOnly: true });
+
+  const flags = await store.getVideoFlags(['flag-vid-002']);
+  assert.equal(flags['flag-vid-002'].membersOnly, true, 'membersOnly should be updated');
+  assert.equal(flags['flag-vid-002'].hasTranscript, false, 'hasTranscript from the earlier call must survive');
+});
+
+test('recordVideoFlags: a partial update (hasTranscript only) does not clobber a previously recorded membersOnly', async () => {
+  await store.recordVideoFlags('flag-vid-003', { membersOnly: true });
+  await store.recordVideoFlags('flag-vid-003', { hasTranscript: true });
+
+  const flags = await store.getVideoFlags(['flag-vid-003']);
+  assert.equal(flags['flag-vid-003'].membersOnly, true, 'membersOnly from the earlier call must survive');
+  assert.equal(flags['flag-vid-003'].hasTranscript, true, 'hasTranscript should be updated');
+});
+
+test('recordVideoFlags: hasTranscript left unset reads back as null (never tried) — distinct from false (tried, none found)', async () => {
+  await store.recordVideoFlags('flag-vid-004', { membersOnly: false });
+
+  const flags = await store.getVideoFlags(['flag-vid-004']);
+  assert.equal(flags['flag-vid-004'].hasTranscript, null, 'never having tried must read back as null, not false');
+
+  await store.recordVideoFlags('flag-vid-004', { hasTranscript: false });
+  const flagsAfter = await store.getVideoFlags(['flag-vid-004']);
+  assert.equal(flagsAfter['flag-vid-004'].hasTranscript, false, 'an explicit "tried, none found" must read back as false, not null');
+  assert.notEqual(
+    flagsAfter['flag-vid-004'].hasTranscript,
+    null,
+    'null (unknown) and false (tried, none found) must be distinguishable'
+  );
+});
+
+test('getVideoFlags([]): returns an empty object without throwing or issuing invalid SQL', async () => {
+  const flags = await store.getVideoFlags([]);
+  assert.deepEqual(flags, {});
+});
+
+test('getVideoFlags: a videoId with no recorded row is simply absent from the result (no phantom row)', async () => {
+  const flags = await store.getVideoFlags(['flag-vid-does-not-exist']);
+  assert.deepEqual(flags, {});
+  assert.equal('flag-vid-does-not-exist' in flags, false);
+});
+
+test('getVideoFlags: a mixed batch returns only rows that actually exist', async () => {
+  await store.recordVideoFlags('flag-vid-005', { membersOnly: true });
+
+  const flags = await store.getVideoFlags(['flag-vid-005', 'flag-vid-nonexistent']);
+  assert.ok(flags['flag-vid-005']);
+  assert.equal('flag-vid-nonexistent' in flags, false);
+});
