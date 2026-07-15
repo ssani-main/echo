@@ -15,10 +15,8 @@
     })();
   </script>
 
-  <!-- Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <!-- Fonts: none. Plaintext runs on a system monospace stack (--font-stack),
+       so there is no webfont request and no render-blocking stylesheet. -->
 
   <!-- JSZip — used by Export library (ZIP download); graceful fallback if unavailable -->
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
@@ -36,9 +34,14 @@
       --text-md: 0.86rem;
       --text-lg: 0.92rem;
       --text-xl: 1rem;
-      --text-2xl: 1.15rem;
-      --text-3xl: 1.4rem;
-      --text-hero: clamp(2rem, 5vw, 3.15rem);
+      /* Plaintext: hierarchy without size. The top of the scale collapses to
+         body size — headings are distinguished by weight and --title, never
+         by scale. The steps BELOW --text-md survive: secondary chrome (meta,
+         badges, timecodes) still earns being quieter. Grounded in
+         anthonyhobday.com's `h1,h2,h3 { font-size: inherit }`. */
+      --text-2xl: var(--text-md);
+      --text-3xl: var(--text-md);
+      --text-hero: var(--text-md);
       --space-1: 0.1rem;
       --space-2: 0.2rem;
       --space-3: 0.3rem;
@@ -57,34 +60,48 @@
       --space-16: 5rem;
 
       /* ---- Signal palette · LIGHT ---- */
-      --paper:        #FBFBFC;   /* app background */
+      /* ---- Plaintext palette · LIGHT ----
+         Zero accent hue: --accent/--signal resolve to ink, so every
+         interactive surface inherits ink instead of cyan. --title is the
+         one step below --ink and carries heading hierarchy, since headings
+         are the same SIZE as body text (see --text-hero). --warn stays
+         chromatic on purpose: it is semantic, not decorative — an
+         invisible error is a bug, not restraint. */
+      --paper:        #F9F9F9;   /* app background */
       --surface:      #FFFFFF;   /* raised panels / cards */
-      --surface-2:    #F5F6F8;   /* inputs, hover fills */
-      --surface-3:    #ECEEF1;   /* pressed / active fills */
-      --ink:          #0F1319;   /* primary text */
-      --muted:        #59616C;   /* secondary text */
-      --ink-faint:    #97A0AB;   /* tertiary text / placeholders */
-      --rule:         #E6E8EC;   /* hairlines */
-      --rule-strong:  #D4D9DF;   /* stronger dividers / input borders */
-      --accent:       #0FA98D;   /* signal — primary accent (interactive) */
-      --accent-dark:  #0C8F77;
-      --accent-soft:  #E1F6F1;   /* soft accent fill */
-      --signal:       #0FA98D;   /* alias for new Signal components */
-      --signal-2:     #4F46E5;   /* indigo — reserved for waveform gradient only */
-      --warn:         #D64545;
+      --surface-2:    #F1F1F1;   /* inputs, hover fills */
+      --surface-3:    #E6E6E6;   /* pressed / active fills */
+      --ink:          #424242;   /* primary text */
+      --title:        #000000;   /* headings, card titles — hierarchy via weight + this */
+      --muted:        #6D6D6D;   /* secondary text */
+      --ink-faint:    #737373;   /* tertiary text / placeholders — 4.5:1 on --paper.
+                                    #949494 (hobday's value) is ~2.9:1 here and fails;
+                                    his site never puts real text on it. Echo does
+                                    (input placeholders), so it has to clear the floor. */
+      --rule:         #E2E2E2;   /* hairlines */
+      --rule-strong:  #C9C9C9;   /* stronger dividers / input borders */
+      --accent:       #000000;   /* ink — Plaintext has no accent hue */
+      --accent-dark:  #000000;
+      --accent-soft:  #EBEBEB;   /* soft fill — grey, not tinted */
+      --signal:       #000000;   /* waveform mark: an icon, not a brand mark */
+      --signal-2:     #000000;
+      --warn:         #D64545;   /* semantic only — errors must stay findable */
 
       /* Extra tokens (also defined in dark block below) */
-      --on-accent:        #FFFFFF;
+      --on-accent:        #F9F9F9;
       --warn-soft:        #FBEDED;
       --warn-ring:        rgba(214, 69, 69, 0.14);
       --shadow-indicator: rgba(16, 20, 30, 0.10);
       --warn-amber:       #B45309;
       --warn-amber-soft:  #FFF7ED;
 
-      --shadow-1: 0 1px 2px rgba(16,20,30,.06), 0 2px 8px rgba(16,20,30,.05);
-      --shadow-2: 0 12px 32px rgba(16,20,30,.10);
-      --shadow-badge: 0 1px 4px rgba(0, 0, 0, 0.18);
-      --focus:    0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+      /* Plaintext has no elevation: separation comes from rules, not depth. */
+      --shadow-1: none;
+      --shadow-2: none;
+      --shadow-badge: none;
+      /* Solid ink ring. A 30%-alpha ring of a black accent would drop to a
+         pale grey and fail the 3:1 focus-contrast floor. */
+      --focus:    0 0 0 2px var(--accent);
       --ease:     cubic-bezier(.2,.7,.3,1);
       --dur-fast: 0.12s;  /* micro transitions: hover / border / color */
       --dur:      0.15s;  /* base UI transition */
@@ -96,14 +113,19 @@
       --z-overlay:   19000;  /* modals, shortcuts, popovers */
       --z-toast:     20000;  /* toasts, above everything */
 
-      --font-sans:  'Space Grotesk', system-ui, sans-serif;      /* display / headings */
-      --font-serif: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;  /* UI + reading body */
-      --font-ui:    'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;  /* alias for chrome */
-      --font-mono:  'JetBrains Mono', 'Courier New', monospace;  /* data / timestamps */
+      /* One family, everywhere. A system stack: no webfont request, no
+         render-blocking <link>, no flash of fallback text. The four names
+         are kept as aliases so the ~150 existing call sites keep resolving. */
+      --font-stack: ui-monospace, 'SF Mono', SFMono-Regular, 'Cascadia Code',
+                    Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+      --font-sans:  var(--font-stack);
+      --font-serif: var(--font-stack);
+      --font-ui:    var(--font-stack);
+      --font-mono:  var(--font-stack);
 
-      --radius:    9px;
-      --radius-sm: 6px;   /* small controls: buttons, chips, inputs, segmented toggles */
-      --radius-lg: 14px;  /* hero command bar, content header, cards */
+      --radius:    0px;
+      --radius-sm: 0px;
+      --radius-lg: 0px;
       --control-h: 34px;  /* shared height for header + reader toolbar controls so they align */
       /* Outer page wrapper — wide enough to hold the widest reading
          column (Wide = 940px) plus breathing room. The top chrome
@@ -123,31 +145,33 @@
     /* Dark-theme overrides — applied via data-theme="dark" on <html> */
     :root[data-theme="dark"] {
       /* ---- Signal palette · DARK (first-class) ---- */
-      --paper:             #0A0B0D;
-      --surface:           #101216;
-      --surface-2:         #161A20;
-      --surface-3:         #1D222A;
-      --ink:               #E9ECF1;
-      --muted:             #99A1AD;
-      --ink-faint:         #5B636E;
-      --rule:              #232830;
-      --rule-strong:       #2E343D;
-      --accent:            #3DE0C8;
-      --accent-dark:       #2FC7B1;
-      --accent-soft:       #16302B;
-      --signal:            #3DE0C8;
-      --signal-2:          #6366F1;
+      /* ---- Plaintext palette · DARK ---- */
+      --paper:             #131414;
+      --surface:           #191B1C;
+      --surface-2:         #1E2123;
+      --surface-3:         #262A2C;
+      --ink:               #B6C2CC;
+      --title:             #FFFFFF;
+      --muted:             #7D878F;
+      --ink-faint:         #7A828A;   /* 4.6:1 on --paper; #5C646B was ~3.1:1 */
+      --rule:              #262A2C;
+      --rule-strong:       #3A4044;
+      --accent:            #FFFFFF;
+      --accent-dark:       #E6E6E6;
+      --accent-soft:       #262A2C;
+      --signal:            #FFFFFF;
+      --signal-2:          #FFFFFF;
       --warn:              #FF6B6B;
-      --on-accent:         #04120E;
+      --on-accent:         #131414;
       --warn-soft:         #2A1618;
       --warn-ring:         rgba(255, 107, 107, 0.20);
       --shadow-indicator:  rgba(0, 0, 0, 0.35);
       --warn-amber:        #F59E0B;
       --warn-amber-soft:   #1C1500;
 
-      --shadow-1: 0 1px 2px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.3);
-      --shadow-2: 0 12px 32px rgba(0,0,0,.45);
-      --shadow-badge: 0 1px 4px rgba(0, 0, 0, 0.18);
+      --shadow-1: none;
+      --shadow-2: none;
+      --shadow-badge: none;
 
       /* Find-in-transcript highlight tokens */
       --find-hit:        #292108;
@@ -171,16 +195,19 @@
     }
 
     /* Native form controls adopt the brand accent (checkboxes, radios, etc.)
-       so they don't render as the browser-default blue against the green UI. */
+       so they don't render as the browser-default blue. In Plaintext --accent
+       is ink, so native controls are the one place the OS would otherwise
+       inject a hue into a product that has none. */
     input[type="checkbox"],
     input[type="radio"] {
       accent-color: var(--accent);
     }
 
     body {
-      font-family: var(--font-sans);
-      /* Base fill lives on <html> (above) so the fixed background field can
-         sit behind a transparent body. See "SIGNAL SURFACE" below. */
+      font-family: var(--font-stack);
+      /* Base fill lives on <html> (above); body stays transparent so it
+         inherits it. (This used to let the ambient field show through —
+         that layer is gone in Plaintext, but <html> still paints the paper.) */
       background: transparent;
       color: var(--ink);
       min-height: 100vh;
@@ -190,66 +217,15 @@
     }
 
     /* ==============================================
-       SIGNAL SURFACE — ambient background field
-       Fills the empty canvas with quiet, on-brand depth: a signal glow in
-       the corners over a faint oscilloscope graticule + micro-grain. Calm at
-       rest; the glow comes ALIVE while the AI is digesting — body.ai-active is
-       toggled by setTopIndicator('digesting'|'working'). CSS-only, static
-       (the only motion is a slow breath during ai-active, disabled under
-       reduced-motion). Layers show because <body> is transparent (above).
+       SIGNAL SURFACE — removed for Plaintext.
+       This was the ambient field: cyan/indigo auroras over an oscilloscope
+       graticule and micro-grain, blooming while the AI digested. Plaintext
+       has no hue and no ambient decoration, so the whole layer is gone —
+       the page is now just paper.
+       `body.ai-active` is still toggled by setTopIndicator('digesting'),
+       and the top status indicator still reports that state in text.
+       Recover from git history if this direction is ever reverted.
     =============================================== */
-    body::before,
-    body::after {
-      content: '';
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-    }
-    /* Layer 1 — signal glow: cyan (--signal) + indigo (--signal-2) auroras
-       bleeding from the top corners, as if the waveform lights the room. */
-    body::before {
-      z-index: -2;
-      background:
-        radial-gradient(46% 38% at 14% 0%,  color-mix(in srgb, var(--signal)   26%, transparent), transparent 55%),
-        radial-gradient(44% 40% at 98% 16%, color-mix(in srgb, var(--signal-2) 24%, transparent), transparent 58%),
-        radial-gradient(40% 44% at -2% 74%, color-mix(in srgb, var(--signal)   14%, transparent), transparent 62%);
-      opacity: .16;                                  /* really minimal at rest / when done */
-      /* Opacity is driven ONLY by this transition (base .16 <-> ai-active 1),
-         so the bloom-in and fade-out both ease smoothly. The breathing pulse
-         lives on filter (below) so it never fights the opacity transition. */
-      transition: opacity 1.6s var(--ease), filter 1.2s var(--ease);
-      will-change: opacity, filter;
-    }
-    /* Layer 2 — oscilloscope graticule + micro-grain (fully static). The grid
-       fills the empty side gutters that glow alone can't reach. */
-    body::after {
-      z-index: -1;
-      background-image:
-        linear-gradient(color-mix(in srgb, var(--ink) 9%, transparent) 1px, transparent 1px),
-        linear-gradient(90deg, color-mix(in srgb, var(--ink) 9%, transparent) 1px, transparent 1px),
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
-      background-size: 48px 48px, 48px 48px, 200px 200px;
-      opacity: .5;
-      -webkit-mask: radial-gradient(120% 110% at 50% 0%, #000 45%, transparent 92%);
-              mask: radial-gradient(120% 110% at 50% 0%, #000 45%, transparent 92%);
-    }
-    /* Light theme: pull the grain/grid back so the field stays clean, not dirty. */
-    :root:not([data-theme="dark"]) body::after { opacity: .34; }
-
-    /* ai-active — the glow eases up to full (via the opacity transition above)
-       and breathes. The breath modulates filter only, so removing the class
-       leaves opacity to fade out smoothly instead of snapping. */
-    body.ai-active::before {
-      opacity: 1;
-      animation: signal-breathe 3.6s ease-in-out infinite;
-    }
-    @keyframes signal-breathe {
-      0%, 100% { filter: brightness(.9)  saturate(1);   }
-      50%      { filter: brightness(1.14) saturate(1.12); }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      body.ai-active::before { animation: none; }
-    }
     /* Keep the field out of printed digests. */
     body.printing-digest::before,
     body.printing-digest::after { display: none; }
@@ -484,6 +460,19 @@
       border-radius: var(--radius);
       border: 1px solid var(--rule);
       background: var(--paper);
+      /* Same rule as library/inbox thumbnails: YouTube art is the one colour
+         Echo does not author, so it stays desaturated until you ask for it.
+         Without this it is the only hue on an otherwise ink-only page. */
+      filter: grayscale(1) contrast(0.95);
+      transition: filter var(--dur-slow) var(--ease);
+    }
+
+    .content-header-thumb:hover {
+      filter: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .content-header-thumb { transition: none; }
     }
 
     .content-header-main {
@@ -613,65 +602,55 @@
       display: none;
     }
 
+    /* .hero-wave is left in the DOM but rendered to nothing: Plaintext has no
+       decorative motion and no gradient. The mark still exists in the header. */
     .hero-wave {
-      display: flex;
-      align-items: flex-end;
-      justify-content: flex-start;
-      gap: 3px;
-      height: 46px;
-      width: min(300px, 62%);
-      margin: 0 0 var(--space-12);
-      opacity: 0.92;
-    }
-
-    .hero-wave span {
-      flex: 1;
-      height: 100%;
-      border-radius: 2px;
-      transform-origin: bottom;
-      background: linear-gradient(180deg, var(--signal), var(--signal-2));
-      animation: hero-wave 1.9s var(--ease) infinite;
-    }
-
-    @keyframes hero-wave {
-      0%, 100% { transform: scaleY(0.16); }
-      50%      { transform: scaleY(1); }
+      display: none;
     }
 
     .hero-eyebrow {
-      font-family: var(--font-mono);
+      font-family: var(--font-stack);
       font-size: var(--text-xs);
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: var(--accent);
-      margin-bottom: var(--space-8);
+      /* --muted, not --ink-faint: #949494 on #F9F9F9 is ~2.9:1 and fails the
+         4.5:1 floor for text this small. */
+      color: var(--muted);
+      margin-bottom: var(--space-10);
     }
 
+    /* PLAINTEXT — no synthesized oblique.
+       The system mono stack ships no true italic on most platforms, so
+       `font-style: italic` gets faked by skewing the roman, which reads as
+       broken rather than emphatic. Chrome (empty states, status lines)
+       carries its softness with --muted alone; the italic declarations are
+       removed at each source rule below rather than overridden here, since
+       an override at equal specificity would lose to the later rule.
+       Authored emphasis inside a digest — real markdown <em> — keeps it. */
+
+    /* The hero statement is body size. It earns attention through weight,
+       --title, and the space around it — not scale. antiwork.com sets its
+       hero as a plain paragraph for the same reason. */
     .hero-title {
-      font-family: var(--font-sans);
+      font-family: var(--font-stack);
       font-weight: 600;
-      letter-spacing: -0.025em;
-      line-height: 1.04;
-      font-size: var(--text-hero);
-      color: var(--ink);
+      line-height: 1.4;
+      font-size: var(--text-hero);   /* == --text-md */
+      color: var(--title);
       margin-bottom: var(--space-8);
     }
 
+    /* .grad is vestigial — the gradient headline was removed in the hallmark
+       audit. In Plaintext the emphasised half is simply the heading colour. */
     .hero-title .grad {
-      color: var(--accent);
+      color: var(--title);
     }
 
     .hero-sub {
-      font-family: var(--font-serif);
-      font-size: var(--text-xl);
-      line-height: 1.6;
+      font-family: var(--font-stack);
+      font-size: var(--text-md);
+      line-height: 1.65;
       color: var(--muted);
-      max-width: 33rem;
+      max-width: 52ch;
       margin: 0;
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      .hero-wave span { animation: none; transform: scaleY(0.5); }
     }
 
     /* ==============================================
@@ -1018,7 +997,6 @@
     #output .empty-state {
       font-family: var(--font-serif);
       font-size: var(--text-xl);
-      font-style: italic;
       color: var(--muted);
     }
 
@@ -1125,7 +1103,6 @@
     /* Empty state shown before any digest */
     .digest-empty-state {
       font-family: var(--font-serif);
-      font-style: italic;
       color: var(--muted);
       font-size: var(--text-xl);
       line-height: 1.65;
@@ -1201,24 +1178,30 @@
       margin-bottom: 0;
     }
 
+    /* Digest headings are the SAME SIZE as the prose they sit above
+       (--text-xl, matching #digestOutput p below). Three levels are still
+       distinguishable without any scale step:
+         h1 — weight 700
+         h2 — weight 700 + a rule beneath it
+         h3 — weight 600 + a `##` marker
+       Each still scales with --reading-scale, so A-/A+ moves the whole
+       document together and the flatness survives at every zoom level. */
     #digestOutput h1, .qa-answer h1 {
-      font-family: var(--font-sans);
-      font-size: calc(1.35rem * var(--reading-scale, 1));
+      font-family: var(--font-stack);
+      font-size: calc(var(--text-xl) * var(--reading-scale, 1));
       font-weight: 700;
-      color: var(--ink);
-      letter-spacing: -0.01em;
-      line-height: 1.3;
+      color: var(--title);
+      line-height: 1.4;
       max-width: var(--reading-measure, 760px);
       margin: var(--space-12) 0 var(--space-6);
     }
 
     #digestOutput h2, .qa-answer h2 {
-      font-family: var(--font-sans);
-      font-size: calc(1.1rem * var(--reading-scale, 1));
+      font-family: var(--font-stack);
+      font-size: calc(var(--text-xl) * var(--reading-scale, 1));
       font-weight: 700;
-      color: var(--accent);
-      letter-spacing: -0.01em;
-      line-height: 1.35;
+      color: var(--title);
+      line-height: 1.4;
       max-width: var(--reading-measure, 760px);
       margin: var(--space-11) 0 var(--space-5);
       padding-bottom: var(--space-3);
@@ -1226,17 +1209,26 @@
     }
 
     #digestOutput h3, .qa-answer h3 {
-      font-family: var(--font-sans);
-      font-size: calc(var(--text-lg) * var(--reading-scale, 1));
+      font-family: var(--font-stack);
+      font-size: calc(var(--text-xl) * var(--reading-scale, 1));
       font-weight: 600;
-      color: var(--ink);
+      color: var(--title);
       line-height: 1.4;
       max-width: var(--reading-measure, 760px);
       margin: var(--space-10) 0 var(--space-4);
     }
 
+    /* Decorative marker only — h3 already carries its level via weight.
+       aria-hidden is not available on ::before, but generated content is
+       not exposed by modern screen readers, so the heading text is unaffected. */
+    #digestOutput h3::before, .qa-answer h3::before {
+      content: '## ';
+      color: var(--ink-faint);
+      font-weight: 400;
+    }
+
     #digestOutput p, .qa-answer p {
-      font-family: var(--font-serif);
+      font-family: var(--font-stack);
       font-size: calc(var(--text-xl) * var(--reading-scale, 1));
       line-height: 1.7;
       color: var(--ink);
@@ -1291,7 +1283,8 @@
       border-left: 3px solid var(--accent);
       background: var(--paper);
       color: var(--muted);
-      font-style: italic;
+      /* No italic: the ink bar + --muted already say "quoted", and a whole
+         block of faked oblique mono is hard work to read. */
     }
 
     #digestOutput blockquote p, .qa-answer blockquote p {
@@ -1435,7 +1428,6 @@
       grid-column: 1 / -1;
       font-family: var(--font-serif);
       font-size: var(--text-xl);
-      font-style: italic;
       color: var(--muted);
       padding: var(--space-13) 0;
     }
@@ -1457,18 +1449,17 @@
       overflow: hidden;
       cursor: pointer;
       outline: none;
-      transition: border-color 0.16s, box-shadow 0.16s, transform 0.16s;
+      transition: border-color var(--dur-fast) var(--ease);
     }
 
+    /* No lift, no shadow: the border alone reports hover. */
     .saved-card:hover {
       border-color: var(--accent);
-      transform: translateY(-3px);
-      box-shadow: 0 10px 24px -12px var(--shadow-indicator);
     }
 
     .saved-card:focus-visible {
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--accent-soft);
+      box-shadow: var(--focus);
     }
 
     /* Thumbnail — full card width, sits above the card body */
@@ -1491,11 +1482,23 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
-      transition: transform 0.4s ease;
+      /* Thumbnails are the one colour Echo does not control. In a zero-hue
+         product they would be the only colour on screen, so they sit
+         desaturated and return to full colour on hover/focus — the image is
+         content, the chrome around it stays hueless. Grounded in
+         joshpuckett.me (grayscale → colour on hover) and zserge.com
+         (images desaturated in dark mode). */
+      filter: grayscale(1) contrast(0.95);
+      transition: filter var(--dur-slow) var(--ease);
     }
 
-    .saved-card:hover .saved-card-thumb {
-      transform: scale(1.045);
+    .saved-card:hover .saved-card-thumb,
+    .saved-card:focus-visible .saved-card-thumb {
+      filter: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .saved-card-thumb { transition: none; }
     }
 
     /* Graceful no-thumbnail panel — a soft branded gradient + play glyph
@@ -1508,9 +1511,7 @@
       justify-content: center;
       color: var(--muted);
       opacity: 0.55;
-      background:
-        radial-gradient(120% 120% at 30% 20%, var(--accent-soft) 0%, transparent 60%),
-        linear-gradient(150deg, var(--paper) 0%, var(--rule) 100%);
+      background: var(--surface-2);
     }
 
     /* Digest badge — sits on the thumbnail like a duration chip */
@@ -2995,7 +2996,6 @@
     .enrich-card-echo {
       font-family: var(--font-serif);
       font-size: var(--text-sm);
-      font-style: italic;
       color: var(--muted);
       overflow: hidden;
       text-overflow: ellipsis;
@@ -3154,9 +3154,11 @@
       padding: var(--space-2) 0;
     }
 
+    /* The shimmer stays: it is load feedback, not decoration, and it is
+       already hueless (rule -> surface -> rule). */
     .skeleton-line {
       height: 0.9em;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       background: linear-gradient(
         90deg,
         var(--rule)    25%,
@@ -3225,7 +3227,6 @@
       font-family: var(--font-sans);
       font-size: var(--text-xs);
       color: var(--muted);
-      font-style: italic;
     }
 
     .lang-picker-status.error {
@@ -3371,7 +3372,6 @@
       font-family: var(--font-sans);
       font-size: var(--text-xs);
       color: var(--muted);
-      font-style: italic;
     }
 
     .playlist-digest-progress {
