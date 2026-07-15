@@ -1,187 +1,397 @@
 # Whisper transcription — spec
 
 **Status:** proposed (not built). **Scope:** local/desktop only — never web.
+**This is a rewrite.** The previous spec proposed **hosted** Whisper (Groq/OpenAI,
+BYO key). That is **rejected**. The decision is **local whisper.cpp via a vendored
+prebuilt binary**. Rationale below — read "The decision" before implementing, because
+the load-bearing reason is not the one you'd guess.
 
-## Why
+## Why the feature at all
 
 Two problems, one mechanism.
 
 1. **Dead-end today.** When a video has no captions, `fetchTranscript` throws
-   `TRANSCRIPT_UNAVAILABLE` (`transcript.js:374–398`) and the flow stops. Whisper
+   `TRANSCRIPT_UNAVAILABLE` (`transcript.js:390–397`) and the flow stops. Whisper
    gives us a transcript where none existed.
 2. **ASR captions are low quality.** YouTube auto-generated captions have no
    punctuation, no capitalization, homophone errors, and run-on structure.
-   Whisper `large-v3` produces clean, punctuated, correctly-spelled text.
+   Whisper produces clean, punctuated text.
    **Better transcript → better digest → more accurate "what's being discussed."**
-   This is the accuracy upgrade the feature is really about — not just filling a gap.
 
 The transcript is the raw material for *every* downstream feature (digest, tags,
 enrich, find-in-transcript, share). Improving it improves all of them at once.
+Digest quality rises with **zero digest code change** — the win is entirely in the
+input text. Bonus: clean sentence boundaries make `chunkText` (`digest.js`,
+newline-based) split map-reduce chunks more cleanly on long videos.
+
+## The decision
+
+**Local whisper.cpp, vendored prebuilt binary. No hosted STT. No Node bindings.**
+
+### What was rejected, and why
+
+**Hosted STT (Groq / OpenAI) — rejected.** Not on cost. Groq
+`whisper-large-v3-turbo` is ~**$0.04/hr** of audio with an 8 hrs/day free tier —
+too cheap to be worth monetizing. It was rejected on two other grounds:
+
+- **It forces a second API key.** **Anthropic has no audio input at all** —
+  verified: their OpenAI-compatibility layer explicitly strips audio, and their own
+  cookbook routes STT through a third party. So there is no "reuse the key the user
+  already has" path. A second key is real onboarding friction and a **different
+  privacy posture**: it means uploading the user's audio to a third party, which is
+  not what a local-first tool should do by default.
+- **It wouldn't work on the server anyway.** See the web-mode gate below — this is
+  the load-bearing constraint, not a policy preference.
+
+**Node bindings — all rejected.** Every one needs a C++ toolchain at install time,
+violating the repo's no-native-deps constraint (the same constraint that put us on
+`node:sqlite` instead of `better-sqlite3` — the user has no C++ build tools).
+
+| Package | Verdict |
+|---|---|
+| `nodejs-whisper` (0.3.0, 6.9k DL/wk) | runs cmake at first use; 2.5-year Windows scar trail, issue #178 open since 2025-03-13 |
+| `smart-whisper` (0.8.1) | unmaintained since Oct 2024. README claims Windows "without external tools"; the manifest runs `node-gyp rebuild`. **The claim is false.** |
+| `whisper-node` (1.1.1, 2023) | abandoned |
+| `@lumen-labs-dev/whisper-node` | **do not use.** All 15 versions published in one 24-hour burst 2025-09-28, solo maintainer, executes downloaded `.exe`s at install. Wrong supply-chain shape. |
+| whisper.cpp `examples/addon.node` | a cmake-js demo, not a product |
+| `@remotion/install-whisper-cpp` | **reference implementation only, not a dependency.** Windows-only prebuilt; macOS/Linux paths `git clone` + `make`; CJS with React peer deps. Read it for the download/verify flow, don't install it. |
+
+### What we chose
+
+**whisper.cpp v1.9.1** (2026-06-19, repo `ggml-org/whisper.cpp`). Repo is healthy:
+51.8k stars, last commit 2026-07-11. Every release attaches
+**`whisper-bin-x64.zip`** (7.6 MB, 34.6k downloads) containing a **real `.exe` with
+no toolchain required**:
+
+- `Release/whisper-cli.exe` (0.46 MB)
+- `Release/whisper.dll`
+- 9 × `ggml-cpu-*.dll` (microarch dispatch variants — ship all of them)
+
+> ⚠️ **Path contradiction — verify on implement.** The zip lays the binary out at
+> `Release/whisper-cli.exe`. Remotion's installer expects `build/bin/whisper-cli.exe`.
+> We could not resolve which is authoritative across versions. **Unzip v1.9.1 and look**
+> before hard-coding either path; probe both.
+
+This is free, matches the local-first ethos, adds **no npm dependency**, and keeps
+the user's audio on the user's machine.
 
 ## Non-goals / hard constraints
 
-- **Web mode never runs Whisper.** Web is stateless, BYOK-Anthropic-only, and a
-  quick single-video read; downloading full audio + uploading to a third API is a
-  cost-sink and a second-provider-key we won't put in the stateless path. Web keeps
-  today's behaviour (captions or the dead-end). Guard it like `blockInWeb`.
-- **No new npm dependency.** Whisper (Groq + OpenAI) are OpenAI-compatible
-  multipart endpoints; use native `fetch` + `FormData` + `Blob` (Node ≥22.5).
-  Do **not** add `groq-sdk`/`openai`.
-- **Never break local mode** (project hard constraint). Whisper is strictly
-  additive and off unless a key is configured.
+- **Web mode never runs Whisper** — and the reason is technical, not policy. See below.
+- **No new npm dependency.** Spawn the binary with the existing `execFile` pattern.
+- **Never break local mode** (project hard constraint). Strictly additive, off unless
+  the binary + model are present.
 - **Transcript shape is sacred.** Whisper must return the exact existing shape —
-  `[{ text, offset }]` (offset = seconds) with a non-enumerable `langUsed` — so
-  chunking (`digest.js`), the web-mode char cap (`server.js:512`), find-in-transcript,
-  jump-to-time, and library save all keep working untouched.
+  `[{ text, offset }]` (offset = **seconds**) with a **non-enumerable `langUsed`**
+  stamped via `Object.defineProperty` — so chunking (`digest.js`), the web-mode char
+  cap (`server.js:520`), find-in-transcript, jump-to-time, and library save all keep
+  working untouched. Copy the stamping idiom from `fetchViaPackage`
+  (`transcript.js:138`).
+- **ffmpeg becomes a hard requirement for this feature.** Today it's only needed by
+  `frames.js`. whisper.cpp requires 16 kHz mono 16-bit WAV *specifically*
+  (whisper.cpp issue #909), and only ffmpeg gets us there.
 
-## Provider model
+## Web-mode gate — the real reason
 
-- Default provider **Groq** (`whisper-large-v3`) — cheaper/faster, generous free
-  tier. Fallback **OpenAI** (`whisper-1`). Both hit
-  `POST .../audio/transcriptions` with `response_format=verbose_json` (returns
-  `segments:[{start,end,text}]` → maps straight to `{text, offset}` with real
-  timestamps).
-- **Key sourcing** mirrors the Anthropic BYOK pattern (`server.js:284` `readApiKey`):
-  - **local:** env `GROQ_API_KEY` / `OPENAI_API_KEY` (add to `.env.example` AI section).
-  - **desktop:** per-request header `X-Echo-Whisper-Key` ← `localStorage['echo-whisper-key']`,
-    read by a new `readWhisperKey(req)` sibling of `readApiKey`. Provider chosen by a
-    `whisperProvider` setting (`groq`|`openai`) or `ECHO_TRANSCRIBE` env.
-  - **web:** ignored/blocked.
+Guard with `blockInWeb` (`server.js:448`), **but the reason is not cost or policy:**
+
+**yt-dlp's PO tokens are bound to the originating IP/network, and audio streams
+(`gvs` tokens) are gated harder than captions (`subs`).** Audio downloads break from
+a datacenter IP. **Hosted Whisper wouldn't work even if we paid for it, because the
+server can't reliably get the audio bytes in the first place.** This is the
+load-bearing constraint. Web keeps today's behaviour: captions, or the dead-end.
+
+Do not "fix" this by re-litigating the hosted-STT decision — the blocker is upstream
+of the STT provider.
+
+## Model choice
+
+Models live at HF repo **`ggerganov/whisper.cpp`** — **not** `ggml-org/*`, which
+404s on HF despite being the GitHub org. Easy mistake; it will waste an hour.
+
+| model | f16 | q5 | RAM |
+|---|---|---|---|
+| base | 141 MB | **57 MB** | ~388 MB |
+| small | 465 MB | **181 MB** | ~852 MB |
+| medium | 1463 MB | 514 MB | ~2.1 GB |
+| large-v3 | 2952 MB | 1031 MB | ~3.9 GB |
+| large-v3-turbo | 1549 MB | 547 MB | *never published* |
+
+**Default: `small` q5 (181 MB). Fast tier: `base` q5 (57 MB).**
+
+### Speed (CPU, i7-11800H 8-core, per hour of audio)
+
+| model | realistic end-to-end |
+|---|---|
+| base | ~2–3 min |
+| small | ~6–9 min |
+| medium | ~17–27 min |
+| large | ~32–52 min |
+
+⚠️ **These numbers are DERIVED, not measured**: the repo's encoder-only benchmark
+(issue #89) × 1.5–2.5. The official whisper.cpp table is **encoder-only, 30-second
+window, with no realtime multiples** — it does not tell you how long an hour of audio
+takes, and people misread it constantly. Stated here so nobody re-misreads it.
+
+### ⚠️ The turbo trap — the single biggest gotcha
+
+`large-v3-turbo`'s famous **"8× faster" is a GPU result.** Turbo is large-v3's
+encoder **unchanged** (32 layers) with the decoder cut 32→4. **On CPU the encoder
+dominates** — so turbo should land near large-v3 (**~30–50 min/hr**), roughly **5×
+worse than `small`**, for marginal accuracy gain.
+
+**It is the obvious pick and it is wrong here.** Nobody has published a turbo CPU
+benchmark (repo search: zero results), so this is reasoning, not measurement. If
+turbo-on-CPU ever becomes load-bearing, **benchmark it** — `whisper-bench.exe` ships
+inside the same zip.
 
 ## Three transcript tiers (one setting)
 
-`whisperMode` (setting, threaded through `/api/transcript` as `transcribe`):
+`whisperMode`, threaded through `/api/transcript` as `transcribe`. There is no key to
+configure any more, so **the gate is "is the binary + model present?"** — not "is a
+key set?".
 
 | mode | behaviour | default |
 |---|---|---|
-| `off` | never use Whisper — today's behaviour | when **no** key configured |
-| `fallback` | Whisper **only** when captions are missing (fills the dead-end) | when a key **is** configured |
+| `off` | never use Whisper — today's behaviour | when the binary/model is **absent** |
+| `fallback` | Whisper **only** when captions are missing (fills the dead-end) | when the binary/model is **present** |
 | `always` | Whisper even when captions exist — the accuracy upgrade | opt-in |
+
+**Why `fallback` and not `always` by default:** the cost is no longer money, it's
+**wall-clock**. `always` turns a sub-second caption fetch into ~6–9 min for a 1-hour
+video on the default `small` model. That is a bad default surprise. `always` is the
+quality play and stays an explicit opt-in.
 
 ## New module: `whisper.js`
 
 ```
-transcribeViaWhisper(videoId, opts) -> Promise<[{text, offset}]>  // + langUsed stamped
-getWhisperProvider(opts)            -> { name, url, model, apiKey } | null
+transcribeViaWhisper(videoId, opts) -> Promise<[{text, offset}]>   // + langUsed stamped
+resolveWhisper(opts)                -> { binPath, modelPath } | null
 mapWhisperError(err)                -> { echoCode, message, hint }
 ```
 
-`transcribeViaWhisper` steps:
+**Binary discovery follows the existing `frames.js` convention** (`frames.js:31–32`,
+`opts.ffmpegPath || process.env.ECHO_FFMPEG || 'ffmpeg'`). Mirror it exactly:
 
-1. **Download audio** — reuse the existing yt-dlp `execFile` pattern
-   (`transcript.js:153`) into `tmpdir()`:
-   `yt-dlp -f bestaudio -x --audio-format mp3 --audio-quality 32K -o <tmp> <url>`.
-   - **ffmpeg is optional, not required.** yt-dlp's `-x` postprocessor uses ffmpeg
-     *if present* to re-encode small (≈0.5 MB/min → ~50 min fits the 25 MB API cap).
-     If ffmpeg is absent, fall back to raw `yt-dlp -f bestaudio -o <tmp>` (no
-     re-encode) and upload the native container (m4a/webm — both APIs accept them).
-     Only fail with `FFMPEG_MISSING` hint if the raw file exceeds the API limit and
-     we can't split it.
-2. **Split if oversize** — Whisper upload cap is 25 MB. If the audio exceeds
-   ~24 MB, split with ffmpeg (`-f segment -segment_time 1200`, 20-min chunks) and
-   transcribe segments with **bounded concurrency (≤4)**, adding each segment's
-   cumulative start offset to its returned timestamps so `offset` stays global.
-3. **Transcribe** — multipart POST per file:
-   `FormData{ file: Blob, model, response_format:'verbose_json', language? }`
-   → parse `segments[]` → `{ text: seg.text.trim(), offset: baseOffset + seg.start }`.
-4. **Stamp** non-enumerable `langUsed` on the array; **always** `rm -rf` the tmp
-   dir in a `finally`.
+```
+opts.whisperPath || process.env.ECHO_WHISPER || <vendored path> || 'whisper-cli'
+opts.modelPath   || process.env.ECHO_WHISPER_MODEL || <cache path>
+```
 
-Guardrails: overall op timeout (`ECHO_WHISPER_TIMEOUT_MS`, default 300 s →
-`WHISPER_TIMEOUT`); max-duration reject (`ECHO_WHISPER_MAX_MINUTES`, default 180 →
-`WHISPER_AUDIO_TOO_LONG`) checked from yt-dlp metadata before download.
+### Pipeline
 
-## Integration points
+1. **Duration guard** — cheap `yt-dlp --print '%(duration)s'` probe first (copy
+   `frames.js:41–61`). Over `ECHO_WHISPER_MAX_MINUTES` (default 180) →
+   `WHISPER_AUDIO_TOO_LONG`. Given the speed table, consider surfacing the estimate
+   to the UI rather than only rejecting.
 
-**A. Fallback** — in `fetchTranscript` (`transcript.js:359`), before throwing
-`TRANSCRIPT_UNAVAILABLE` at `:374–398`: if `opts.transcribe !== 'off'`, a whisper
-key resolves, and not web mode → `return await transcribeViaWhisper(videoId, opts)`.
-On Whisper failure, fall through to the original error (append a hint).
+2. **Download + convert audio** in one yt-dlp call into an `fs.mkdtemp` dir:
 
-**B. Accuracy upgrade (`always`)** — at the **top** of `fetchTranscript`, if
-`opts.transcribe === 'always'` and a key resolves and not web → go straight to
+   ```
+   yt-dlp -f "wa/ba[abr<50]/ba" -x --audio-format wav \
+     --postprocessor-args "ExtractAudio:-ar 16000 -ac 1 -c:a pcm_s16le" \
+     -o "audio.%(ext)s" URL
+   ```
+
+   **Measured against the project's own test video `GRzaq5AHiV8` (26:23):**
+   - Smallest useful format is **139 m4a, 49k AAC-HE 22 kHz ≈ 22 MB/hour**.
+   - Plain `-f ba` picks format 251 — **2.4× the bytes for zero Whisper benefit**
+     (everything above ~48k is discarded at 16 kHz anyway).
+   - `-f "wa"` selects the same as `ba[abr<50]`; the chain is belt-and-braces.
+   - Download of 1 hr ≈ **5 seconds** on a residential connection.
+
+   **Gotcha:** `-x` does **not** work with `-o -` — postprocessors need a real file
+   on disk. You cannot stream this leg.
+
+   **The WAV is the expensive artifact: 16 kHz mono 16-bit = ~115 MB/hour, ~5× the
+   download.** Feed it to whisper-cli and delete it. **Never cache it.** `rm -rf` the
+   temp dir in a `finally` (copy `cleanupFrames`, `frames.js:383`).
+
+3. **Transcribe** — spawn `whisper-cli` with JSON output and segment timestamps
+   (the whisper.cpp equivalent of `response_format=verbose_json`). Point it at the
+   model file and the WAV.
+
+4. **Map to Echo's shape** — `segments[] → { text: seg.text.trim(), offset: startSec }`,
+   converting whisper.cpp's timestamps to **seconds** (they are not natively seconds —
+   verify the unit against real output, do not assume). Then stamp `langUsed`
+   non-enumerably.
+
+Guardrails: overall op timeout `ECHO_WHISPER_TIMEOUT_MS` — **default it generously
+(≥30 min) and derive it from duration**, because unlike the frames path the work here
+is legitimately minutes-long → `WHISPER_TIMEOUT`.
+
+## Integration point — the exact hook site
+
+**One hook only**, in `fetchTranscript` (`transcript.js:359`), in the `catch (ytDlpErr)`
+block, **immediately before the `TRANSCRIPT_UNAVAILABLE` throw** — i.e. after *both*
+the package fetcher and the yt-dlp caption fallback have failed. The real code today:
+
+```js
+    // Both methods failed — video likely has no captions or is inaccessible
+    const e = new Error(
+      `Could not fetch transcript. ` +
+      `Primary: ${primaryError.message}. ` +
+      `Fallback (yt-dlp): ${ytDlpErr.message}`
+    );
+    e.echoCode = 'TRANSCRIPT_UNAVAILABLE';
+    e.hint = 'The video may have captions disabled, be private, age-restricted, or unavailable in your region.';
+    throw e;
+```
+
+Insert before that: if `opts.transcribe !== 'off'`, `resolveWhisper()` returns
+non-null, and we're not in web mode → `return await transcribeViaWhisper(videoId, opts)`.
+On Whisper failure, **fall through to the original `TRANSCRIPT_UNAVAILABLE`** with an
+appended hint — never replace the user-meaningful error with an internal one.
+
+**`always` mode** hooks at the **top** of `fetchTranscript`: if
+`opts.transcribe === 'always'` and Whisper resolves and not web → go straight to
 Whisper, skipping the caption fetch entirely.
 
-**C. Digest improvement** — *automatic*. The digest consumes the transcript string
-(`generateDigest(transcriptText)`, `digest.js:542`); once that text is Whisper-sourced
-it is punctuated and accurate, so digest/tags/enrich quality rise with **zero digest
-code change**. Bonus: clean sentence boundaries make `chunkText` (`digest.js:392`,
-newline-based) split map-reduce chunks more cleanly on long videos. No flag to the
-digest is needed — the win is entirely in the input text.
+## Binary + model acquisition and caching
+
+This is the part with real product surface, and it needs a decision, not a shrug.
+
+**The binary** (7.6 MB) is small enough to **vendor** — ship it in the repo /
+Tauri bundle. No first-run step.
+
+**The model is the problem.** `small` q5 is **181 MB**. Shipping it inside the
+installer bloats the artifact ~180 MB for a feature most users may never trigger.
+
+**Proposed: download on first use, not at install.**
+
+- First time a user triggers Whisper, show an **explicit consent step**: "Transcribing
+  this video needs a one-time 181 MB speech model download." Never download 181 MB
+  silently.
+- Cache to a **stable per-user app-data dir** (not `tmpdir()` — it must survive
+  reboots and app updates), overridable via `ECHO_WHISPER_MODEL`.
+- **Show progress.** A 181 MB download behind a silent spinner reads as a hang.
+- **Verify the download** (size + checksum) before first use, and make a partial or
+  corrupt file re-downloadable rather than a permanent wedge.
+- Offer `base` q5 (**57 MB**) as the fast tier — a materially smaller first-run ask.
+
+Open: whether the desktop installer should optionally pre-bundle `base` q5 (57 MB) so
+the feature works offline out of the box, with `small` as the upgrade. Not decided.
 
 ## Server surface (`server.js`)
 
-- `POST /api/transcript` (`:492`): accept `transcribe` in the body; add
-  `readWhisperKey(req)` (`X-Echo-Whisper-Key`, honored in local+desktop only, like
-  `readApiKey`); pass `{ transcribe, whisperKey, whisperProvider }` into
-  `fetchTranscript`. **In web mode, force `transcribe:'off'`** regardless of body.
-  Add `transcriptSource: 'captions'|'whisper'` to the response.
-- New `ECHO_ERROR_STATUS` codes (`:207`): `WHISPER_NOT_AUTHED→401`,
-  `WHISPER_FAILED→502`, `WHISPER_AUDIO_TOO_LONG→422`, `WHISPER_TIMEOUT→504`,
-  `FFMPEG_MISSING→503`. `mapWhisperError` produces the `{echoCode,message,hint}`
-  envelope so `sendCaughtError` (`:245`) handles them unchanged.
-- Optional `POST /api/validate-whisper-key` (parallels `/api/validate-key`): a
-  1-second no-op transcription or a models-list ping.
-- **Note:** the transcript fetch on the frontend (`public/index.html:6994`) uses
-  raw `fetch` with no key header. To bill Whisper to a desktop user's key it must
-  send `X-Echo-Whisper-Key` — either switch that call to a keyed helper or add the
-  header inline (mirror `aiFetch` at `:9170`).
+- `POST /api/transcript` (`:497`): accept `transcribe` in the body; pass
+  `{ transcribe }` into `fetchTranscript`. **In web mode, force `transcribe:'off'`**
+  regardless of body. Add `transcriptSource: 'captions'|'whisper'` to the response.
+  **No key header** — there is no key. (The old spec's `readWhisperKey` /
+  `X-Echo-Whisper-Key` / `/api/validate-whisper-key` are all deleted with the hosted
+  decision. Good riddance: the frontend transcript fetch stays a plain `fetch`.)
+- New `ECHO_ERROR_STATUS` codes (`:208`): `WHISPER_MISSING→503`,
+  `WHISPER_MODEL_MISSING→503`, `WHISPER_FAILED→502`, `WHISPER_AUDIO_TOO_LONG→422`,
+  `WHISPER_TIMEOUT→504`. **`FFMPEG_MISSING→503` and `YTDLP_MISSING→503` already
+  exist** (`:214`, `:221`) — reuse them, don't add duplicates.
+- `mapWhisperError` follows `mapFramesError` (`frames.js:396`) exactly: `err.echoCode`
+  passthrough, then **`ENOENT` + binary-name detection** (`err.code === 'ENOENT' &&
+  /whisper/i.test((err.path || '') + message)`) → `{ echoCode, message, hint }`, so
+  `sendCaughtError` (`:250`) handles them unchanged.
 
 ## Frontend (`public/index.html`)
 
-- **Settings → new "Transcription (advanced)" section** (local/desktop only, hidden
-  in web): provider radio (Groq/OpenAI), `#whisperKeyInput`
-  (`localStorage['echo-whisper-key']`), mode select (Off / Fallback / High-accuracy),
-  optional Validate button.
-- **Source badge** on the reader + digest: "Transcript: Whisper (high-accuracy)" vs
-  "YouTube captions", from `transcriptSource`.
-- **Progress affordance:** Whisper (download + upload + transcribe) is tens of
-  seconds, not the sub-second caption fetch — reuse the existing top-indicator
-  (`setTopIndicator('working')`) so the ambient background comes alive during it.
+- **Settings → "Transcription (advanced)"** (local/desktop only, hidden in web): mode
+  select (Off / Fallback / High-accuracy), model select (small / base), model
+  download+status affordance. No key input.
+- **Source badge** on reader + digest: "Transcript: Whisper" vs "YouTube captions",
+  from `transcriptSource`.
+- **Progress is not optional here.** This is minutes, not the sub-second caption
+  fetch. `setTopIndicator('working')` plus a real sub-status (model download %,
+  then "Transcribing…"). A silent multi-minute wait will read as a crash.
 
-## Library (data shape — Phase-2-clean)
+## Library (data shape — additive)
 
 Persist `transcriptSource` (and optionally `whisperModel`) on saved entries so a
-re-open knows the transcript's provenance. Additive/non-breaking; old entries
-default to `'captions'`.
+re-open knows the transcript's provenance. Non-breaking; old entries default to
+`'captions'`.
+
+## Platform support matrix
+
+| platform | whisper.cpp prebuilt CLI | status |
+|---|---|---|
+| Windows x64 | ✅ `whisper-bin-x64.zip` — real `.exe`, no toolchain | verified |
+| macOS | ❌ **not published** — releases ship an **xcframework only**, not a CLI binary | **OPEN** |
+| Linux | ❓ **unconfirmed** | **OPEN** |
+
+🚩 **This is an open question that must be answered before desktop ship, not after.**
+**Tauri Linux installers already build today** (`npm run tauri:build` → AppImage /
+`.deb` / `.rpm`, see [`DESKTOP.md`](DESKTOP.md)) — so Linux is a shipping platform
+*right now* and needs a real answer. If no prebuilt exists for a platform, the honest
+options are: build+host our own binaries, or **degrade cleanly to `off`** on that
+platform (the feature is additive; absent binary → today's behaviour, which is a
+correct outcome, not a bug).
 
 ## Tauri (`src-tauri/tauri.conf.json`)
 
-- Register the new module in `bundle.resources` (`:42`): `"../whisper.js": "whisper.js"`
-  — or the desktop sidecar crashes `ERR_MODULE_NOT_FOUND` at runtime (unit tests +
-  `.deb`/`.rpm` bundlers won't catch it; `tests/tauri-bundle.test.js` will — update
-  its expected list too).
-- No new npm dep to add to `dist-deps` (native fetch). **ffmpeg** for
-  desktop: document as an optional external requirement (the no-ffmpeg raw-audio
-  path still works for short videos); bundling ffmpeg via `externalBin` is a later
-  polish, not launch-blocking.
+- **Register `whisper.js` in `bundle.resources`** (`:42`): `"../whisper.js": "whisper.js"`.
+  Miss this and the desktop sidecar crashes at runtime with `ERR_MODULE_NOT_FOUND` —
+  and neither `node --test` nor the `.deb`/`.rpm` bundlers catch it (they don't start
+  the backend). `tests/tauri-bundle.test.js` **does** guard it, and it derives the
+  expected list by walking `server.js`'s import graph — so it needs **no manual list
+  update**, it will simply fail until you add the conf entry.
+- **The binary + DLLs** need bundling too (`externalBin` / resources), and they are
+  per-platform — which is the platform matrix above, wearing a different hat.
+- **The model does not ship** (see acquisition, above) — that's the whole point of the
+  first-run download.
+- Still **no new npm dep** to add to `dist-deps`.
 
 ## Testing
 
-- **Unit** (`node --test`): mock the Whisper HTTP call (`fetch`) and the
-  yt-dlp/ffmpeg spawns. Assert: output shape `[{text,offset}]`; **offset stitching**
-  across multiple audio segments; `langUsed` stamped; web-mode guard forces `off`;
-  each error → correct `echoCode`; `always` skips caption fetch; `fallback` only
-  fires after captions fail.
-- **Bundle-drift:** add `whisper.js` to `tests/tauri-bundle.test.js`.
-- **Runtime (external-dep-blocked, manual):** a no-caption video + a real Groq key →
-  transcript + digest end-to-end; and an `always` A/B on a video with bad ASR
-  captions to confirm the digest sharpens (this is the whole thesis — verify it).
+**`node --test` never spawns real binaries** (project gotcha) — so **unit tests must
+not depend on whisper-cli, yt-dlp, ffmpeg, or a downloaded model existing.** Mock the
+spawns.
+
+- **Unit:** output shape `[{text,offset}]`; offsets in **seconds**; `langUsed` stamped
+  and **non-enumerable**; web mode forces `off`; `resolveWhisper` returns null → mode
+  degrades to `off`; each error → correct `echoCode` (incl. `ENOENT`+`whisper` →
+  `WHISPER_MISSING`); `always` skips the caption fetch; `fallback` fires **only** after
+  both caption paths fail; temp dir removed on both success and failure paths.
+- **Bundle-drift:** `tests/tauri-bundle.test.js` covers it automatically once
+  `whisper.js` is imported by the backend — just make sure it's green.
+- **Runtime (manual, external-dep-blocked — the tests above prove nothing about
+  this):**
+  1. Unzip v1.9.1, resolve the `Release/` vs `build/bin/` path question, run
+     `whisper-cli.exe` by hand on a real WAV.
+  2. `GRzaq5AHiV8` end-to-end: yt-dlp → WAV → whisper-cli → transcript → digest.
+     **Time it** and check the derived speed table against reality.
+  3. A no-caption video → confirms the dead-end is actually filled.
+  4. An `always` A/B on a video with bad ASR captions → confirm the digest sharpens.
+     **This is the whole thesis of the accuracy tier — verify it, don't assume it.**
 
 ## Phasing
 
-1. **P1 — fill the dead-end.** `whisper.js` + `fallback` path + env key (local).
-   No UI. Smallest useful slice; proves the pipeline.
-2. **P2 — accuracy upgrade.** Settings UI + desktop `X-Echo-Whisper-Key` + `always`
-   mode + source badge. This is the digest-quality win the user asked for.
-3. **P3 — polish.** `transcriptSource` in library, chunked long-audio hardening,
-   `/api/validate-whisper-key`, optional ffmpeg bundling for desktop.
+1. **P1 — fill the dead-end.** `whisper.js` + `fallback` hook + env-configured binary
+   and model (`ECHO_WHISPER`, `ECHO_WHISPER_MODEL`), Windows only, no UI, no
+   auto-download. Smallest slice that proves the pipeline.
+2. **P2 — make it a product.** Model auto-download + consent + progress + cache;
+   Settings UI; `always` mode; source badge; `transcriptSource` in the library.
+3. **P3 — reach.** Platform matrix resolution (macOS/Linux binaries), bundling the
+   binary into the Tauri artifact, `base`-vs-`small` tuning against a real benchmark.
 
-## Open decisions (need a call before building)
+## Open questions / verify-on-implement
 
-1. **ffmpeg posture:** require it (clean 0.5 MB/min, always fits) vs keep it optional
-   (lower install friction, raw-audio upload, fails on long videos without it)?
-   Spec assumes **optional**.
-2. **Default mode when a key is set:** `fallback` (conservative, spend only when
-   needed) vs `always` (max accuracy, spends every video)? Spec assumes **`fallback`**.
-3. **Provider default:** Groq (free tier, fast) — assumed. Any reason to prefer OpenAI?
+1. 🚩 **macOS/Linux binaries.** macOS publishes **no CLI binary** (xcframework only);
+   Linux is **unconfirmed**. Linux Tauri installers ship *today*. Build our own, or
+   degrade to `off` per-platform? **Blocks desktop ship. Highest-priority unknown.**
+2. 🚩 **The zip's binary path.** `Release/whisper-cli.exe` (what the zip contains) vs
+   `build/bin/whisper-cli.exe` (what Remotion's installer expects). Unresolved.
+   **Unzip v1.9.1 and look.** Probe both paths.
+3. 🚩 **Does the model ship or download?** Spec assumes **download on first use with
+   explicit consent** (181 MB `small` q5). Alternative: pre-bundle `base` q5 (57 MB)
+   for offline-out-of-the-box. Affects installer size materially. **Not decided.**
+4. **Turbo on CPU is unbenchmarked.** The ~30–50 min/hr figure is *reasoning from
+   architecture* (encoder unchanged, decoder cut, encoder dominates on CPU), not
+   measurement — nobody has published one. If it ever matters, run `whisper-bench.exe`
+   from the same zip. Don't let "8× faster" back into the conversation unmeasured.
+5. **The whole speed table is derived** (issue #89 encoder-only × 1.5–2.5) on one
+   8-core laptop. Replace with real measurements from step 2 of the runtime plan.
+6. **whisper.cpp timestamp units** in JSON output — verify against real output before
+   mapping to `offset`. Do not assume seconds.
+7. **Default model.** Spec assumes `small` q5 (best accuracy/speed/size balance).
+   `base` q5 is 3× faster and 3× smaller with worse accuracy. Only real usage decides.
+8. **Timeout policy.** A fixed `ECHO_WHISPER_TIMEOUT_MS` will be wrong at both ends
+   (a 5-min video and a 3-hr video). Spec suggests deriving from duration. Unvalidated.
+9. **`ffmpeg` now hard-required** for a *transcript* — previously only a *digest*
+   nicety. Does that change the install story enough to justify bundling ffmpeg for
+   desktop (deferred to P3 in [`FRAMES.md`](FRAMES.md))? Two features now want it.
