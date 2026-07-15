@@ -71,6 +71,7 @@ Design review uses the `hallmark` skill (`hallmark audit <files>`); Echo passed 
 
 ## Key docs
 - [`DEPLOY.md`](DEPLOY.md) — Fly.io runbook (+ Railway note).
+- [`VPS.md`](VPS.md) — self-hosting on your own box (Docker Compose + Caddy); same `Dockerfile`, same `ECHO_MODE=web` constraint.
 - [`DESKTOP.md`](DESKTOP.md) — Tauri desktop shell (Linux installers build; macOS/Windows + signing pending).
 - [`PLAN.md`](PLAN.md) — feature-cut plan (now completed).
 - [`FRAMES.md`](FRAMES.md) — frame-augmented digest (P1+P2 **shipped**): feed on-screen frames into the digest.

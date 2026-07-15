@@ -9,7 +9,9 @@ needs **no secrets** and **no database provisioning** — just build the
 existing `Dockerfile` and run it.
 
 This doc covers **Fly.io** (primary, one command once set up) and a brief
-note on **Railway** as an alternative.
+note on **Railway** as an alternative. To run it on a box you own instead,
+see [`VPS.md`](VPS.md) — same `Dockerfile`, with Docker Compose and Caddy
+standing in for Fly's remote build and automatic TLS.
 
 ## Primary: Fly.io
 
