@@ -1,16 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 168 44" role="img" aria-label="Echo">
+  <!-- Plaintext: ink only, square ends, system monospace wordmark.
+       A standalone SVG cannot load a webfont and cannot read the page's CSS
+       custom properties — both must be resolved here. The previous version
+       asked for 'Space Grotesk' and silently fell back to system-ui. -->
   <style>
-    :root { --signal: #0FA98D; --signal-2: #4F46E5; --ink: #0F1319; }
-    @media (prefers-color-scheme: dark) { :root { --signal: #3DE0C8; --signal-2: #6366F1; --ink: #E9ECF1; } }
-    .echo-word { fill: var(--ink); font-family: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 27px; font-weight: 600; letter-spacing: -0.5px; }
+    .bar { fill: #000000; }
+    .echo-word {
+      fill: #000000;
+      font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 25px;
+      font-weight: 600;
+      letter-spacing: -0.5px;
+    }
+    @media (prefers-color-scheme: dark) {
+      .bar { fill: #FFFFFF; }
+      .echo-word { fill: #FFFFFF; }
+    }
   </style>
   <g transform="translate(6 1) scale(1.5)">
-    <rect x="2"  y="12" width="2.4" height="4"  rx="1.2" fill="var(--signal)"/>
-    <rect x="6"  y="9"  width="2.4" height="10" rx="1.2" fill="var(--signal)"/>
-    <rect x="10" y="5"  width="2.4" height="18" rx="1.2" fill="var(--signal)"/>
-    <rect x="14" y="10" width="2.4" height="8"  rx="1.2" fill="var(--signal-2)"/>
-    <rect x="18" y="7"  width="2.4" height="14" rx="1.2" fill="var(--signal-2)"/>
-    <rect x="22" y="11" width="2.4" height="6"  rx="1.2" fill="var(--signal-2)"/>
+    <rect class="bar" x="2"  y="12" width="2.4" height="4"/>
+    <rect class="bar" x="6"  y="9"  width="2.4" height="10"/>
+    <rect class="bar" x="10" y="5"  width="2.4" height="18"/>
+    <rect class="bar" x="14" y="10" width="2.4" height="8"/>
+    <rect class="bar" x="18" y="7"  width="2.4" height="14"/>
+    <rect class="bar" x="22" y="11" width="2.4" height="6"/>
   </g>
   <text class="echo-word" x="56" y="30">Echo</text>
 </svg>

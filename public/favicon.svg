@@ -1,8 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" role="img" aria-label="Echo">
-  <rect x="2"  y="12" width="2.4" height="4"  rx="1.2" fill="#3DE0C8"/>
-  <rect x="6"  y="9"  width="2.4" height="10" rx="1.2" fill="#3DE0C8"/>
-  <rect x="10" y="5"  width="2.4" height="18" rx="1.2" fill="#3DE0C8"/>
-  <rect x="14" y="10" width="2.4" height="8"  rx="1.2" fill="#6366F1"/>
-  <rect x="18" y="7"  width="2.4" height="14" rx="1.2" fill="#6366F1"/>
-  <rect x="22" y="11" width="2.4" height="6"  rx="1.2" fill="#6366F1"/>
+  <!-- Plaintext: ink only, square ends. An SVG favicon cannot read the page's
+       CSS custom properties, so the theme has to be resolved here with its own
+       media query — this is why the mark stayed cyan when :root went ink. -->
+  <style>
+    rect { fill: #000000; }
+    @media (prefers-color-scheme: dark) { rect { fill: #FFFFFF; } }
+  </style>
+  <rect x="2"  y="12" width="2.4" height="4"/>
+  <rect x="6"  y="9"  width="2.4" height="10"/>
+  <rect x="10" y="5"  width="2.4" height="18"/>
+  <rect x="14" y="10" width="2.4" height="8"/>
+  <rect x="18" y="7"  width="2.4" height="14"/>
+  <rect x="22" y="11" width="2.4" height="6"/>
 </svg>

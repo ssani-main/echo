@@ -410,39 +410,42 @@ export function renderSharePage({ id, title, sourceUrl, digestMd, claims, create
 <title>${safeTitle} — Echo</title>
 <style>
   :root {
-    --paper:      #0A0B0D;
-    --surface:    #111419;
-    --surface-2:  #171B22;
-    --ink:        #EAEDF2;
-    --muted:      #99A1AD;
-    --faint:      #5B636E;
-    --rule:       #22272F;
-    --rule-2:     #2E343D;
-    --accent:     #3DE0C8;
-    --accent-ink: #04120E;
+    --paper:      #131414;
+    --surface:    #191B1C;
+    --surface-2:  #1E2123;
+    --ink:        #B6C2CC;
+    --title:      #FFFFFF;
+    --muted:      #7D878F;
+    --faint:      #7A828A;
+    --rule:       #262A2C;
+    --rule-2:     #3A4044;
+    --accent:     #FFFFFF;
+    --accent-ink: #131414;
     --ok:         #45D9A6;
     --warn:       #FF6B6B;
     --amber:      #F5A623;
     --neutral:    #7C8593;
-    --radius:     9px;
-    --radius-sm:  6px;
-    --radius-lg:  14px;
-    --font-display: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-    --font-read:    'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, 'Times New Roman', serif;
-    --font-mono:    ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+    --radius:     0px;
+    --radius-sm:  0px;
+    --radius-lg:  0px;
+    --font-stack:   ui-monospace, 'SF Mono', SFMono-Regular, 'Cascadia Code', Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+    --font-display: var(--font-stack);
+    --font-read:    var(--font-stack);
+    --font-mono:    var(--font-stack);
   }
   @media (prefers-color-scheme: light) {
     :root {
-      --paper:      #FBFBFC;
+      --paper:      #F9F9F9;
       --surface:    #FFFFFF;
-      --surface-2:  #F5F6F8;
-      --ink:        #0F1319;
-      --muted:      #59616C;
-      --faint:      #97A0AB;
-      --rule:       #E9EBEF;
-      --rule-2:     #D8DCE2;
-      --accent:     #0FA98D;
-      --accent-ink: #FFFFFF;
+      --surface-2:  #F1F1F1;
+      --ink:        #424242;
+      --title:      #000000;
+      --muted:      #6D6D6D;
+      --faint:      #737373;
+      --rule:       #E2E2E2;
+      --rule-2:     #C9C9C9;
+      --accent:     #000000;
+      --accent-ink: #F9F9F9;
       --ok:         #0E9E75;
       --warn:       #D64545;
       --amber:      #92600A;
@@ -509,12 +512,11 @@ export function renderSharePage({ id, title, sourceUrl, digestMd, claims, create
     color: var(--ink);
   }
   h1.share-title {
-    font-family: var(--font-display);
+    font-family: var(--font-stack);
     font-weight: 700;
-    font-size: 2rem;
-    line-height: 1.15;
-    letter-spacing: -0.01em;
-    color: var(--ink);
+    font-size: 1.05rem;
+    line-height: 1.4;
+    color: var(--title);
     margin: 0 0 0.9rem;
   }
   .signal-readout {
@@ -546,18 +548,20 @@ export function renderSharePage({ id, title, sourceUrl, digestMd, claims, create
   /* ---------- Digest body ---------- */
   main.digest {
     font-family: var(--font-read);
-    font-size: 1.075rem;
+    font-size: 0.95rem;
     line-height: 1.7;
     color: var(--ink);
   }
   main.digest h1, main.digest h2, main.digest h3 {
-    font-family: var(--font-display);
-    color: var(--ink);
-    line-height: 1.3;
+    font-family: var(--font-stack);
+    font-size: 1em;
+    color: var(--title);
+    line-height: 1.4;
   }
-  main.digest h1 { font-size: 1.5rem; font-weight: 700; margin: 2rem 0 0.7rem; }
-  main.digest h2 { font-size: 1.3rem; font-weight: 650; margin: 2rem 0 0.7rem; }
-  main.digest h3 { font-size: 1.1rem; font-weight: 650; margin: 1.6rem 0 0.5rem; }
+  main.digest h1 { font-weight: 700; margin: 2rem 0 0.7rem; }
+  main.digest h2 { font-weight: 700; margin: 2rem 0 0.7rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--rule); }
+  main.digest h3 { font-weight: 600; margin: 1.6rem 0 0.5rem; }
+  main.digest h3::before { content: '## '; color: var(--faint); font-weight: 400; }
   main.digest h1:first-child, main.digest h2:first-child, main.digest h3:first-child { margin-top: 0; }
   main.digest p { margin: 0 0 1.05rem; }
   main.digest ul, main.digest ol { margin: 0 0 1.05rem 1.3rem; padding: 0; }
@@ -568,7 +572,6 @@ export function renderSharePage({ id, title, sourceUrl, digestMd, claims, create
     border-left: 3px solid var(--accent);
     background: var(--surface-2);
     color: var(--muted);
-    font-style: italic;
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   }
   main.digest pre {
@@ -668,10 +671,10 @@ export function renderSharePage({ id, title, sourceUrl, digestMd, claims, create
   .cta-card .waveform { color: var(--accent); margin: 0 auto 0.9rem; display: block; }
   .cta-card .waveform .wf-bar { animation: none; }
   .cta-headline {
-    font-family: var(--font-display);
-    font-size: 1.25rem;
+    font-family: var(--font-stack);
+    font-size: 1rem;
     font-weight: 700;
-    color: var(--ink);
+    color: var(--title);
     margin: 0 0 0.5rem;
   }
   .cta-sub { color: var(--muted); font-size: 0.92rem; margin: 0 0 1.25rem; }
@@ -687,7 +690,9 @@ export function renderSharePage({ id, title, sourceUrl, digestMd, claims, create
     border-radius: var(--radius-sm);
     padding: 0.6rem 1.3rem;
   }
-  .cta-button:hover { filter: brightness(1.08); }
+  /* brightness() on a pure-ink button does nothing in light mode (#000 stays
+     #000). Invert to the paper instead, matching the app's hover-invert. */
+  .cta-button:hover { background: var(--paper); color: var(--title); box-shadow: inset 0 0 0 1px var(--title); }
 
   footer.share-footer {
     margin-top: 1.75rem;
