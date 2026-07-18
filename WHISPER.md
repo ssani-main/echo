@@ -312,15 +312,16 @@ re-open knows the transcript's provenance. Non-breaking; old entries default to
 |---|---|---|
 | Windows x64 | ✅ `whisper-bin-x64.zip` — real `.exe`, no toolchain | verified |
 | macOS | ❌ **not published** — releases ship an **xcframework only**, not a CLI binary | **OPEN** |
-| Linux | ❓ **unconfirmed** | **OPEN** |
+| Linux x64 | ✅ `whisper-bin-ubuntu-x64.tar.gz` (9.4 MB) — real `whisper-cli` + `.so` libs, no toolchain | **verified** (Arch, glibc≥2.34) |
+| Linux arm64 | ✅ `whisper-bin-ubuntu-arm64.tar.gz` (4.6 MB) — published, untested | published |
 
-🚩 **This is an open question that must be answered before desktop ship, not after.**
-**Tauri Linux installers already build today** (`npm run tauri:build` → AppImage /
-`.deb` / `.rpm`, see [`DESKTOP.md`](DESKTOP.md)) — so Linux is a shipping platform
-*right now* and needs a real answer. If no prebuilt exists for a platform, the honest
-options are: build+host our own binaries, or **degrade cleanly to `off`** on that
-platform (the feature is additive; absent binary → today's behaviour, which is a
-correct outcome, not a bug).
+🚩 **Linux is RESOLVED. macOS remains open** — and the decision is not deferred.
+**Linux x64 prebuilt exists and runs on Arch out of the box** (glibc floor 2.34; host
+2.43 compatible with Ubuntu 22.04+ era). Bundle `whisper-cli` + its `.so` libs and set
+`LD_LIBRARY_PATH`/`$ORIGIN` rpath. **macOS publishes no CLI binary** — only xcframework.
+The honest options: build+host our own binary, or **degrade cleanly to `off`** on macOS
+(the feature is additive; absent binary → today's behaviour, which is a correct outcome,
+not a bug).
 
 ## Tauri (`src-tauri/tauri.conf.json`)
 
@@ -371,9 +372,7 @@ spawns.
 
 ## Open questions / verify-on-implement
 
-1. 🚩 **macOS/Linux binaries.** macOS publishes **no CLI binary** (xcframework only);
-   Linux is **unconfirmed**. Linux Tauri installers ship *today*. Build our own, or
-   degrade to `off` per-platform? **Blocks desktop ship. Highest-priority unknown.**
+1. 🚩 **macOS binary.** macOS publishes **no CLI binary** (xcframework only). **Linux is RESOLVED (2026-07-18):** `whisper-bin-ubuntu-x64.tar.gz` ships a real `whisper-cli` + `.so` libs that runs on Arch out of the box (glibc floor 2.34; host 2.43). Only macOS remains — build our own, or degrade to `off`. Blocks macOS ship only.
 2. 🚩 **The zip's binary path.** `Release/whisper-cli.exe` (what the zip contains) vs
    `build/bin/whisper-cli.exe` (what Remotion's installer expects). Unresolved.
    **Unzip v1.9.1 and look.** Probe both paths.
