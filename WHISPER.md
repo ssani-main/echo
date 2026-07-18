@@ -133,6 +133,8 @@ Models live at HF repo **`ggerganov/whisper.cpp`** — **not** `ggml-org/*`, whi
 window, with no realtime multiples** — it does not tell you how long an hour of audio
 takes, and people misread it constantly. Stated here so nobody re-misreads it.
 
+📏 **MEASURED (2026-07-18) — the derived table is badly optimistic.** `small` q5 on a 12-core box transcribed the 26:23 test video (`GRzaq5AHiV8`, Indonesian) in **23m 01s** — i.e. **~52 min per hour of audio (~0.87× realtime)**, roughly **6–8× slower** than the ~6–9 min/hr derived above. Implications: (1) `small` in `always` mode means a ~23-min wait on a half-hour video — impractical; (2) this argues for **`base` q5 as the sensible default**, not `small`; (3) derive the op timeout from duration, never a fixed value. `base`/`medium`/`large` on this box remain unmeasured.
+
 ### ⚠️ The turbo trap — the single biggest gotcha
 
 `large-v3-turbo`'s famous **"8× faster" is a GPU result.** Turbo is large-v3's
@@ -211,9 +213,9 @@ opts.modelPath   || process.env.ECHO_WHISPER_MODEL || <cache path>
    (the whisper.cpp equivalent of `response_format=verbose_json`). Point it at the
    model file and the WAV.
 
-4. **Map to Echo's shape** — `segments[] → { text: seg.text.trim(), offset: startSec }`,
-   converting whisper.cpp's timestamps to **seconds** (they are not natively seconds —
-   verify the unit against real output, do not assume). Then stamp `langUsed`
+4. **Map to Echo's shape** — `segments[] → { text: seg.text.trim(), offset: startSec }`.
+   whisper.cpp's `-oj` JSON gives per-segment `offsets.{from,to}` in **milliseconds**
+   (confirmed 2026-07-18), so `offset = seg.offsets.from / 1000`. Then stamp `langUsed`
    non-enumerably.
 
 Guardrails: overall op timeout `ECHO_WHISPER_TIMEOUT_MS` — **default it generously
@@ -383,10 +385,8 @@ spawns.
    architecture* (encoder unchanged, decoder cut, encoder dominates on CPU), not
    measurement — nobody has published one. If it ever matters, run `whisper-bench.exe`
    from the same zip. Don't let "8× faster" back into the conversation unmeasured.
-5. **The whole speed table is derived** (issue #89 encoder-only × 1.5–2.5) on one
-   8-core laptop. Replace with real measurements from step 2 of the runtime plan.
-6. **whisper.cpp timestamp units** in JSON output — verify against real output before
-   mapping to `offset`. Do not assume seconds.
+5. **The speed table is mostly derived** (issue #89 encoder-only × 1.5–2.5). **`small` q5 is now MEASURED (2026-07-18): ~52 min/hr (~0.87× realtime) on a 12-core box — 6–8× slower than derived, so reconsider `base` as default.** `base`/`medium`/`large` remain derived; measure them the same way.
+6. **whisper.cpp timestamp units — RESOLVED (2026-07-18): MILLISECONDS.** The `-oj` JSON emits `transcription[].offsets.{from,to}` in **ms** (e.g. `4380` ↔ `00:00:04,380`). Echo's shape needs **seconds**, so map `offset = seg.offsets.from / 1000`.
 7. **Default model.** Spec assumes `small` q5 (best accuracy/speed/size balance).
    `base` q5 is 3× faster and 3× smaller with worse accuracy. Only real usage decides.
 8. **Timeout policy.** A fixed `ECHO_WHISPER_TIMEOUT_MS` will be wrong at both ends
