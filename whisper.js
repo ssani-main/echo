@@ -8,9 +8,14 @@ import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { modelFilePath, isModelPresent, DEFAULT_WHISPER_MODEL } from './whisperModel.js';
 
 const execFileAsync = promisify(execFile);
+
+// Directory of this module — used to resolve the vendored binary relative to the
+// code, NOT the cwd (the Tauri sidecar and `npm start` have different cwds).
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 // yt-dlp 2026.06.09+ silently drops formats without a JS runtime (see transcript.js).
 const YTDLP_JS_RUNTIME = process.env.ECHO_YTDLP_JS_RUNTIME ?? 'node';
@@ -18,11 +23,15 @@ const YTDLP_JS_RUNTIME_ARGS = YTDLP_JS_RUNTIME ? ['--js-runtimes', YTDLP_JS_RUNT
 
 const DEFAULT_MAX_MINUTES = Number(process.env.ECHO_WHISPER_MAX_MINUTES) || 180;
 
-// Forward-compat candidate for a future vendored binary; gated by existsSync so it's
-// a no-op in P1 (nothing shipped there yet). The real path in P1 comes from env/opts.
+// Vendored binary (P3): shipped in the repo / Tauri bundle per platform+arch, e.g.
+// vendor/whisper/linux-x64/whisper-cli. Resolved module-relative so it works the same
+// under `npm start` and the Tauri sidecar. Only populated platforms exist on disk;
+// absent ones (e.g. darwin — no prebuilt whisper-cli CLI) fail existsSync in the
+// callers and the feature degrades cleanly to off.
 function vendoredBin() {
   const name = process.platform === 'win32' ? 'whisper-cli.exe' : 'whisper-cli';
-  return path.join(process.cwd(), 'vendor', 'whisper', name);
+  const platArch = `${process.platform}-${process.arch}`;
+  return path.join(MODULE_DIR, 'vendor', 'whisper', platArch, name);
 }
 // P2: resolve the selected/default model from the download cache if fully present.
 function cacheModel(opts = {}) {

@@ -1,0 +1,2 @@
+# Vendored whisper.cpp binary + shared libraries — treat as binary (no eol conversion, no diff)
+vendor/whisper/** binary
