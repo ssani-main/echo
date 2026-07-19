@@ -3671,6 +3671,75 @@
       box-shadow: 0 0 0 3px var(--accent-soft);
     }
 
+    /* Whisper transcription settings — selects reuse the same visual
+       treatment as .settings-block input[type="text"] (Plaintext: no new
+       chrome language, just the existing input skin on a <select>). */
+    #whisperSettings select {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      padding: var(--space-4) var(--space-6);
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius-sm);
+      outline: none;
+      margin: var(--space-4) 0 var(--space-7);
+      transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+    }
+    #whisperSettings select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+    #whisperModelStateText {
+      font-family: var(--font-sans);
+      font-size: var(--text-sm);
+      color: var(--muted);
+    }
+    .whisper-model-status {
+      display: flex;
+      align-items: center;
+      gap: var(--space-6);
+      margin-top: var(--space-5);
+    }
+    .whisper-progress {
+      margin-top: var(--space-5);
+    }
+    .whisper-progress[hidden] {
+      display: none;
+    }
+    .whisper-progress-track {
+      height: 4px;
+      background: var(--rule);
+      overflow: hidden;
+    }
+    .whisper-progress-fill {
+      height: 100%;
+      width: 0;
+      background: var(--ink);
+      transition: width 0.2s ease;
+    }
+
+    /* Source badge — shown after a transcript loads, marking whether it came
+       from YouTube captions or an on-device Whisper transcription. */
+    .source-badge {
+      display: inline-flex;
+      align-items: center;
+      font-size: var(--text-xs);
+      color: var(--muted);
+      background: var(--surface-2);
+      border: 1px solid var(--rule);
+      padding: 1px var(--space-5);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+    .source-badge[hidden] {
+      display: none;
+    }
+
     /* ==============================================
        40. TOAST / BANNER SYSTEM
     =============================================== */
@@ -4329,6 +4398,7 @@
         <div class="content-header-meta">
           <a id="contentHeaderUrl" class="content-header-url" target="_blank" rel="noopener noreferrer"></a>
           <span id="contentHeaderDuration"></span>
+          <span id="transcriptSourceBadge" class="source-badge" hidden></span>
         </div>
       </div>
       <!-- Persistent Save affordance — lives in the content header so it is reachable
@@ -4872,6 +4942,45 @@
           <span class="settings-note">Suggest tags automatically when you save an untagged entry to your library.</span>
         </span>
       </label>
+
+      <!-- WHISPER TRANSCRIPTION — local/desktop only. Local Whisper
+           transcribes on-device when captions are missing (Fallback) or
+           always (High-accuracy); web mode has no local binary to run, so
+           this stays hidden there (see the ECHO.mode gate in JS below). -->
+      <div id="whisperSettings" class="settings-block" hidden>
+        <span class="digest-opt-label">Transcription</span>
+        <p class="settings-note">
+          Local Whisper transcribes the video's audio on-device when YouTube captions are
+          missing (Fallback) or always, instead of relying on captions (High-accuracy).
+          Nothing is uploaded — it runs entirely on your machine. Local/desktop only.
+        </p>
+        <p id="whisperBinaryNote" class="settings-key-status" aria-live="polite"></p>
+
+        <label class="digest-opt-label" for="whisperModeSelect">Mode</label>
+        <select id="whisperModeSelect">
+          <option value="off">Off — captions only</option>
+          <option value="fallback">Fallback — Whisper when captions missing</option>
+          <option value="always">High-accuracy — always Whisper</option>
+        </select>
+
+        <label class="digest-opt-label" for="whisperModelSelect">Model</label>
+        <select id="whisperModelSelect">
+          <option value="base">Base — fast · 57 MB</option>
+          <option value="small">Small — accurate · 181 MB</option>
+        </select>
+
+        <div class="whisper-model-status">
+          <span id="whisperModelStateText"></span>
+          <button class="mini-btn" id="whisperDownloadBtn">Download</button>
+        </div>
+
+        <div id="whisperProgress" class="whisper-progress" hidden>
+          <div class="whisper-progress-track">
+            <div id="whisperProgressFill" class="whisper-progress-fill"></div>
+          </div>
+          <p id="whisperProgressText" class="settings-note" aria-live="polite"></p>
+        </div>
+      </div>
 
       <!-- VAULT SYNC — local/desktop: sync library to a Markdown folder on disk.
            web: no filesystem access, so offer the ZIP export instead. -->
@@ -5603,6 +5712,7 @@
     const contentHeaderTitle    = document.getElementById('contentHeaderTitle');
     const contentHeaderUrl      = document.getElementById('contentHeaderUrl');
     const contentHeaderDuration = document.getElementById('contentHeaderDuration');
+    const transcriptSourceBadge = document.getElementById('transcriptSourceBadge');
     const transcriptCopyBtn     = document.getElementById('transcriptCopyBtn');
     const transcriptDownloadBtn = document.getElementById('transcriptDownloadBtn');
     const entryExportBtn        = document.getElementById('entryExportBtn');
@@ -6173,6 +6283,7 @@
         contentHeaderUrl.textContent      = '';
         contentHeaderUrl.removeAttribute('href');
         contentHeaderDuration.textContent = '';
+        if (transcriptSourceBadge) transcriptSourceBadge.hidden = true;
         updateReaderChromeVisibility();
         return;
       }
@@ -6206,6 +6317,15 @@
       contentHeaderDuration.textContent = durationStr
         ? (contentHeaderUrl.textContent ? ' · ' + durationStr : durationStr)
         : '';
+
+      // Source badge — reflects how this transcript was obtained (YouTube
+      // captions vs. on-device Whisper). Set on currentMeta by the fetch
+      // success path, the saved-entry open path, and session restore.
+      if (transcriptSourceBadge) {
+        const source = currentMeta.transcriptSource || 'captions';
+        transcriptSourceBadge.textContent = source === 'whisper' ? 'Whisper' : 'YouTube captions';
+        transcriptSourceBadge.hidden = false;
+      }
 
       updateReaderChromeVisibility();
     }
@@ -7216,13 +7336,16 @@
         activePlaylistIdx = -1;
       }
 
-      setStatus('Fetching transcript…');
+      const whisperMode = getWhisperMode();
+      setStatus(whisperMode !== 'off'
+        ? 'Fetching transcript… (Whisper may take a few minutes)'
+        : 'Fetching transcript…');
 
       try {
         const res  = await fetch('/api/transcript', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ url }),
+          body:    JSON.stringify({ url, transcribe: whisperMode, whisperModel: getWhisperModel() }),
         });
         const data = await res.json();
 
@@ -7238,9 +7361,11 @@
 
         lastSegments    = data.segments;
         currentSegments = data.segments;
+        const transcriptSource = data.transcriptSource || 'captions';
         currentMeta     = {
           videoId: data.videoId, url: data.url, title: data.title,
           channel: data.channel || null, channelUrl: data.channelUrl || null,
+          transcriptSource, whisperModel: transcriptSource === 'whisper' ? getWhisperModel() : null,
         };
         currentDigest   = null;
         currentSuggestedTags = [];
@@ -7759,6 +7884,8 @@
           channelUrl: currentMeta.channelUrl || null,
           segments:   lastSegments,
           digest:     currentDigest,
+          transcriptSource: currentMeta.transcriptSource || 'captions',
+          whisperModel:     currentMeta.whisperModel || null,
         });
 
         if (!res.ok) {
@@ -8411,6 +8538,8 @@
         currentMeta     = {
           videoId: entry.videoId, url: entry.url, title: entry.title,
           channel: entry.channel ?? null, channelUrl: entry.channelUrl ?? null,
+          transcriptSource: entry.transcriptSource || 'captions',
+          whisperModel: entry.transcriptSource === 'whisper' ? (entry.whisperModel ?? null) : null,
         };
         currentDigest   = entry.digest || null;
         currentSuggestedTags = []; // opening an already-saved entry — nothing to auto-suggest
@@ -9165,12 +9294,55 @@
       catch { /* localStorage unavailable — non-fatal */ }
     }
 
+    // Whisper transcription preferences (P2) — local/desktop only. Mode:
+    // off (captions only, default) / fallback (Whisper when captions are
+    // missing) / always (Whisper regardless of captions). Model: the
+    // whisper.cpp ggml model tier to use when Whisper runs.
+    const WHISPER_MODE_STORAGE_KEY  = 'echo-whisper-mode';
+    const WHISPER_MODEL_STORAGE_KEY = 'echo-whisper-model';
+    const WHISPER_MODES  = ['off', 'fallback', 'always'];
+    const WHISPER_MODELS_CLIENT = ['base', 'small'];
+
+    function getWhisperMode() {
+      try {
+        const raw = localStorage.getItem(WHISPER_MODE_STORAGE_KEY);
+        return WHISPER_MODES.includes(raw) ? raw : 'off';
+      } catch { return 'off'; }
+    }
+
+    function setWhisperMode(mode) {
+      try { localStorage.setItem(WHISPER_MODE_STORAGE_KEY, WHISPER_MODES.includes(mode) ? mode : 'off'); }
+      catch { /* localStorage unavailable — non-fatal */ }
+    }
+
+    function getWhisperModel() {
+      try {
+        const raw = localStorage.getItem(WHISPER_MODEL_STORAGE_KEY);
+        return WHISPER_MODELS_CLIENT.includes(raw) ? raw : 'base';
+      } catch { return 'base'; }
+    }
+
+    function setWhisperModel(model) {
+      try { localStorage.setItem(WHISPER_MODEL_STORAGE_KEY, WHISPER_MODELS_CLIENT.includes(model) ? model : 'base'); }
+      catch { /* localStorage unavailable — non-fatal */ }
+    }
+
     const settingsOverlayEl  = document.getElementById('settingsOverlay');
     const apiKeyInputEl      = document.getElementById('apiKeyInput');
     const apiKeyStatusEl     = document.getElementById('apiKeyStatus');
     const settingsSaveKeyBtnEl = document.getElementById('settingsSaveKeyBtn');
     const autoDigestToggleEl = document.getElementById('autoDigestToggle');
     const autoTagToggleEl    = document.getElementById('autoTagToggle');
+
+    const whisperSettingsEl       = document.getElementById('whisperSettings');
+    const whisperBinaryNoteEl     = document.getElementById('whisperBinaryNote');
+    const whisperModeSelectEl     = document.getElementById('whisperModeSelect');
+    const whisperModelSelectEl    = document.getElementById('whisperModelSelect');
+    const whisperModelStateTextEl = document.getElementById('whisperModelStateText');
+    const whisperDownloadBtnEl    = document.getElementById('whisperDownloadBtn');
+    const whisperProgressEl       = document.getElementById('whisperProgress');
+    const whisperProgressFillEl   = document.getElementById('whisperProgressFill');
+    const whisperProgressTextEl   = document.getElementById('whisperProgressText');
 
     // Vault sync preferences — folder path + last-sync result, local/desktop only.
     const VAULT_DIR_STORAGE_KEY       = 'echo-vault-dir';
@@ -9533,6 +9705,155 @@
       if (vaultSyncWebEl) vaultSyncWebEl.hidden = true;
     }
 
+    /* ==============================================
+       WHISPER TRANSCRIPTION SETTINGS (P2) — local/desktop only.
+       Backend routes (/api/whisper/status, /api/whisper/model) are gated
+       blockInWeb, so this whole subsystem stays inert (and hidden) in web
+       mode. Model bytes: whisper.cpp ggml q5_1 tier, sizes come straight
+       from the /api/whisper/status response — never hardcoded here beyond
+       the option labels, which are display copy only.
+    =============================================== */
+    let _whisperStatusCache   = null;
+    let _whisperPollTimer     = null;
+    let _whisperPollActive    = false;
+
+    /** Renders the last-fetched /api/whisper/status payload into the settings UI. */
+    function renderWhisperStatus(data) {
+      if (!data) return;
+      const binaryPresent = !!data.binaryPresent;
+      const mode          = getWhisperMode();
+      const modelName     = getWhisperModel();
+      const model = Array.isArray(data.models) ? data.models.find(m => m.name === modelName) : null;
+
+      if (whisperModeSelectEl)  whisperModeSelectEl.disabled  = !binaryPresent;
+      if (whisperDownloadBtnEl) whisperDownloadBtnEl.disabled = !binaryPresent || _whisperPollActive;
+
+      if (whisperBinaryNoteEl) {
+        if (!binaryPresent) {
+          whisperBinaryNoteEl.textContent = 'whisper-cli not found — set the ECHO_WHISPER environment variable to enable.';
+          whisperBinaryNoteEl.className   = 'settings-key-status error';
+        } else if (mode !== 'off' && model && !model.present) {
+          // Gentle hint: the user asked for Whisper but hasn't downloaded the model yet.
+          whisperBinaryNoteEl.textContent = 'Download the selected model below to use Whisper transcription.';
+          whisperBinaryNoteEl.className   = 'settings-key-status';
+        } else {
+          whisperBinaryNoteEl.textContent = '';
+          whisperBinaryNoteEl.className   = 'settings-key-status';
+        }
+      }
+
+      if (whisperModelStateTextEl) {
+        if (model && model.present) {
+          whisperModelStateTextEl.textContent = 'Downloaded';
+        } else if (model) {
+          const mb = Math.round((model.sizeBytes || 0) / 1048576);
+          whisperModelStateTextEl.textContent = `Not downloaded — ${mb} MB`;
+        } else {
+          whisperModelStateTextEl.textContent = '';
+        }
+      }
+      if (whisperDownloadBtnEl) {
+        whisperDownloadBtnEl.hidden = !!(model && model.present);
+      }
+    }
+
+    /** GET /api/whisper/status and reflect it into the settings UI. Local/desktop only. */
+    async function refreshWhisperStatus() {
+      if (ECHO.mode === 'web') return;
+      try {
+        const res = await fetch('/api/whisper/status');
+        if (!res.ok) return;
+        const data = await res.json();
+        _whisperStatusCache = data;
+        renderWhisperStatus(data);
+      } catch (err) {
+        console.error('[echo] whisper status fetch error:', err);
+      }
+    }
+
+    function stopWhisperPoll() {
+      _whisperPollActive = false;
+      if (_whisperPollTimer) { clearInterval(_whisperPollTimer); _whisperPollTimer = null; }
+    }
+
+    /** Polls /api/whisper/status ~every second while a model download is in flight. */
+    function pollWhisperDownload(model) {
+      if (_whisperPollActive) return; // guard against overlapping pollers
+      _whisperPollActive = true;
+      if (whisperProgressEl)     whisperProgressEl.hidden = false;
+      if (whisperDownloadBtnEl)  whisperDownloadBtnEl.disabled = true;
+      if (whisperProgressTextEl) whisperProgressTextEl.textContent = 'Downloading… 0%';
+      if (whisperProgressFillEl) whisperProgressFillEl.style.width = '0%';
+
+      _whisperPollTimer = setInterval(async () => {
+        try {
+          const res = await fetch('/api/whisper/status');
+          if (!res.ok) return;
+          const data = await res.json();
+          _whisperStatusCache = data;
+          const m = Array.isArray(data.models) ? data.models.find(x => x.name === model) : null;
+          if (!m) return;
+
+          if (m.present) {
+            stopWhisperPoll();
+            if (whisperProgressEl) whisperProgressEl.hidden = true;
+            if (whisperProgressTextEl) whisperProgressTextEl.textContent = '';
+            renderWhisperStatus(data);
+            return;
+          }
+          if (m.state === 'error') {
+            stopWhisperPoll();
+            if (whisperProgressTextEl) whisperProgressTextEl.textContent = m.error || 'Download failed.';
+            renderWhisperStatus(data);
+            return;
+          }
+          const pct = typeof m.percent === 'number' ? m.percent : 0;
+          if (whisperProgressFillEl) whisperProgressFillEl.style.width = pct + '%';
+          if (whisperProgressTextEl) whisperProgressTextEl.textContent = `Downloading… ${pct}%`;
+        } catch (err) {
+          console.error('[echo] whisper status poll error:', err);
+        }
+      }, 1000);
+    }
+
+    /** POST /api/whisper/model to (idempotently) start a download, then poll for progress. */
+    async function startWhisperDownload(model) {
+      if (_whisperPollActive) return; // guard against overlapping pollers
+      try {
+        await fetch('/api/whisper/model', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ model }),
+        });
+      } catch (err) {
+        console.error('[echo] whisper model download start error:', err);
+      }
+      pollWhisperDownload(model);
+    }
+
+    whisperModeSelectEl?.addEventListener('change', () => {
+      setWhisperMode(whisperModeSelectEl.value);
+      renderWhisperStatus(_whisperStatusCache);
+    });
+
+    whisperModelSelectEl?.addEventListener('change', () => {
+      setWhisperModel(whisperModelSelectEl.value);
+      renderWhisperStatus(_whisperStatusCache);
+    });
+
+    whisperDownloadBtnEl?.addEventListener('click', () => {
+      startWhisperDownload(getWhisperModel());
+    });
+
+    // Whisper is local/desktop only — the settings block itself stays hidden
+    // (and its select/status untouched) in web mode.
+    if (ECHO.mode !== 'web') {
+      if (whisperSettingsEl) whisperSettingsEl.hidden = false;
+      if (whisperModeSelectEl)  whisperModeSelectEl.value  = getWhisperMode();
+      if (whisperModelSelectEl) whisperModelSelectEl.value = getWhisperModel();
+      refreshWhisperStatus();
+    }
+
     /** Sets the inline key-status line under the API key input (Task 3). */
     function setKeyStatus(text, level) {
       if (!apiKeyStatusEl) return;
@@ -9549,6 +9870,12 @@
       if (vaultDirInputEl) vaultDirInputEl.value = getVaultDir();
       if (obsidianVaultNameInputEl) obsidianVaultNameInputEl.value = getObsidianVaultName();
       renderVaultSyncStatus();
+      if (ECHO.mode !== 'web') {
+        if (whisperSettingsEl) whisperSettingsEl.hidden = false;
+        if (whisperModeSelectEl)  whisperModeSelectEl.value  = getWhisperMode();
+        if (whisperModelSelectEl) whisperModelSelectEl.value = getWhisperModel();
+        refreshWhisperStatus();
+      }
       settingsOverlayEl.hidden = false;
       // Focus the key field in web mode; otherwise the (visible) auto-digest toggle.
       if (ECHO.mode === 'web') apiKeyInputEl?.focus();
@@ -9895,6 +10222,8 @@
         title:      currentMeta.title,
         channel:    currentMeta.channel || null,
         channelUrl: currentMeta.channelUrl || null,
+        transcriptSource: currentMeta.transcriptSource || 'captions',
+        whisperModel: currentMeta.whisperModel || null,
         segments: currentSegments || lastSegments || null,
         digest:   currentDigest,
         suggestedTags: Array.isArray(currentSuggestedTags) ? currentSuggestedTags : [],
@@ -9969,6 +10298,8 @@
         currentMeta       = {
           videoId: snap.videoId, url: snap.url, title: snap.title,
           channel: snap.channel || null, channelUrl: snap.channelUrl || null,
+          transcriptSource: snap.transcriptSource || 'captions',
+          whisperModel: snap.whisperModel || null,
         };
         currentDigest     = snap.digest || null;
         currentSuggestedTags = Array.isArray(snap.suggestedTags) ? snap.suggestedTags : [];

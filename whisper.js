@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { modelFilePath, isModelPresent, DEFAULT_WHISPER_MODEL } from './whisperModel.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -23,19 +24,26 @@ function vendoredBin() {
   const name = process.platform === 'win32' ? 'whisper-cli.exe' : 'whisper-cli';
   return path.join(process.cwd(), 'vendor', 'whisper', name);
 }
-// P1 has no auto-download cache yet.
-function cacheModel() {
-  return null;
+// P2: resolve the selected/default model from the download cache if fully present.
+function cacheModel(opts = {}) {
+  const name = opts.modelName || process.env.ECHO_WHISPER_DEFAULT_MODEL || DEFAULT_WHISPER_MODEL;
+  return isModelPresent(name) ? modelFilePath(name) : null;
 }
 
 // Resolve the binary + model, cheapest/most-explicit first. Returns null (feature OFF)
 // unless BOTH exist on disk — this IS the "is Whisper present?" gate.
 export function resolveWhisper(opts = {}) {
   const binPath = opts.whisperPath || process.env.ECHO_WHISPER || vendoredBin();
-  const modelPath = opts.modelPath || process.env.ECHO_WHISPER_MODEL || cacheModel();
+  const modelPath = opts.modelPath || process.env.ECHO_WHISPER_MODEL || cacheModel(opts);
   if (!binPath || !modelPath) return null;
   if (!existsSync(binPath) || !existsSync(modelPath)) return null;
   return { binPath, modelPath };
+}
+
+// Binary-only presence check (independent of any model) — for /api/whisper/status.
+export function resolveWhisperBinary(opts = {}) {
+  const binPath = opts.whisperPath || process.env.ECHO_WHISPER || vendoredBin();
+  return binPath && existsSync(binPath) ? binPath : null;
 }
 
 // Pure mapper: whisper.cpp `-oj` JSON -> Echo's [{text, offset}] (offset in SECONDS).

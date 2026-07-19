@@ -11,6 +11,8 @@ import {
   extractPlaylist,
 } from './transcript.js';
 import { extractFrames, cleanupFrames, mapFramesError } from './frames.js';
+import { WHISPER_MODELS, DEFAULT_WHISPER_MODEL, modelCacheDir, downloadState, startModelDownload } from './whisperModel.js';
+import { resolveWhisperBinary } from './whisper.js';
 import {
   listEntries,
   getEntry,
@@ -230,6 +232,9 @@ const ECHO_ERROR_STATUS = {
   WHISPER_FAILED:         502,
   WHISPER_AUDIO_TOO_LONG: 422,
   WHISPER_TIMEOUT:        504,
+  WHISPER_MODEL_UNKNOWN:         400,
+  WHISPER_MODEL_DOWNLOAD_FAILED: 502,
+  WHISPER_MODEL_VERIFY_FAILED:   502,
 };
 
 /**
@@ -503,7 +508,7 @@ app.get('/api/health', (_req, res) => {
 // ---------------------------------------------------------------------------
 
 app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
-  const { url, lang, transcribe } = req.body;
+  const { url, lang, transcribe, whisperModel } = req.body;
 
   const videoId = extractVideoId(url);
   if (!videoId) {
@@ -519,7 +524,7 @@ app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
   try {
     // Whisper is local/desktop only; force it off in web mode regardless of the body.
     const whisperMode = isWeb ? 'off' : (transcribe || 'fallback');
-    const segments = await fetchTranscript(videoId, { lang, transcribe: whisperMode });
+    const segments = await fetchTranscript(videoId, { lang, transcribe: whisperMode, modelName: whisperModel });
     const { title, channel, channelUrl } = await getVideoMeta(videoId);
     // `langUsed` is stamped onto the segments array by fetchTranscript() and
     // reflects the caption track actually loaded (not just what was asked
@@ -563,6 +568,29 @@ app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
       }
     }
     logEvent('transcript', { videoId, ok: false, err: errLabel(err), ms: Date.now() - t0 });
+    return sendCaughtError(res, err);
+  }
+});
+
+// --- Whisper model management (local/desktop only) ---
+app.get('/api/whisper/status', blockInWeb, (req, res) => {
+  const binaryPresent = !!resolveWhisperBinary();
+  const models = Object.keys(WHISPER_MODELS).map((n) => {
+    const m = WHISPER_MODELS[n];
+    return { name: m.name, label: m.label, sizeBytes: m.sizeBytes, ...downloadState(n) };
+  });
+  return res.json({ binaryPresent, defaultModel: DEFAULT_WHISPER_MODEL, cacheDir: modelCacheDir(), models });
+});
+
+app.post('/api/whisper/model', blockInWeb, (req, res) => {
+  const { model } = req.body || {};
+  if (!model || !WHISPER_MODELS[model]) {
+    return sendError(res, 'WHISPER_MODEL_UNKNOWN', `Unknown model: ${model}`, 'Choose base or small.');
+  }
+  try {
+    startModelDownload(model);
+    return res.json(downloadState(model));
+  } catch (err) {
     return sendCaughtError(res, err);
   }
 });
@@ -1009,11 +1037,11 @@ app.post('/api/vault/sync', blockInWeb, async (req, res) => {
 app.post('/api/saved', blockInWeb, async (req, res) => {
   const t0 = Date.now();
   try {
-    const { url, videoId, title, segments, digest, channel, channelUrl } = req.body;
+    const { url, videoId, title, segments, digest, channel, channelUrl, transcriptSource, whisperModel } = req.body;
     if (!videoId || !Array.isArray(segments) || segments.length === 0) {
       return sendError(res, 'INTERNAL', 'videoId and segments are required.', '', 400);
     }
-    const meta = await saveEntry({ url, videoId, title, segments, digest, channel, channelUrl });
+    const meta = await saveEntry({ url, videoId, title, segments, digest, channel, channelUrl, transcriptSource, whisperModel });
     logEvent('save', { videoId, hadDigest: Boolean(digest), ok: true, ms: Date.now() - t0 });
     res.json(meta);
   } catch (err) {

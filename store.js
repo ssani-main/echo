@@ -40,7 +40,9 @@ db.exec(`
     favorite  INTEGER NOT NULL DEFAULT 0,
     segment_count INTEGER NOT NULL DEFAULT 0,
     channel   TEXT,
-    channelUrl TEXT
+    channelUrl TEXT,
+    transcript_source TEXT,
+    whisper_model TEXT
   );
 
   CREATE TABLE IF NOT EXISTS tags (
@@ -145,6 +147,30 @@ db.exec(`
 })();
 
 // ---------------------------------------------------------------------------
+// One-time migration: add transcript_source/whisper_model columns to
+// pre-existing DBs so a saved entry can record how its transcript was
+// produced ('captions' | 'whisper') and, if whisper, which model
+// ('base'|'small'). Existing rows get NULL, treated as 'captions'
+// downstream. Idempotent: mirrors migrateChannelColumns()'s PRAGMA-check +
+// duplicate-column tolerance.
+// ---------------------------------------------------------------------------
+
+(function migrateTranscriptSourceColumns() {
+  const cols = db.prepare('PRAGMA table_info(videos)').all();
+  const colNames = new Set(cols.map((c) => c.name));
+
+  for (const col of ['transcript_source', 'whisper_model']) {
+    if (colNames.has(col)) continue; // Already migrated (or created fresh with the column above)
+    try {
+      db.exec(`ALTER TABLE videos ADD COLUMN ${col} TEXT`);
+    } catch (err) {
+      // Tolerate a race where another process added the column concurrently.
+      if (!/duplicate column/i.test(err?.message || '')) throw err;
+    }
+  }
+})();
+
+// ---------------------------------------------------------------------------
 // Internal DB helpers
 // ---------------------------------------------------------------------------
 
@@ -172,6 +198,8 @@ function fetchFullEntry(videoId) {
     tags:       tags.map((t) => t.tag),
     channel:    row.channel ?? null,
     channelUrl: row.channelUrl ?? null,
+    transcriptSource: row.transcript_source ?? null,
+    whisperModel:     row.whisper_model ?? null,
   };
 }
 
@@ -191,6 +219,8 @@ function toMeta(entry) {
     favorite:       typeof entry.favorite === 'boolean' ? entry.favorite     : false,
     channel:        entry.channel    ?? null,
     channelUrl:     entry.channelUrl ?? null,
+    transcriptSource: entry.transcriptSource ?? null,
+    whisperModel:     entry.whisperModel     ?? null,
   };
 }
 
@@ -328,7 +358,7 @@ export async function getEntry(videoId) {
  * incoming payload omits them.
  * Returns the metadata object for the saved entry.
  */
-export async function saveEntry({ url, videoId, title, segments, digest, tags, favorite, channel, channelUrl }) {
+export async function saveEntry({ url, videoId, title, segments, digest, tags, favorite, channel, channelUrl, transcriptSource, whisperModel }) {
   const now      = new Date().toISOString();
   const existing = db.prepare('SELECT * FROM videos WHERE videoId = ?').get(videoId);
   const safeUrl  = safeHttpUrl(url);
@@ -336,8 +366,8 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
   if (!existing) {
     // ---- New entry --------------------------------------------------------
     db.prepare(`
-      INSERT INTO videos (videoId, url, title, savedAt, updatedAt, segments, digest, favorite, segment_count, channel, channelUrl)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO videos (videoId, url, title, savedAt, updatedAt, segments, digest, favorite, segment_count, channel, channelUrl, transcript_source, whisper_model)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       videoId,
       safeUrl,
@@ -349,6 +379,8 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
       Array.isArray(segments) ? segments.length : 0,
       channel    || null,
       channelUrl || null,
+      transcriptSource || null,
+      whisperModel     || null,
     );
 
     const initTags = Array.isArray(tags) ? tags : [];
@@ -361,10 +393,12 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
     const keepFavorite   = typeof favorite === 'boolean' ? (favorite ? 1 : 0) : existing.favorite;
     const keepChannel    = channel    !== undefined ? (channel    || null) : existing.channel;
     const keepChannelUrl = channelUrl !== undefined ? (channelUrl || null) : existing.channelUrl;
+    const keepTranscriptSource = transcriptSource != null ? transcriptSource : existing.transcript_source;
+    const keepWhisperModel     = whisperModel     != null ? whisperModel     : existing.whisper_model;
 
     db.prepare(`
       UPDATE videos
-      SET url = ?, title = ?, updatedAt = ?, segments = ?, digest = ?, favorite = ?, segment_count = ?, channel = ?, channelUrl = ?
+      SET url = ?, title = ?, updatedAt = ?, segments = ?, digest = ?, favorite = ?, segment_count = ?, channel = ?, channelUrl = ?, transcript_source = ?, whisper_model = ?
       WHERE videoId = ?
     `).run(
       url != null ? safeUrl : existing.url,
@@ -376,6 +410,8 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
       Array.isArray(segments) ? segments.length : 0,
       keepChannel,
       keepChannelUrl,
+      keepTranscriptSource,
+      keepWhisperModel,
       videoId,
     );
 

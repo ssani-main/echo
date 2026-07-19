@@ -45,6 +45,7 @@
       "../providers.js": "providers.js",
       "../transcript.js": "transcript.js",
       "../whisper.js": "whisper.js",
+      "../whisperModel.js": "whisperModel.js",
       "../frames.js": "frames.js",
       "../store.js": "store.js",
       "../markdown.js": "markdown.js",
