@@ -1,6 +1,6 @@
 # Whisper transcription — spec
 
-**Status:** P1 (backend slice) built & verified (2026-07-19); P2 (UI, model auto-download, source badge, always tier UX) and P3 (platform binaries, bundling) remain. **Scope:** local/desktop only — never web.
+**Status:** P1 + P2 built & verified (2026-07-19); P3 (vendored/bundled binaries, macOS CLI resolution) remains. **Scope:** local/desktop only — never web.
 **This is a rewrite.** The previous spec proposed **hosted** Whisper (Groq/OpenAI,
 BYO key). That is **rejected**. The decision is **local whisper.cpp via a vendored
 prebuilt binary**. Rationale below — read "The decision" before implementing, because
@@ -259,20 +259,15 @@ Tauri bundle. No first-run step.
 **The model is the problem.** `small` q5 is **181 MB**. Shipping it inside the
 installer bloats the artifact ~180 MB for a feature most users may never trigger.
 
-**Proposed: download on first use, not at install.**
+**IMPLEMENTED (P2, 2026-07-19): download on first use, not at install.**
 
-- First time a user triggers Whisper, show an **explicit consent step**: "Transcribing
-  this video needs a one-time 181 MB speech model download." Never download 181 MB
-  silently.
-- Cache to a **stable per-user app-data dir** (not `tmpdir()` — it must survive
-  reboots and app updates), overridable via `ECHO_WHISPER_MODEL`.
-- **Show progress.** A 181 MB download behind a silent spinner reads as a hang.
-- **Verify the download** (size + checksum) before first use, and make a partial or
-  corrupt file re-downloadable rather than a permanent wedge.
-- Offer `base` q5 (**57 MB**) as the fast tier — a materially smaller first-run ask.
+- First-run shows an **explicit consent step** when the feature is triggered.
+- Downloads to a **stable per-user cache dir** (overridable via `ECHO_WHISPER_MODEL_DIR`; survives reboots and app updates).
+- **Shows progress** via sub-status indicator during download.
+- **Verifies downloads** (size + sha256 checksum) before first use; partial/corrupt files are re-downloadable.
+- **Default: `base` q5** (57 MB, ~3× faster than `small`) as the sensible default; `small` q5 (181 MB, better accuracy) available as a settings option.
 
-Open: whether the desktop installer should optionally pre-bundle `base` q5 (57 MB) so
-the feature works offline out of the box, with `small` as the upgrade. Not decided.
+**The binary** (7.6 MB `whisper-cli`) remains **env/vendored only** — not auto-downloaded. Set via `process.env.ECHO_WHISPER` or the repo's vendored path. Binary auto-download is deferred to P3.
 
 ## Server surface (`server.js`)
 
@@ -369,8 +364,7 @@ spawns.
    no auto-download. Implemented: `whisper.js` module + `fetchTranscript` fallback/always
    hooks + `/api/transcript` `transcribe` param + `transcriptSource` in response + 23 unit
    tests, E2E verified (315/315 tests green). Smallest slice that proves the pipeline.
-2. **P2 — make it a product.** Model auto-download + consent + progress + cache;
-   Settings UI; `always` mode; source badge; `transcriptSource` in the library.
+2. ✅ **DONE (2026-07-19)** — **P2 — make it a product.** Model auto-download + consent + progress + cache; Settings UI; `always` mode; source badge; `transcriptSource` in the library. Implemented: `whisperModel.js` model download+cache+sha256 verify+atomic rename to per-user cache dir, Settings "Transcription" panel (Off/Fallback/High-accuracy + base/small model + Download button + progress), transcript source badge ("Whisper"/"YouTube captions"), library persistence of `transcriptSource`/`whisperModel`; base q5 default. Tests 332/332 green, E2E verified (status → 57 MB download → sha256 verified → transcribe → transcriptSource=whisper).
 3. **P3 — reach.** Platform matrix resolution (macOS/Linux binaries), bundling the
    binary into the Tauri artifact, `base`-vs-`small` tuning against a real benchmark.
 
@@ -380,9 +374,7 @@ spawns.
 2. 🚩 **The zip's binary path.** `Release/whisper-cli.exe` (what the zip contains) vs
    `build/bin/whisper-cli.exe` (what Remotion's installer expects). Unresolved.
    **Unzip v1.9.1 and look.** Probe both paths.
-3. 🚩 **Does the model ship or download?** Spec assumes **download on first use with
-   explicit consent** (181 MB `small` q5). Alternative: pre-bundle `base` q5 (57 MB)
-   for offline-out-of-the-box. Affects installer size materially. **Not decided.**
+3. ✅ **Model acquisition — DECIDED (P2, 2026-07-19).** Download on first use with explicit consent. **Default: `base` q5** (57 MB, ~3× faster than `small`); `small` q5 (181 MB, better accuracy) available as a settings option. Implemented in `whisperModel.js` with sha256 verification, atomic rename, and per-user cache dir overridable via `ECHO_WHISPER_MODEL_DIR`.
 4. **Turbo on CPU is unbenchmarked.** The ~30–50 min/hr figure is *reasoning from
    architecture* (encoder unchanged, decoder cut, encoder dominates on CPU), not
    measurement — nobody has published one. If it ever matters, run `whisper-bench.exe`

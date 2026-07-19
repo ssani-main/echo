@@ -31,7 +31,7 @@ Design review uses the `hallmark` skill (`hallmark audit <files>`); Echo passed 
 
 **Current feature set (the core loop is `paste → transcript → digest → library`):**
 - **Digest** (`digest.js`) — synthesized AI digest, the product's differentiator. Map-reduce fallback for long transcripts. Auto-tagging is folded into the digest pass (`/api/digest` runs `generateDigest` + `suggestTags` concurrently, tags best-effort with a timeout that can't reject → `suggestedTags[]`; applied at save). Optional **"Include visuals"** frame-augmented digest (`frames.js`, **local/desktop only**, needs ffmpeg — see [`FRAMES.md`](FRAMES.md)).
-- **Transcription** — captions by default; optional local **Whisper** (`whisper.js`, whisper.cpp via a prebuilt `whisper-cli`, **local/desktop only**, env-configured `ECHO_WHISPER`/`ECHO_WHISPER_MODEL`). Two modes: `fallback` (fills the no-caption dead-end) and `always` (accuracy tier). P1 backend only — no UI/auto-download yet. `/api/transcript` returns `transcriptSource`. See [[echo-whisper]].
+- **Transcription** — captions by default; optional local **Whisper** (`whisper.js` + `whisperModel.js`, whisper.cpp via a prebuilt `whisper-cli`, **local/desktop only**). Two modes: `fallback` (fills the no-caption dead-end) and `always` (accuracy tier). **P1+P2 shipped (2026-07-19):** backend + Settings "Transcription" UI (Off/Fallback/High-accuracy + base/small model picker + on-demand download with progress), transcript source badge ("Whisper"/"YouTube captions"), library persistence (`transcriptSource`/`whisperModel`); base q5 default; binary env-configured. Routes `/api/transcript` + `GET /api/whisper/status` + `POST /api/whisper/model`. See [[echo-whisper]].
 - **Library** — server SQLite (`store.js`) in local/desktop; client IndexedDB in web. FTS5 keyword search, tags, find-in-transcript, export.
 - **Enrich** — ephemeral floating popover over selected digest text (Verify / Explain / Background) via `/api/enrich`. Verify-claims ledger (`extractClaims`/`verifyClaims` in `digest.js`, `/api/claims`).
 - **Discovery + channel following** — in-app YouTube search/browse (`discovery.js`, keyless via yt-dlp) + one-click Follow → paginated Inbox card-grid. **local/desktop only.**
@@ -42,7 +42,7 @@ Design review uses the `hallmark` skill (`hallmark audit <files>`); Echo passed 
 
 **Removed features — don't go looking for these** (cut as 0-use or out-of-scope): embeddings/semantic search (`@xenova/transformers`), clips, notes, favorites, saved highlights, the **Ask** feature (`/api/chat`), ask-across-library (`/api/library/ask`, `buildLibraryFtsQuery`), batch/multi-paste (`/api/batch/digest`), and ccusage cost-display (`usage.js`, `/api/usage`). TTS read-aloud was intentionally dropped.
 
-**Module map:** `server.js` (all Express routes) · `providers.js` (CLI/API provider seam) · `transcript.js` · `whisper.js` (local whisper.cpp STT) · `digest.js` · `frames.js` · `store.js` (SQLite) · `markdown.js` (export + `buildVaultIndex`/`extractSummary`) · `vault.js` · `sharepage.js` · `websearch.js` (`resolveHref`) · `discovery.js` · `playlistJob.js` · `sanitize.js` · `usagelog.js` + `usage_stats.mjs` (local JSONL action meter) · `tools/ai-tell/` (AI-writing eval, `npm run digest:aitell`).
+**Module map:** `server.js` (all Express routes) · `providers.js` (CLI/API provider seam) · `transcript.js` · `whisper.js` (local whisper.cpp STT) · `whisperModel.js` (model registry + download/cache) · `digest.js` · `frames.js` · `store.js` (SQLite) · `markdown.js` (export + `buildVaultIndex`/`extractSummary`) · `vault.js` · `sharepage.js` · `websearch.js` (`resolveHref`) · `discovery.js` · `playlistJob.js` · `sanitize.js` · `usagelog.js` + `usage_stats.mjs` (local JSONL action meter) · `tools/ai-tell/` (AI-writing eval, `npm run digest:aitell`).
 
 **What's left (all external-dependency-blocked):**
 - Deploy the web app → `fly deploy` ([`DEPLOY.md`](DEPLOY.md); Fly builds the image remotely, no local Docker).
@@ -79,4 +79,4 @@ Design review uses the `hallmark` skill (`hallmark audit <files>`); Echo passed 
 - [`PLAN.md`](PLAN.md) — feature-cut plan (now completed).
 - [`FRAMES.md`](FRAMES.md) — frame-augmented digest (P1+P2 **shipped**): feed on-screen frames into the digest.
 - [`P3.md`](P3.md) — proposed next step for frames: transcript↔frame alignment (anchored-slide selection; research-grade, gated on an experiment).
-- [`WHISPER.md`](WHISPER.md) — Whisper transcription fallback (P1 backend built & verified 2026-07-19; P2 UI/model auto-download, P3 platform binaries/bundling pending; fixes bad/missing captions).
+- [`WHISPER.md`](WHISPER.md) — Whisper transcription fallback (P1+P2 built & verified 2026-07-19; P3 platform binaries/bundling/macOS binary resolution pending; fixes bad/missing captions).
