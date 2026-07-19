@@ -4,6 +4,7 @@ import { promisify } from 'util';
 import { readFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import os from 'os';
+import { resolveWhisper, transcribeViaWhisper } from './whisper.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -367,6 +368,18 @@ export async function fetchTranscript(videoId, opts = {}) {
   const lang = opts.lang || undefined;
   const retryDelaysMs = opts.retryDelaysMs !== undefined ? opts.retryDelaysMs : DEFAULT_RETRY_DELAYS_MS;
   const primaryFetcher = opts.primaryFetcher || fetchViaPackage;
+  // Whisper transcription (local/desktop only; server forces 'off' in web mode).
+  // Seams (whisperResolver / transcriber / captionFallback) keep this unit-testable.
+  const whisperMode = opts.transcribe || 'off';
+  const resolveW = opts.whisperResolver || resolveWhisper;
+  const transcribeW = opts.transcriber || transcribeViaWhisper;
+  const captionFallback = opts.captionFallback || fetchViaYtDlp;
+
+  // `always`: skip captions entirely, go straight to Whisper (only if present).
+  if (whisperMode === 'always' && resolveW(opts)) {
+    return await transcribeW(videoId, opts);
+  }
+
   let primaryError;
 
   try {
@@ -379,7 +392,7 @@ export async function fetchTranscript(videoId, opts = {}) {
   }
 
   try {
-    const segments = await fetchViaYtDlp(videoId, lang);
+    const segments = await captionFallback(videoId, lang);
     if (segments.length > 0) return segments;
     throw new Error('yt-dlp returned no segments');
   } catch (ytDlpErr) {
@@ -401,6 +414,16 @@ export async function fetchTranscript(videoId, opts = {}) {
       e.hint = 'This video is for channel members only.';
       throw e;
     }
+    // Whisper fallback: both caption paths failed — transcribe locally if configured.
+    // On Whisper failure, fall through to the original TRANSCRIPT_UNAVAILABLE below.
+    if (whisperMode !== 'off' && resolveW(opts)) {
+      try {
+        return await transcribeW(videoId, opts);
+      } catch {
+        // fall through
+      }
+    }
+
     // Both methods failed — video likely has no captions or is inaccessible
     const e = new Error(
       `Could not fetch transcript. ` +

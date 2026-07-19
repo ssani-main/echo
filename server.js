@@ -225,6 +225,11 @@ const ECHO_ERROR_STATUS = {
   VIDEO_TOO_LONG:  422,
   FRAMES_FAILED:   502,
   FRAMES_TIMEOUT:  504,
+  WHISPER_MISSING:        503,
+  WHISPER_MODEL_MISSING:  503,
+  WHISPER_FAILED:         502,
+  WHISPER_AUDIO_TOO_LONG: 422,
+  WHISPER_TIMEOUT:        504,
 };
 
 /**
@@ -498,7 +503,7 @@ app.get('/api/health', (_req, res) => {
 // ---------------------------------------------------------------------------
 
 app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
-  const { url, lang } = req.body;
+  const { url, lang, transcribe } = req.body;
 
   const videoId = extractVideoId(url);
   if (!videoId) {
@@ -512,7 +517,9 @@ app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
 
   const t0 = Date.now();
   try {
-    const segments = await fetchTranscript(videoId, { lang });
+    // Whisper is local/desktop only; force it off in web mode regardless of the body.
+    const whisperMode = isWeb ? 'off' : (transcribe || 'fallback');
+    const segments = await fetchTranscript(videoId, { lang, transcribe: whisperMode });
     const { title, channel, channelUrl } = await getVideoMeta(videoId);
     // `langUsed` is stamped onto the segments array by fetchTranscript() and
     // reflects the caption track actually loaded (not just what was asked
@@ -541,7 +548,8 @@ app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
 
     const chars = segments.reduce((sum, s) => sum + String(s.text || '').length, 0);
     logEvent('transcript', { videoId, chars, langCode, ok: true, ms: Date.now() - t0 });
-    return res.json({ videoId, url: req.body.url, title, channel, channelUrl, segments, langCode });
+    const transcriptSource = segments.source || 'captions';
+    return res.json({ videoId, url: req.body.url, title, channel, channelUrl, segments, langCode, transcriptSource });
   } catch (err) {
     if (!isWeb && (err.echoCode === 'MEMBERS_ONLY' || err.echoCode === 'TRANSCRIPT_UNAVAILABLE')) {
       try {
