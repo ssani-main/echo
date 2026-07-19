@@ -1,6 +1,6 @@
 # Whisper transcription — spec
 
-**Status:** proposed (not built). **Scope:** local/desktop only — never web.
+**Status:** P1 (backend slice) built & verified (2026-07-19); P2 (UI, model auto-download, source badge, always tier UX) and P3 (platform binaries, bundling) remain. **Scope:** local/desktop only — never web.
 **This is a rewrite.** The previous spec proposed **hosted** Whisper (Groq/OpenAI,
 BYO key). That is **rejected**. The decision is **local whisper.cpp via a vendored
 prebuilt binary**. Rationale below — read "The decision" before implementing, because
@@ -364,9 +364,11 @@ spawns.
 
 ## Phasing
 
-1. **P1 — fill the dead-end.** `whisper.js` + `fallback` hook + env-configured binary
-   and model (`ECHO_WHISPER`, `ECHO_WHISPER_MODEL`), Windows only, no UI, no
-   auto-download. Smallest slice that proves the pipeline.
+1. ✅ **DONE (2026-07-19)** — **P1 — fill the dead-end.** `whisper.js` + `fallback`/`always`
+   hooks + env-configured binary and model (`ECHO_WHISPER`, `ECHO_WHISPER_MODEL`), no UI,
+   no auto-download. Implemented: `whisper.js` module + `fetchTranscript` fallback/always
+   hooks + `/api/transcript` `transcribe` param + `transcriptSource` in response + 23 unit
+   tests, E2E verified (315/315 tests green). Smallest slice that proves the pipeline.
 2. **P2 — make it a product.** Model auto-download + consent + progress + cache;
    Settings UI; `always` mode; source badge; `transcriptSource` in the library.
 3. **P3 — reach.** Platform matrix resolution (macOS/Linux binaries), bundling the
