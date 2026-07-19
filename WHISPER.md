@@ -1,6 +1,6 @@
 # Whisper transcription — spec
 
-**Status:** P1 + P2 built & verified (2026-07-19); P3 (vendored/bundled binaries, macOS CLI resolution) remains. **Scope:** local/desktop only — never web.
+**Status:** P1 + P2 + P3 built & verified (2026-07-19) — local Whisper is turnkey on Linux x64 (vendored binary, no env var). Remaining: Windows binary vendoring + macOS (no upstream CLI). **Scope:** local/desktop only — never web.
 **This is a rewrite.** The previous spec proposed **hosted** Whisper (Groq/OpenAI,
 BYO key). That is **rejected**. The decision is **local whisper.cpp via a vendored
 prebuilt binary**. Rationale below — read "The decision" before implementing, because
@@ -267,7 +267,7 @@ installer bloats the artifact ~180 MB for a feature most users may never trigger
 - **Verifies downloads** (size + sha256 checksum) before first use; partial/corrupt files are re-downloadable.
 - **Default: `base` q5** (57 MB, ~3× faster than `small`) as the sensible default; `small` q5 (181 MB, better accuracy) available as a settings option.
 
-**The binary** (7.6 MB `whisper-cli`) remains **env/vendored only** — not auto-downloaded. Set via `process.env.ECHO_WHISPER` or the repo's vendored path. Binary auto-download is deferred to P3.
+**The binary** (whisper-cli, ~0.5 MB) is now **VENDORED in-repo** (`vendor/whisper/<platform>-<arch>/`) for Linux x64 and discovered module-relative via `vendoredBin()` — **no env var needed when the prebuilt exists**. Override via `process.env.ECHO_WHISPER` (checked first) or platform/arch probe. Windows/macOS binaries remain env-configured only (Windows vendorable, macOS has no CLI upstream).
 
 ## Server surface (`server.js`)
 
@@ -309,16 +309,12 @@ re-open knows the transcript's provenance. Non-breaking; old entries default to
 |---|---|---|
 | Windows x64 | ✅ `whisper-bin-x64.zip` — real `.exe`, no toolchain | verified |
 | macOS | ❌ **not published** — releases ship an **xcframework only**, not a CLI binary | **OPEN** |
-| Linux x64 | ✅ `whisper-bin-ubuntu-x64.tar.gz` (9.4 MB) — real `whisper-cli` + `.so` libs, no toolchain | **verified** (Arch, glibc≥2.34) |
+| Linux x64 | ✅ **VENDORED** (`vendor/whisper/linux-x64/` — lean 4.3 MB subset: whisper-cli + libwhisper/libggml/libggml-base + x64 baseline + haswell AVX2 backends) | **turnkey** (no env var needed; module-relative + per-platform/arch resolution via `vendoredBin()`) |
 | Linux arm64 | ✅ `whisper-bin-ubuntu-arm64.tar.gz` (4.6 MB) — published, untested | published |
 
-🚩 **Linux is RESOLVED. macOS remains open** — and the decision is not deferred.
-**Linux x64 prebuilt exists and runs on Arch out of the box** (glibc floor 2.34; host
-2.43 compatible with Ubuntu 22.04+ era). Bundle `whisper-cli` + its `.so` libs and set
-`LD_LIBRARY_PATH`/`$ORIGIN` rpath. **macOS publishes no CLI binary** — only xcframework.
-The honest options: build+host our own binary, or **degrade cleanly to `off`** on macOS
-(the feature is additive; absent binary → today's behaviour, which is a correct outcome,
-not a bug).
+✅ **Linux x64 is DONE (P3, 2026-07-19).** Prebuilt `whisper-cli` + `.so` libs are **vendored in-repo** (`vendor/whisper/linux-x64/`) as a lean ~4.3 MB subset of upstream's ~17 MB (x64 baseline + haswell AVX2, ggml falls back automatically on unsupported micros). Binary is discovered **module-relative** (works under `npm start` and Tauri sidecar) and **per platform+arch** via `vendoredBin()`, gated by `existsSync` — no env var needed when present. Bundled into Tauri via `bundle.resources` (6 files). Verified end-to-end: zero env vars → `/api/whisper/status` binaryPresent=true → download model → transcribe → transcriptSource=whisper.
+
+🚩 **macOS remains open.** **macOS publishes no CLI binary** — only xcframework. The honest options: build+host our own binary, or **degrade cleanly to `off`** on macOS (the feature is additive; absent binary → today's behaviour, which is a correct outcome, not a bug). **Windows binary vendoring is mechanical** — published .exe from upstream; not yet vendored here.
 
 ## Tauri (`src-tauri/tauri.conf.json`)
 
@@ -328,8 +324,7 @@ not a bug).
   the backend). `tests/tauri-bundle.test.js` **does** guard it, and it derives the
   expected list by walking `server.js`'s import graph — so it needs **no manual list
   update**, it will simply fail until you add the conf entry.
-- **The binary + DLLs** need bundling too (`externalBin` / resources), and they are
-  per-platform — which is the platform matrix above, wearing a different hat.
+- **The binary + libs** are **IMPLEMENTED for linux-x64:** `vendor/whisper/linux-x64/whisper-cli` + 4 `.so` files (libwhisper, libggml, libggml-base + x64/haswell backends) registered in `bundle.resources` (6 files total). Windows/macOS remain per-platform as described above.
 - **The model does not ship** (see acquisition, above) — that's the whole point of the
   first-run download.
 - Still **no new npm dep** to add to `dist-deps`.
@@ -365,8 +360,7 @@ spawns.
    hooks + `/api/transcript` `transcribe` param + `transcriptSource` in response + 23 unit
    tests, E2E verified (315/315 tests green). Smallest slice that proves the pipeline.
 2. ✅ **DONE (2026-07-19)** — **P2 — make it a product.** Model auto-download + consent + progress + cache; Settings UI; `always` mode; source badge; `transcriptSource` in the library. Implemented: `whisperModel.js` model download+cache+sha256 verify+atomic rename to per-user cache dir, Settings "Transcription" panel (Off/Fallback/High-accuracy + base/small model + Download button + progress), transcript source badge ("Whisper"/"YouTube captions"), library persistence of `transcriptSource`/`whisperModel`; base q5 default. Tests 332/332 green, E2E verified (status → 57 MB download → sha256 verified → transcribe → transcriptSource=whisper).
-3. **P3 — reach.** Platform matrix resolution (macOS/Linux binaries), bundling the
-   binary into the Tauri artifact, `base`-vs-`small` tuning against a real benchmark.
+3. ✅ **DONE (2026-07-19)** — **P3 — reach.** Binary vendoring + Tauri bundling (Linux x64). Implemented: prebuilt `whisper-cli` + 4 lean `.so` libs vendored in `vendor/whisper/linux-x64/` (4.3 MB, whisper.cpp v1.9.1 x64 baseline + haswell AVX2 backends), module-relative discovery via `vendoredBin()` per platform+arch, 6 files bundled into Tauri via `bundle.resources`, turnkey verified (no env var). **Remaining:** Windows binary vendoring (mechanical, not yet done) + macOS (no upstream CLI, degrades to off).
 
 ## Open questions / verify-on-implement
 
