@@ -1463,9 +1463,17 @@ app.get('/api/follows/channel', blockInWeb, async (req, res) => {
 
 const isDirectRun = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isDirectRun) {
-  app.listen(PORT, HOST, () => {
+  const server = app.listen(PORT, HOST, () => {
     const displayHost = HOST === '0.0.0.0' ? 'localhost' : HOST;
     console.log(`Listening on http://${displayHost}:${PORT} (bound to ${HOST})`);
+  });
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Error: port ${PORT} is already in use (host ${HOST}).`);
+      console.error(`Another instance may still be running. Stop it, or start on a different port with:  PORT=<free-port> node server.js`);
+      process.exit(1);
+    }
+    throw err;
   });
 }
 
