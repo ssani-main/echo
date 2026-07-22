@@ -103,16 +103,43 @@ export function isMillisecondOffsets(offsets) {
   return medianGap >= 50;
 }
 
+// Preferred caption language used when a request does not specify one. Without
+// this, the youtube-transcript package returns captionTracks[0] — an arbitrary
+// track in YouTube's return order — so crowd-translated videos (e.g. TED talks
+// carrying many Amara translations) can silently yield the WRONG language for
+// English audio. Keeps the primary path consistent with fetchViaYtDlp, which
+// already defaults to 'en'. Override via ECHO_CAPTION_LANG.
+const PREFERRED_CAPTION_LANG = process.env.ECHO_CAPTION_LANG || 'en';
+
 /**
  * Primary: fetch via the youtube-transcript npm package.
  * Returns an array of { text: string, offset: number } where offset is in seconds.
  * @param {string} videoId
  * @param {string|undefined} lang  Optional BCP-47 language code (e.g. "en", "es").
+ * @param {{ transcriptFetcher?: (id: string, ytOpts?: {lang: string}) => Promise<any[]> }} [opts]
+ *        opts.transcriptFetcher — injectable seam over YoutubeTranscript.fetchTranscript (tests).
  */
-async function fetchViaPackage(videoId, lang) {
-  const segs = lang
-    ? await YoutubeTranscript.fetchTranscript(videoId, { lang })
-    : await YoutubeTranscript.fetchTranscript(videoId);
+export async function fetchViaPackage(videoId, lang, opts = {}) {
+  const fetchTr = opts.transcriptFetcher
+    || ((id, ytOpts) => (ytOpts
+      ? YoutubeTranscript.fetchTranscript(id, ytOpts)
+      : YoutubeTranscript.fetchTranscript(id)));
+
+  let segs;
+  if (lang) {
+    // Explicit request: honour it exactly (unchanged behaviour).
+    segs = await fetchTr(videoId, { lang });
+  } else {
+    // No language requested: prefer PREFERRED_CAPTION_LANG, but fall back to the
+    // package's default track when that language isn't available — so genuinely
+    // non-English videos still resolve to their original track rather than error.
+    try {
+      segs = await fetchTr(videoId, { lang: PREFERRED_CAPTION_LANG });
+      if (!segs || segs.length === 0) segs = await fetchTr(videoId);
+    } catch {
+      segs = await fetchTr(videoId);
+    }
+  }
 
   // The youtube-transcript package stamps every segment with the actual
   // caption track language code it resolved to (falls back to the first

@@ -134,9 +134,21 @@ const savedEnvWhisperModel = process.env.ECHO_WHISPER_MODEL;
 delete process.env.ECHO_WHISPER;
 delete process.env.ECHO_WHISPER_MODEL;
 
-test('resolveWhisper: no opts and no env returns null', () => {
-  assert.equal(resolveWhisper(), null);
-  assert.equal(resolveWhisper({}), null);
+test('resolveWhisper: no opts and no env returns null', async () => {
+  // Hermetic: point the model cache at a guaranteed-empty dir so a model that
+  // happens to be downloaded on this machine (real users download one) can't
+  // make resolveWhisper resolve a real path and fail this assertion.
+  const savedModelDir = process.env.ECHO_WHISPER_MODEL_DIR;
+  const emptyDir = await fs.mkdtemp(path.join(os.tmpdir(), 'echo-whisper-empty-'));
+  process.env.ECHO_WHISPER_MODEL_DIR = emptyDir;
+  try {
+    assert.equal(resolveWhisper(), null);
+    assert.equal(resolveWhisper({}), null);
+  } finally {
+    if (savedModelDir === undefined) delete process.env.ECHO_WHISPER_MODEL_DIR;
+    else process.env.ECHO_WHISPER_MODEL_DIR = savedModelDir;
+    await fs.rm(emptyDir, { recursive: true, force: true });
+  }
 });
 
 test('resolveWhisper: opts pointing at two real files returns {binPath, modelPath}', async () => {

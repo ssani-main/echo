@@ -6,6 +6,7 @@ import {
   isMillisecondOffsets,
   fetchWithRetry,
   isPermanentFetchError,
+  fetchViaPackage,
   fetchTranscript,
   extractPlaylist,
   MEMBERS_ONLY_PATTERNS,
@@ -218,6 +219,63 @@ test('fetchTranscript: uses opts.primaryFetcher and retries transient failures b
   });
   assert.equal(segments.length, 1);
   assert.equal(calls, 2);
+});
+
+// ---------------------------------------------------------------------------
+// fetchViaPackage: preferred-language caption selection (no network)
+// Guards the P0 fix where an omitted `lang` used to return captionTracks[0]
+// (an arbitrary track), silently yielding the wrong language for English audio.
+// ---------------------------------------------------------------------------
+
+test('fetchViaPackage: no lang prefers the English track over the arbitrary default', async () => {
+  const calls = [];
+  const transcriptFetcher = async (id, ytOpts) => {
+    calls.push(ytOpts ? ytOpts.lang : '(default)');
+    if (ytOpts && ytOpts.lang === 'en') return [{ text: 'hello', offset: 0, lang: 'en' }];
+    return [{ text: 'marhaba', offset: 0, lang: 'ar' }];
+  };
+  const segs = await fetchViaPackage('vid', undefined, { transcriptFetcher });
+  assert.equal(segs[0].text, 'hello');
+  assert.equal(segs.langUsed, 'en');
+  assert.deepEqual(calls, ['en']); // never made the unbiased default call
+});
+
+test('fetchViaPackage: no lang falls back to the default track when no English track exists', async () => {
+  const calls = [];
+  const transcriptFetcher = async (id, ytOpts) => {
+    calls.push(ytOpts ? ytOpts.lang : '(default)');
+    if (ytOpts && ytOpts.lang === 'en') throw new Error('No transcripts available in en');
+    return [{ text: 'hola', offset: 0, lang: 'es' }];
+  };
+  const segs = await fetchViaPackage('vid', undefined, { transcriptFetcher });
+  assert.equal(segs[0].text, 'hola'); // non-English video does NOT regress
+  assert.equal(segs.langUsed, 'es');
+  assert.deepEqual(calls, ['en', '(default)']);
+});
+
+test('fetchViaPackage: no lang falls back when the preferred-language call returns empty', async () => {
+  const calls = [];
+  const transcriptFetcher = async (id, ytOpts) => {
+    calls.push(ytOpts ? ytOpts.lang : '(default)');
+    if (ytOpts && ytOpts.lang === 'en') return [];
+    return [{ text: 'ciao', offset: 0, lang: 'it' }];
+  };
+  const segs = await fetchViaPackage('vid', undefined, { transcriptFetcher });
+  assert.equal(segs[0].text, 'ciao');
+  assert.equal(segs.langUsed, 'it');
+  assert.deepEqual(calls, ['en', '(default)']);
+});
+
+test('fetchViaPackage: an explicit lang makes exactly one call and never falls back', async () => {
+  const calls = [];
+  const transcriptFetcher = async (id, ytOpts) => {
+    calls.push(ytOpts ? ytOpts.lang : '(default)');
+    return [{ text: 'bonjour', offset: 0, lang: 'fr' }];
+  };
+  const segs = await fetchViaPackage('vid', 'fr', { transcriptFetcher });
+  assert.equal(segs[0].text, 'bonjour');
+  assert.equal(segs.langUsed, 'fr');
+  assert.deepEqual(calls, ['fr']); // explicit request honoured exactly, no preference logic
 });
 
 // NOTE: fetchTranscript's yt-dlp fallback path is intentionally NOT exercised
