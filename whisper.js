@@ -2,7 +2,7 @@
 // (`fallback`) or upgrades transcript quality (`always`). Local/desktop only —
 // the server forces this OFF in web mode. Spawns a prebuilt whisper-cli binary
 // (env/opts-configured) — no npm dependency, no C++ toolchain.
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
@@ -74,6 +74,69 @@ export function mapWhisperJson(json) {
   return out;
 }
 
+// Best-effort progress callback: server threads this to an SSE channel so the
+// browser can show a real % + elapsed timer. Never let a progress handler throw
+// into the transcription pipeline.
+function reportProgress(opts, phase, pct) {
+  if (typeof opts.onProgress === 'function') {
+    try { opts.onProgress({ phase, pct }); } catch { /* progress is best-effort */ }
+  }
+}
+
+// Spawn a child and STREAM its output line-by-line to `onStderr` instead of
+// buffering it. This is what lets long transcripts work at all: whisper-cli
+// echoes every recognised line to stderr, which overflowed execFile's 64 MB
+// maxBuffer on ~100-min videos and got the process killed (a spurious
+// WHISPER_FAILED). Streaming also gives us live progress and honours abort.
+// Only the last few KB of output are retained, for error messages.
+function runStreaming(cmd, args, { env, signal, timeoutMs, onStderr, lowerPriority } = {}) {
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawn(cmd, args, { env, windowsHide: true });
+    } catch (err) { reject(err); return; }
+
+    // Yield CPU to the rest of the machine — transcription is a background chore,
+    // not an interactive one. Best-effort; ignored if the OS refuses.
+    if (lowerPriority && child.pid) {
+      try { os.setPriority(child.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch { /* not permitted — fine */ }
+    }
+
+    let tail = '';
+    let timedOut = false;
+    const onData = (buf) => {
+      const s = buf.toString();
+      tail = (tail + s).slice(-4000);
+      if (onStderr) { try { onStderr(s); } catch { /* parser is best-effort */ } }
+    };
+    child.stdout.on('data', onData);
+    child.stderr.on('data', onData);
+
+    const to = timeoutMs ? setTimeout(() => { timedOut = true; child.kill('SIGTERM'); }, timeoutMs) : null;
+    const onAbort = () => child.kill('SIGTERM');
+    if (signal) {
+      if (signal.aborted) child.kill('SIGTERM');
+      else signal.addEventListener('abort', onAbort, { once: true });
+    }
+    const cleanup = () => {
+      if (to) clearTimeout(to);
+      if (signal) signal.removeEventListener('abort', onAbort);
+    };
+
+    child.on('error', (err) => { cleanup(); reject(err); });
+    child.on('close', (code, sig) => {
+      cleanup();
+      if (code === 0) { resolve({ tail }); return; }
+      const err = new Error(`${path.basename(String(cmd))} exited with code ${code}${sig ? ` (${sig})` : ''}: ${tail.slice(-500)}`);
+      err.exitCode = code;
+      err.stderr = tail;
+      if (timedOut) { err.killed = true; err.signal = 'SIGTERM'; }
+      if (signal && signal.aborted) { err.name = 'AbortError'; err.code = 'ABORT_ERR'; }
+      reject(err);
+    });
+  });
+}
+
 async function runWhisperPipeline(videoId, opts) {
   const resolved = resolveWhisper(opts);
   if (!resolved) {
@@ -93,7 +156,11 @@ async function runWhisperPipeline(videoId, opts) {
   const ytdlp = opts.ytDlpPath || process.env.ECHO_YTDLP || 'yt-dlp';
   const ffmpeg = opts.ffmpegPath || process.env.ECHO_FFMPEG || null;
   const maxMinutes = opts.maxMinutes || DEFAULT_MAX_MINUTES;
-  const threads = opts.threads || Math.max(1, os.cpus().length);
+  // Default to ~75% of logical cores so the machine stays responsive; overridable
+  // via ECHO_WHISPER_THREADS. Using every core pinned the CPU during long runs.
+  const threads = opts.threads
+    || Number(process.env.ECHO_WHISPER_THREADS)
+    || Math.max(1, Math.round(os.cpus().length * 0.75));
   const whisperLang = opts.whisperLang || 'auto';
   const signal = opts.signal;
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
@@ -128,12 +195,23 @@ async function runWhisperPipeline(videoId, opts) {
       '-f', 'wa/ba[abr<50]/ba',
       '-x', '--audio-format', 'wav',
       '--postprocessor-args', 'ExtractAudio:-ar 16000 -ac 1 -c:a pcm_s16le',
-      '--no-warnings',
+      '--no-warnings', '--newline',
       '-o', path.join(dir, 'audio.%(ext)s'),
     ];
     if (ffmpeg) dlArgs.push('--ffmpeg-location', ffmpeg);
     dlArgs.push(videoUrl);
-    await execFileAsync(ytdlp, dlArgs, { timeout: 5 * 60_000, signal });
+    reportProgress(opts, 'download', 0);
+    let lastDl = -1;
+    await runStreaming(ytdlp, dlArgs, {
+      signal, timeoutMs: 5 * 60_000,
+      onStderr: (chunk) => {
+        const ms = chunk.match(/\[download\]\s+([\d.]+)%/g);
+        if (!ms) return;
+        const pct = Math.min(99, Math.floor(parseFloat(/([\d.]+)%/.exec(ms[ms.length - 1])[1])));
+        if (pct > lastDl) { lastDl = pct; reportProgress(opts, 'download', pct); }
+      },
+    });
+    reportProgress(opts, 'download', 100);
 
     // 3. Transcribe -> <prefix>.json. On Linux the .so libs live beside the binary,
     //    so LD_LIBRARY_PATH must include its dir (harmless on Windows/macOS).
@@ -148,13 +226,25 @@ async function runWhisperPipeline(videoId, opts) {
       ? Math.max(30 * 60_000, Math.ceil(durationSec * 1500) + 60_000)
       : 60 * 60_000;
     const timeoutMs = opts.timeoutMs || Number(process.env.ECHO_WHISPER_TIMEOUT_MS) || derivedMs;
-    await execFileAsync(binPath, [
+    reportProgress(opts, 'transcribe', 0);
+    let lastTr = -1;
+    await runStreaming(binPath, [
       '-m', modelPath,
       '-f', wavPath,
       '-l', whisperLang,
       '-t', String(threads),
+      '--print-progress',
       '-oj', '-of', outPrefix,
-    ], { timeout: timeoutMs, maxBuffer: 1024 * 1024 * 64, signal, env });
+    ], {
+      env, signal, timeoutMs, lowerPriority: true,
+      onStderr: (chunk) => {
+        const ms = chunk.match(/progress\s*=\s*(\d+)%/g);
+        if (!ms) return;
+        const pct = Math.min(99, parseInt(/(\d+)%/.exec(ms[ms.length - 1])[1], 10));
+        if (pct > lastTr) { lastTr = pct; reportProgress(opts, 'transcribe', pct); }
+      },
+    });
+    reportProgress(opts, 'transcribe', 100);
 
     // 4. Map JSON -> Echo shape.
     const raw = await fs.readFile(`${outPrefix}.json`, 'utf8');

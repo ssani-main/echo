@@ -426,6 +426,47 @@ app.get('/api/health', (_req, res) => {
 // Transcript
 // ---------------------------------------------------------------------------
 
+// Live Whisper progress, keyed by a client-supplied jobId. The POST /api/transcript
+// handler updates the entry as yt-dlp downloads + whisper-cli transcribes; the SSE
+// route below streams it to the browser. Entries self-expire shortly after the job
+// ends so a late-connecting stream can still observe the terminal 'done'/'error'.
+const whisperJobs = new Map();
+function setJobProgress(jobId, data) {
+  if (jobId) whisperJobs.set(jobId, { ...data, updatedAt: Date.now() });
+}
+function finishJob(jobId, status) {
+  if (!jobId) return;
+  const prev = whisperJobs.get(jobId) || {};
+  whisperJobs.set(jobId, { ...prev, phase: status === 'done' ? 'done' : prev.phase, status, updatedAt: Date.now() });
+  setTimeout(() => whisperJobs.delete(jobId), 15_000).unref?.();
+}
+
+// SSE: stream a job's Whisper progress to the browser until it reaches a terminal
+// status. No job entry yet → heartbeats (the POST may not have hit its first
+// progress tick). Local/desktop only in practice — Whisper never runs in web.
+app.get('/api/transcript/progress', (req, res) => {
+  const jobId = String(req.query.jobId || '');
+  if (!jobId) { res.status(400).end(); return; }
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.write('retry: 2000\n\n');
+  let done = false;
+  const tick = () => {
+    if (done) return;
+    const st = whisperJobs.get(jobId);
+    if (!st) { res.write(': ping\n\n'); return; }
+    res.write(`data: ${JSON.stringify({ phase: st.phase, pct: st.pct ?? 0, status: st.status || 'running' })}\n\n`);
+    if (st.status && st.status !== 'running') { done = true; clearInterval(iv); res.end(); }
+  };
+  const iv = setInterval(tick, 500);
+  tick();
+  req.on('close', () => { done = true; clearInterval(iv); });
+});
+
 app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
   const { url, lang, transcribe, whisperModel } = req.body;
 
@@ -439,11 +480,35 @@ app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
     );
   }
 
+  // Cancel the (potentially long, CPU-heavy) transcription if the client goes
+  // away — e.g. the user closes the tab or navigates off. Without this, the
+  // yt-dlp audio download and the whisper-cli process keep running to
+  // completion server-side, pinning the CPU long after nobody is waiting.
+  // NB: listen on `res`, not `req` — req 'close' fires as soon as the POST
+  // body is consumed, which would abort the job the instant it started.
+  const ac = new AbortController();
+  let clientGone = false;
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      clientGone = true;
+      ac.abort();
+    }
+  });
+
+  // Optional live-progress channel: the client sends a jobId and subscribes to
+  // GET /api/transcript/progress?jobId=… . Only meaningful when Whisper runs.
+  const jobId = (!isWeb && typeof req.body.jobId === 'string' && req.body.jobId) ? req.body.jobId : null;
+  // First entry is created by the first real progress tick (only when Whisper
+  // actually runs) — so caption-only fetches never flash a progress card.
+  const onProgress = jobId
+    ? ({ phase, pct }) => setJobProgress(jobId, { phase, pct, status: 'running' })
+    : undefined;
+
   const t0 = Date.now();
   try {
     // Whisper is local/desktop only; force it off in web mode regardless of the body.
     const whisperMode = isWeb ? 'off' : (transcribe || 'fallback');
-    const segments = await fetchTranscript(videoId, { lang, transcribe: whisperMode, modelName: whisperModel });
+    const segments = await fetchTranscript(videoId, { lang, transcribe: whisperMode, modelName: whisperModel, signal: ac.signal, onProgress });
     const { title, channel, channelUrl } = await getVideoMeta(videoId);
     // `langUsed` is stamped onto the segments array by fetchTranscript() and
     // reflects the caption track actually loaded (not just what was asked
@@ -464,10 +529,19 @@ app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
 
     const chars = segments.reduce((sum, s) => sum + String(s.text || '').length, 0);
     logEvent('transcript', { videoId, chars, langCode, ok: true, ms: Date.now() - t0 });
+    finishJob(jobId, 'done');
     const transcriptSource = segments.source || 'captions';
     return res.json({ videoId, url: req.body.url, title, channel, channelUrl, segments, langCode, transcriptSource });
   } catch (err) {
+    // Client already disconnected — the abort we triggered surfaces here; there
+    // is no live response to write to, so just record it and stop.
+    if (clientGone) {
+      logEvent('transcript', { videoId, ok: false, err: 'client_aborted', ms: Date.now() - t0 });
+      finishJob(jobId, 'error');
+      return;
+    }
     logEvent('transcript', { videoId, ok: false, err: errLabel(err), ms: Date.now() - t0 });
+    finishJob(jobId, 'error');
     return sendCaughtError(res, err);
   }
 });

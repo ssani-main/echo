@@ -957,6 +957,41 @@
        accent hue), with the raw machine log tucked behind a collapsible
        technical-details disclosure. Shared by the transcript and digest
        failure flows (renderTranscriptError / renderDigestError). */
+    .whisper-progress {
+      border-left: 2px solid var(--rule-strong);
+      padding: var(--space-8) 0 var(--space-8) var(--space-10);
+    }
+    .whisper-progress .wp-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: var(--space-6);
+      color: var(--title);
+      font-weight: 700;
+    }
+    .whisper-progress .wp-elapsed {
+      color: var(--muted);
+      font-weight: 400;
+      font-variant-numeric: tabular-nums;
+    }
+    .whisper-progress .wp-bar {
+      margin-top: var(--space-6);
+      height: 6px;
+      border: 1px solid var(--rule-strong);
+      overflow: hidden;
+    }
+    .whisper-progress .wp-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--title);
+      transition: width 0.3s linear;
+    }
+    .whisper-progress .wp-pct {
+      margin-top: var(--space-5);
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
     .error-card {
       border-left: 2px solid var(--rule-strong);
       padding: var(--space-8) 0 var(--space-8) var(--space-10);
@@ -6211,11 +6246,22 @@
       outputEl.classList.remove('visible');
       outputEl.innerHTML = '';
 
+      // Live Whisper progress: give the server a jobId and subscribe to its SSE
+      // channel. The progress card only appears if Whisper actually runs (no
+      // captions) — caption hits return before any progress tick fires.
+      const jobId = (window.crypto && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : String(Date.now()) + '-' + Math.random().toString(16).slice(2);
+      let stopProgress = null;
+      if (whisperMode !== 'off' && ECHO.mode !== 'web') {
+        stopProgress = startWhisperProgress(jobId);
+      }
+
       try {
         const res  = await fetch('/api/transcript', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ url, transcribe: whisperMode, whisperModel: getWhisperModel() }),
+          body:    JSON.stringify({ url, transcribe: whisperMode, whisperModel: getWhisperModel(), jobId }),
         });
         const data = await res.json();
 
@@ -6293,8 +6339,77 @@
         outputEl.innerHTML = '';
         lastSegments = null;
       } finally {
+        if (stopProgress) stopProgress();
         isFetching = false;
       }
+    }
+
+    /**
+     * Live Whisper progress card driven by the server's SSE channel
+     * (GET /api/transcript/progress?jobId=…). Renders a phase label, a real
+     * progress bar + %, and an elapsed timer into #output. The card only
+     * materialises once the first real progress tick arrives (i.e. Whisper is
+     * actually running), so caption-only fetches never flash it. Returns a
+     * stop() that closes the stream, stops the timer, and removes the card.
+     */
+    function startWhisperProgress(jobId) {
+      let es = null, timerIv = null, started = 0;
+      let card = null, fill = null, pctEl = null, phaseEl = null, elapsedEl = null;
+
+      const phaseLabel = (phase) =>
+        phase === 'download'   ? 'Downloading audio…' :
+        phase === 'transcribe' ? 'Transcribing with Whisper…' :
+        phase === 'done'       ? 'Finishing…' : 'Working…';
+
+      const updateElapsed = () => {
+        if (!elapsedEl) return;
+        const s = Math.max(0, Math.floor((Date.now() - started) / 1000));
+        elapsedEl.textContent =
+          String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+      };
+
+      const ensureCard = () => {
+        if (card) return;
+        started = Date.now();
+        card = document.createElement('div');
+        card.className = 'whisper-progress';
+        card.innerHTML =
+          '<div class="wp-row"><span class="wp-phase"></span><span class="wp-elapsed">00:00</span></div>' +
+          '<div class="wp-bar"><div class="wp-fill"></div></div>' +
+          '<div class="wp-pct">0%</div>';
+        phaseEl   = card.querySelector('.wp-phase');
+        elapsedEl = card.querySelector('.wp-elapsed');
+        fill      = card.querySelector('.wp-fill');
+        pctEl     = card.querySelector('.wp-pct');
+        outputEl.innerHTML = '';
+        outputEl.appendChild(card);
+        outputEl.classList.add('visible');
+        timerIv = setInterval(updateElapsed, 1000);
+        updateElapsed();
+      };
+
+      try {
+        es = new EventSource('/api/transcript/progress?jobId=' + encodeURIComponent(jobId));
+        es.onmessage = (ev) => {
+          let d; try { d = JSON.parse(ev.data); } catch { return; }
+          if (d.status && d.status !== 'running') return; // terminal — POST drives final UI
+          ensureCard();
+          const pct = Math.max(0, Math.min(100, Number(d.pct) || 0));
+          if (phaseEl) phaseEl.textContent = phaseLabel(d.phase);
+          if (fill)    fill.style.width = pct + '%';
+          if (pctEl)   pctEl.textContent = pct + '%';
+        };
+        es.onerror = () => { /* EventSource auto-retries; stop() will close it */ };
+      } catch { /* EventSource unsupported — fetch still works, just no live progress */ }
+
+      return function stop() {
+        if (es)      { es.close(); es = null; }
+        if (timerIv) { clearInterval(timerIv); timerIv = null; }
+        if (card && card.parentNode) {
+          card.remove();
+          if (!outputEl.children.length) outputEl.classList.remove('visible');
+        }
+      };
     }
 
     /** Returns true if `str` looks like a pasteable YouTube reference (URL or bare 11-char id). */
