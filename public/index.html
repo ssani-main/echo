@@ -953,6 +953,58 @@
       }
     }
 
+    /* Reimagined transcript error card: one human-classified message, ink-on-
+       paper (no accent hue), with the raw two-strike log tucked behind a
+       collapsible technical-details disclosure. */
+    .transcript-error {
+      border-left: 2px solid var(--rule-strong);
+      padding: var(--space-8) 0 var(--space-8) var(--space-10);
+    }
+
+    .transcript-error-head {
+      color: var(--title);
+      font-weight: 700;
+    }
+
+    .transcript-error-hint {
+      color: var(--muted);
+      margin-top: var(--space-5);
+    }
+
+    .transcript-error-detail {
+      margin-top: var(--space-9);
+    }
+
+    .transcript-error-detail summary {
+      cursor: pointer;
+      color: var(--muted);
+      user-select: none;
+    }
+
+    .transcript-error-detail pre {
+      margin-top: var(--space-6);
+      color: var(--muted);
+      font-size: var(--text-sm);
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow-x: auto;
+    }
+
+    .transcript-error-nudge {
+      margin-top: var(--space-9);
+      color: var(--muted);
+    }
+
+    .transcript-error-nudge button {
+      background: none;
+      border: none;
+      padding: 0;
+      font: inherit;
+      color: inherit;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
     /* Empty state */
     #output .empty-state {
       font-family: var(--font-serif);
@@ -4790,6 +4842,82 @@
     }
 
     /**
+     * Render a reimagined transcript-fetch error into #output: one
+     * human-classified headline + next-step hint, with the raw two-strike
+     * machine log tucked behind a collapsible "technical details" disclosure.
+     * Replaces the old raw-dump + toast pairing for /api/transcript failures.
+     *
+     * @param {object} data - parsed response JSON (structured error envelope)
+     */
+    function renderTranscriptError(data) {
+      console.error('[echo] transcript error:', data);
+
+      const env     = data?.error;
+      const headline = env?.message || 'Could not fetch the transcript.';
+      const hint     = env?.hint || '';
+      const detail   = env?.detail || '';
+      const reason   = env?.reason || '';
+
+      setStatus('');
+
+      const card = document.createElement('div');
+      card.className = 'transcript-error';
+
+      const head = document.createElement('div');
+      head.className = 'transcript-error-head';
+      head.textContent = headline;
+      card.appendChild(head);
+
+      if (hint) {
+        const hintEl = document.createElement('div');
+        hintEl.className = 'transcript-error-hint';
+        hintEl.textContent = hint;
+        card.appendChild(hintEl);
+      }
+
+      if (detail) {
+        const details = document.createElement('details');
+        details.className = 'transcript-error-detail';
+        const summary = document.createElement('summary');
+        summary.textContent = 'Show technical details';
+        const pre = document.createElement('pre');
+        pre.textContent = detail;
+        details.appendChild(summary);
+        details.appendChild(pre);
+        card.appendChild(details);
+      }
+
+      try {
+        if (
+          reason === 'no_captions' &&
+          ECHO.mode !== 'web' &&
+          typeof getWhisperMode === 'function' &&
+          getWhisperMode() === 'off'
+        ) {
+          const nudge = document.createElement('div');
+          nudge.className = 'transcript-error-nudge';
+          nudge.textContent = 'Tip: enable Whisper transcription in Settings to generate a transcript for videos without captions. ';
+          if (typeof openSettingsModal === 'function') {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = 'Open Settings';
+            btn.addEventListener('click', () => openSettingsModal());
+            nudge.appendChild(btn);
+          }
+          card.appendChild(nudge);
+        }
+      } catch {
+        // Whisper helpers unavailable — skip the nudge gracefully.
+      }
+
+      outputEl.innerHTML = '';
+      outputEl.appendChild(card);
+      outputEl.classList.add('visible');
+
+      lastSegments = null;
+    }
+
+    /**
      * Parse a structured API error envelope and show an error toast.
      * Also logs to console for debugging.
      *
@@ -5983,6 +6111,10 @@
         ? 'Fetching transcript… (Whisper may take a few minutes)'
         : 'Fetching transcript…');
 
+      // Clear any prior error card / output while the new fetch is in flight.
+      outputEl.classList.remove('visible');
+      outputEl.innerHTML = '';
+
       try {
         const res  = await fetch('/api/transcript', {
           method:  'POST',
@@ -5992,12 +6124,7 @@
         const data = await res.json();
 
         if (!res.ok) {
-          const msg = apiErrorMessage(data, 'Could not fetch transcript.');
-          setStatus(msg, true);
-          handleApiError(data, 'Could not fetch transcript.');
-          outputEl.classList.remove('visible');
-          outputEl.innerHTML = '';
-          lastSegments = null;
+          renderTranscriptError(data);
           return;
         }
 

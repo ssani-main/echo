@@ -391,6 +391,105 @@ export async function listCaptionTracks(videoId) {
  */
 export const MEMBERS_ONLY_PATTERNS = [/members-only/i, /join this channel/i, /channel's members/i];
 
+/**
+ * Classify a transcript-fetch failure into a single human-readable reason,
+ * so the UI can show one clear message + next step instead of the raw
+ * two-strike machine log. Inspects the combined primary + yt-dlp error text.
+ *
+ * @param {Error} primaryError
+ * @param {string} ytDlpDetail
+ * @returns {{ reason: string, message: string, hint: string }}
+ */
+export function classifyTranscriptFailure(primaryError, ytDlpDetail) {
+  const text = `${primaryError?.message || ''}\n${ytDlpDetail || ''}`;
+
+  if (
+    /premieres in/i.test(text) ||
+    /premiere will begin/i.test(text) ||
+    /this live event will begin in/i.test(text) ||
+    /scheduled for/i.test(text) ||
+    /will begin in\s/i.test(text)
+  ) {
+    const match = text.match(/premieres in ([^\n.]+)/i) || text.match(/will begin in ([^\n.]+)/i);
+    const interval = match ? match[1].trim() : '';
+    return {
+      reason: 'premiere',
+      message: "This video hasn't aired yet",
+      hint: interval
+        ? `It premieres in ${interval} — there's no transcript until it goes live. Try again after it premieres.`
+        : "It's scheduled to premiere and hasn't gone live yet. Try again after it airs.",
+    };
+  }
+
+  if (
+    /this live event has begun/i.test(text) ||
+    /live event has begun/i.test(text) ||
+    /currently live/i.test(text) ||
+    /is live now/i.test(text)
+  ) {
+    return {
+      reason: 'live',
+      message: 'This is a live stream in progress',
+      hint: 'Transcripts are usually available once the stream ends. Try again after it finishes.',
+    };
+  }
+
+  if (/private video/i.test(text) || /this video is private/i.test(text)) {
+    return {
+      reason: 'private',
+      message: 'This video is private',
+      hint: "The owner has restricted access. Nothing can be fetched unless it's made public.",
+    };
+  }
+
+  if (
+    /video unavailable/i.test(text) ||
+    /has been removed/i.test(text) ||
+    /no longer available/i.test(text) ||
+    /removed by the uploader/i.test(text) ||
+    /removed for violating/i.test(text) ||
+    /account.*(terminated|closed)/i.test(text)
+  ) {
+    return {
+      reason: 'unavailable',
+      message: 'This video is unavailable',
+      hint: 'It may have been removed or taken down by YouTube or the uploader.',
+    };
+  }
+
+  if (
+    /sign in to confirm your age/i.test(text) ||
+    /age.?restricted/i.test(text) ||
+    /inappropriate for some users/i.test(text) ||
+    /confirm your age/i.test(text)
+  ) {
+    return {
+      reason: 'age_restricted',
+      message: 'This video is age-restricted',
+      hint: "YouTube requires sign-in to view it, so its transcript can't be fetched here.",
+    };
+  }
+
+  if (
+    /not available in your country/i.test(text) ||
+    /not available in your region/i.test(text) ||
+    /blocked it in your country/i.test(text) ||
+    /not made this video available in your country/i.test(text)
+  ) {
+    return {
+      reason: 'geo_blocked',
+      message: 'Not available in your region',
+      hint: 'The uploader has blocked this video in your country.',
+    };
+  }
+
+  return {
+    reason: 'no_captions',
+    message: 'No transcript available for this video',
+    hint: "This video doesn't appear to have captions available.",
+  };
+}
+
 export async function fetchTranscript(videoId, opts = {}) {
   const lang = opts.lang || undefined;
   const retryDelaysMs = opts.retryDelaysMs !== undefined ? opts.retryDelaysMs : DEFAULT_RETRY_DELAYS_MS;
@@ -431,6 +530,8 @@ export async function fetchTranscript(videoId, opts = {}) {
       );
       e.echoCode = 'YTDLP_MISSING';
       e.hint = 'Install yt-dlp: `pip install yt-dlp` or `winget install yt-dlp`.';
+      e.reason = 'ytdlp_missing';
+      e.detail = primaryError.message;
       throw e;
     }
     // Video requires channel membership
@@ -439,6 +540,8 @@ export async function fetchTranscript(videoId, opts = {}) {
       const e = new Error('This video is for channel members only.');
       e.echoCode = 'MEMBERS_ONLY';
       e.hint = 'This video is for channel members only.';
+      e.reason = 'members_only';
+      e.detail = ytDlpDetail;
       throw e;
     }
     // Whisper fallback: both caption paths failed — transcribe locally if configured.
@@ -451,14 +554,15 @@ export async function fetchTranscript(videoId, opts = {}) {
       }
     }
 
-    // Both methods failed — video likely has no captions or is inaccessible
-    const e = new Error(
-      `Could not fetch transcript. ` +
-      `Primary: ${primaryError.message}. ` +
-      `Fallback (yt-dlp): ${ytDlpErr.message}`
-    );
+    // Both methods failed — classify the failure into one human-readable reason
+    // instead of dumping the raw two-strike machine log at the user.
+    const detail = `Primary: ${primaryError.message}. Fallback (yt-dlp): ${ytDlpErr.message}`;
+    const { reason, message, hint } = classifyTranscriptFailure(primaryError, ytDlpErr.stderr || ytDlpErr.message || '');
+    const e = new Error(message);
     e.echoCode = 'TRANSCRIPT_UNAVAILABLE';
-    e.hint = 'The video may have captions disabled, be private, age-restricted, or unavailable in your region.';
+    e.reason = reason;
+    e.hint = hint;
+    e.detail = detail;
     throw e;
   }
 }

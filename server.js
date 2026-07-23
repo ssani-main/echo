@@ -183,11 +183,15 @@ const ECHO_ERROR_STATUS = {
  * @param {string} message  - human-readable short description
  * @param {string} [hint]   - optional remediation hint shown to the user
  * @param {number} [status] - override HTTP status (defaults via ECHO_ERROR_STATUS)
+ * @param {{ reason?: string, detail?: string }} [extra] - optional classification fields
  */
-function sendError(res, code, message, hint = '', status = null) {
+function sendError(res, code, message, hint = '', status = null, extra = {}) {
   console.error(`[echo] ${code}: ${message}`);
   const httpStatus = status ?? ECHO_ERROR_STATUS[code] ?? 500;
-  return res.status(httpStatus).json({ error: { code, message, hint } });
+  const error = { code, message, hint };
+  if (extra.reason) error.reason = extra.reason;
+  if (extra.detail) error.detail = extra.detail;
+  return res.status(httpStatus).json({ error });
 }
 
 /**
@@ -201,7 +205,7 @@ function sendCaughtError(res, err) {
   console.error('[echo] caught error:', err);
   const code = err.echoCode;
   if (code && Object.prototype.hasOwnProperty.call(ECHO_ERROR_STATUS, code)) {
-    return sendError(res, code, err.message, err.hint || '');
+    return sendError(res, code, err.message, err.hint || '', null, { reason: err.reason, detail: err.detail });
   }
   // Unexpected error — log detail, send generic message to client
   return sendError(res, 'INTERNAL', 'An unexpected server error occurred.', '');
