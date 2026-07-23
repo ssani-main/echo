@@ -1,6 +1,6 @@
 # Whisper transcription — spec
 
-**Status:** P1 + P2 + P3 built & verified (2026-07-19) — local Whisper is turnkey on Linux x64 (vendored binary, no env var). Remaining: Windows binary vendoring + macOS (no upstream CLI). **Scope:** local/desktop only — never web.
+**Status:** P1 + P2 + P3 built & verified (2026-07-19) — local Whisper is turnkey on Linux x64 (vendored binary, no env var). **Windows x64 binary vendored + verified E2E 2026-07-23** (`vendor/whisper/win32-x64/`, no env var). Remaining: macOS (no upstream CLI). **Scope:** local/desktop only — never web.
 **This is a rewrite.** The previous spec proposed **hosted** Whisper (Groq/OpenAI,
 BYO key). That is **rejected**. The decision is **local whisper.cpp via a vendored
 prebuilt binary**. Rationale below — read "The decision" before implementing, because
@@ -267,7 +267,7 @@ installer bloats the artifact ~180 MB for a feature most users may never trigger
 - **Verifies downloads** (size + sha256 checksum) before first use; partial/corrupt files are re-downloadable.
 - **Default: `base` q5** (57 MB, ~3× faster than `small`) as the sensible default; `small` q5 (181 MB, better accuracy) available as a settings option.
 
-**The binary** (whisper-cli, ~0.5 MB) is now **VENDORED in-repo** (`vendor/whisper/<platform>-<arch>/`) for Linux x64 and discovered module-relative via `vendoredBin()` — **no env var needed when the prebuilt exists**. Override via `process.env.ECHO_WHISPER` (checked first) or platform/arch probe. Windows/macOS binaries remain env-configured only (Windows vendorable, macOS has no CLI upstream).
+**The binary** (whisper-cli, ~0.5 MB) is now **VENDORED in-repo** (`vendor/whisper/<platform>-<arch>/`) for **Linux x64 and Windows x64** and discovered module-relative via `vendoredBin()` — **no env var needed when the prebuilt exists**. Override via `process.env.ECHO_WHISPER` (checked first) or platform/arch probe. macOS remains env-configured only (no CLI upstream).
 
 ## Server surface (`server.js`)
 
@@ -307,14 +307,16 @@ re-open knows the transcript's provenance. Non-breaking; old entries default to
 
 | platform | whisper.cpp prebuilt CLI | status |
 |---|---|---|
-| Windows x64 | ✅ `whisper-bin-x64.zip` — real `.exe`, no toolchain | verified |
+| Windows x64 | ✅ **VENDORED** (`vendor/whisper/win32-x64/` — same lean subset: whisper-cli.exe + whisper/ggml/ggml-base DLLs + x64 baseline + haswell AVX2 backends, from `whisper-bin-x64.zip`) | **turnkey** (no env var; DLLs resolve from the .exe's own dir — no PATH shim). Verified E2E 2026-07-23 |
 | macOS | ❌ **not published** — releases ship an **xcframework only**, not a CLI binary | **OPEN** |
 | Linux x64 | ✅ **VENDORED** (`vendor/whisper/linux-x64/` — lean 4.3 MB subset: whisper-cli + libwhisper/libggml/libggml-base + x64 baseline + haswell AVX2 backends) | **turnkey** (no env var needed; module-relative + per-platform/arch resolution via `vendoredBin()`) |
 | Linux arm64 | ✅ `whisper-bin-ubuntu-arm64.tar.gz` (4.6 MB) — published, untested | published |
 
 ✅ **Linux x64 is DONE (P3, 2026-07-19).** Prebuilt `whisper-cli` + `.so` libs are **vendored in-repo** (`vendor/whisper/linux-x64/`) as a lean ~4.3 MB subset of upstream's ~17 MB (x64 baseline + haswell AVX2, ggml falls back automatically on unsupported micros). Binary is discovered **module-relative** (works under `npm start` and Tauri sidecar) and **per platform+arch** via `vendoredBin()`, gated by `existsSync` — no env var needed when present. Bundled into Tauri via `bundle.resources` (6 files). Verified end-to-end: zero env vars → `/api/whisper/status` binaryPresent=true → download model → transcribe → transcriptSource=whisper.
 
-🚩 **macOS remains open.** **macOS publishes no CLI binary** — only xcframework. The honest options: build+host our own binary, or **degrade cleanly to `off`** on macOS (the feature is additive; absent binary → today's behaviour, which is a correct outcome, not a bug). **Windows binary vendoring is mechanical** — published .exe from upstream; not yet vendored here.
+✅ **Windows x64 is DONE (2026-07-23).** Prebuilt `whisper-cli.exe` + DLLs (whisper, ggml, ggml-base + x64/haswell backends, 6 files) are **vendored in-repo** (`vendor/whisper/win32-x64/`), extracted from upstream's plain **CPU** `whisper-bin-x64.zip` (not the CUDA builds). Discovered module-relative + per-platform/arch via `vendoredBin()`, gated by `existsSync` — no env var needed. Windows loads the DLLs from the `.exe`'s own directory automatically (no `PATH`/`LD_LIBRARY_PATH` shim). Verified end-to-end: `binaryPresent=true` → download model → transcribe → `transcriptSource=whisper` on both `base` and `small`. **ffmpeg must be on PATH** (same requirement as every platform — yt-dlp needs it for audio extraction).
+
+🚩 **macOS remains open.** **macOS publishes no CLI binary** — only xcframework. The honest options: build+host our own binary, or **degrade cleanly to `off`** on macOS (the feature is additive; absent binary → today's behaviour, which is a correct outcome, not a bug).
 
 ## Tauri (`src-tauri/tauri.conf.json`)
 
@@ -324,7 +326,7 @@ re-open knows the transcript's provenance. Non-breaking; old entries default to
   the backend). `tests/tauri-bundle.test.js` **does** guard it, and it derives the
   expected list by walking `server.js`'s import graph — so it needs **no manual list
   update**, it will simply fail until you add the conf entry.
-- **The binary + libs** are **IMPLEMENTED for linux-x64:** `vendor/whisper/linux-x64/whisper-cli` + 4 `.so` files (libwhisper, libggml, libggml-base + x64/haswell backends) registered in `bundle.resources` (6 files total). Windows/macOS remain per-platform as described above.
+- **The binary + libs** are **IMPLEMENTED for linux-x64:** `vendor/whisper/linux-x64/whisper-cli` + 4 `.so` files (libwhisper, libggml, libggml-base + x64/haswell backends) registered in `bundle.resources` (6 files total). The **win32-x64 binary is vendored in-repo** and works under `npm start`, but is **not yet wired into a Windows Tauri bundle** (`bundle.resources` lists only the linux `.so` set, and there is no Windows installer yet — see DESKTOP.md). Adding a Windows desktop build later must register `vendor/whisper/win32-x64/*` in `bundle.resources`. macOS remains per-platform as described above.
 - **The model does not ship** (see acquisition, above) — that's the whole point of the
   first-run download.
 - Still **no new npm dep** to add to `dist-deps`.
