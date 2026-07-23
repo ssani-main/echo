@@ -219,7 +219,7 @@ echo/
 
 ## ⚠️ Good to know
 
-- Videos with **captions disabled**, or that are **private / age-restricted**, can't be transcribed — Echo says so clearly instead of crashing.
+- When a transcript can't be fetched, Echo tells you **why in plain language** — whether the video is a **scheduled premiere** ("hasn't aired yet"), a **live stream in progress**, **private**, **age-restricted**, **region-blocked**, **removed/unavailable**, or simply **has no captions** — instead of dumping a raw error. The underlying technical detail is one click away under **"Show technical details"**, and for a captionless video (local/desktop) it points you to **Whisper transcription** in Settings.
 - YouTube occasionally shifts its internals; that's exactly what the `yt-dlp` fallback is there to cover.
 - The **AI features** (digest + enrich) need Claude Code installed and logged in (local mode) or an Anthropic API key (web/desktop modes). Without AI, transcript reading, search, and library features work just fine.
 - Your **saved library** (`data/library.db`) is **gitignored** — it never leaves your machine and doesn't get pushed to any repo (local/desktop modes only; web mode uses client-side IndexedDB).

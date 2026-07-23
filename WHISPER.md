@@ -11,7 +11,7 @@ the load-bearing reason is not the one you'd guess.
 Two problems, one mechanism.
 
 1. **Dead-end today.** When a video has no captions, `fetchTranscript` throws
-   `TRANSCRIPT_UNAVAILABLE` (`transcript.js:390–397`) and the flow stops. Whisper
+   `TRANSCRIPT_UNAVAILABLE` (now classified `reason: 'no_captions'` by `classifyTranscriptFailure()` in `transcript.js`) and the flow stops — the error card nudges the user toward enabling Whisper. Whisper
    gives us a transcript where none existed.
 2. **ASR captions are low quality.** YouTube auto-generated captions have no
    punctuation, no capitalization, homophone errors, and run-on structure.
@@ -229,16 +229,19 @@ block, **immediately before the `TRANSCRIPT_UNAVAILABLE` throw** — i.e. after 
 the package fetcher and the yt-dlp caption fallback have failed. The real code today:
 
 ```js
-    // Both methods failed — video likely has no captions or is inaccessible
-    const e = new Error(
-      `Could not fetch transcript. ` +
-      `Primary: ${primaryError.message}. ` +
-      `Fallback (yt-dlp): ${ytDlpErr.message}`
-    );
+    // Both methods failed — classify the failure into one human-readable reason
+    // instead of dumping the raw two-strike machine log at the user.
+    const detail = `Primary: ${primaryError.message}. Fallback (yt-dlp): ${ytDlpErr.message}`;
+    const { reason, message, hint } = classifyTranscriptFailure(primaryError, ytDlpErr.stderr || ytDlpErr.message || '');
+    const e = new Error(message);
     e.echoCode = 'TRANSCRIPT_UNAVAILABLE';
-    e.hint = 'The video may have captions disabled, be private, age-restricted, or unavailable in your region.';
+    e.reason = reason;
+    e.hint = hint;
+    e.detail = detail;
     throw e;
 ```
+
+The raw `Primary:…/Fallback:…` string is now kept as `e.detail` (shown behind the card's technical-details disclosure), not as the user-facing `message`.
 
 Insert before that: if `opts.transcribe !== 'off'`, `resolveWhisper()` returns
 non-null, and we're not in web mode → `return await transcribeViaWhisper(videoId, opts)`.
