@@ -4,7 +4,7 @@ import { promisify } from 'util';
 import { readFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import os from 'os';
-import { resolveWhisper, transcribeViaWhisper } from './whisper.js';
+import { resolveWhisper, transcribeViaWhisper, mapWhisperError } from './whisper.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -194,7 +194,19 @@ async function fetchViaYtDlp(videoId, lang) {
 
   // yt-dlp writes the file as <base>.<lang>.json3
   const subFile = `${tmpBase}.${effectiveLang}.json3`;
-  const raw = await readFile(subFile, 'utf8');
+  let raw;
+  try {
+    raw = await readFile(subFile, 'utf8');
+  } catch (err) {
+    // yt-dlp ran (no spawn error) but wrote no subtitle track — captions are
+    // disabled/absent for this video. Surface a plain error, NOT the raw fs
+    // ENOENT: otherwise the caller's `code === 'ENOENT'` check misreads it as
+    // "yt-dlp is not installed" and short-circuits before the Whisper fallback.
+    if (err.code === 'ENOENT') {
+      throw new Error(`yt-dlp produced no ${effectiveLang} subtitle track (captions unavailable for this video).`);
+    }
+    throw err;
+  }
 
   // Clean up temp file (best-effort)
   unlink(subFile).catch(() => {});
@@ -490,6 +502,18 @@ export function classifyTranscriptFailure(primaryError, ytDlpDetail) {
   };
 }
 
+// Human headline for a Whisper-fallback failure, keyed by its echoCode. The
+// specific remediation lives in the hint (from mapWhisperError); this is the
+// one-line "what happened" shown at the top of the transcript error card.
+function whisperFailureHeadline(code) {
+  switch (code) {
+    case 'FFMPEG_MISSING':  return 'Automatic transcription needs ffmpeg';
+    case 'WHISPER_MISSING': return "Whisper transcription isn't set up";
+    case 'WHISPER_TIMEOUT': return 'Whisper transcription timed out';
+    default:                return "Whisper couldn't transcribe this video";
+  }
+}
+
 export async function fetchTranscript(videoId, opts = {}) {
   const lang = opts.lang || undefined;
   const retryDelaysMs = opts.retryDelaysMs !== undefined ? opts.retryDelaysMs : DEFAULT_RETRY_DELAYS_MS;
@@ -522,8 +546,10 @@ export async function fetchTranscript(videoId, opts = {}) {
     if (segments.length > 0) return segments;
     throw new Error('yt-dlp returned no segments');
   } catch (ytDlpErr) {
-    // yt-dlp is not installed at all
-    if (ytDlpErr.code === 'ENOENT') {
+    // yt-dlp binary genuinely not installed — a *spawn* ENOENT, not a missing
+    // output file (fetchViaYtDlp now surfaces "no subtitle track" as a plain
+    // error, so a bare fs ENOENT can no longer masquerade as a missing binary).
+    if (ytDlpErr.code === 'ENOENT' && /spawn/i.test(String(ytDlpErr.syscall || ytDlpErr.message))) {
       const e = new Error(
         `Primary transcript fetch failed (${primaryError.message}). ` +
         'yt-dlp fallback is not available.'
@@ -545,12 +571,21 @@ export async function fetchTranscript(videoId, opts = {}) {
       throw e;
     }
     // Whisper fallback: both caption paths failed — transcribe locally if configured.
-    // On Whisper failure, fall through to the original TRANSCRIPT_UNAVAILABLE below.
+    // If Whisper was attempted and itself failed, surface *why* (e.g. ffmpeg not
+    // installed) instead of the generic no-captions card. Swallowing it wrongly
+    // nudged the user to "enable Whisper in Settings" when it was already on, and
+    // hid the real blocker (a missing dependency). See the `whisper_failed` reason.
     if (whisperMode !== 'off' && resolveW(opts)) {
       try {
         return await transcribeW(videoId, opts);
-      } catch {
-        // fall through
+      } catch (whisperErr) {
+        const m = mapWhisperError(whisperErr);
+        const e = new Error(whisperFailureHeadline(m.echoCode));
+        e.echoCode = 'TRANSCRIPT_UNAVAILABLE';
+        e.reason = 'whisper_failed';
+        e.hint = m.hint;
+        e.detail = `Whisper transcription failed: ${whisperErr.stderr || whisperErr.message || m.message}`;
+        throw e;
       }
     }
 

@@ -284,6 +284,118 @@ test('fetchViaPackage: an explicit lang makes exactly one call and never falls b
 // already fully covered above at the fetchWithRetry unit level.
 
 // ---------------------------------------------------------------------------
+// fetchTranscript: Whisper-fallback failures are surfaced, not swallowed.
+// Regression guard: a Whisper attempt that throws used to be silently caught,
+// leaving the user with the generic no_captions card (which wrongly nudges
+// "enable Whisper in Settings" when it is already on) and hiding the real
+// blocker. Now the failure's cause is reported via reason: 'whisper_failed'.
+// ---------------------------------------------------------------------------
+
+test('fetchTranscript: a Whisper-fallback failure surfaces its cause (ffmpeg) instead of the no_captions card', async () => {
+  const whisperErr = new Error('spawn ffmpeg ENOENT');
+  whisperErr.echoCode = 'FFMPEG_MISSING';
+  whisperErr.hint = 'Install ffmpeg — required to convert audio for Whisper.';
+  await assert.rejects(
+    fetchTranscript('vid', {
+      primaryFetcher: async () => { throw new Error('no captions'); },
+      captionFallback: async () => { throw new Error('yt-dlp: no subtitles'); },
+      whisperResolver: () => ({ bin: 'whisper-cli', model: 'base' }),
+      transcriber: async () => { throw whisperErr; },
+      transcribe: 'fallback',
+      retryDelaysMs: [],
+    }),
+    (e) => {
+      assert.equal(e.echoCode, 'TRANSCRIPT_UNAVAILABLE');
+      assert.equal(e.reason, 'whisper_failed');
+      assert.equal(e.message, 'Automatic transcription needs ffmpeg');
+      assert.match(e.hint, /ffmpeg/i);
+      assert.match(e.detail, /Whisper transcription failed/);
+      return true;
+    }
+  );
+});
+
+test('fetchTranscript: a generic Whisper-fallback failure (no echoCode) reports a generic whisper headline', async () => {
+  await assert.rejects(
+    fetchTranscript('vid', {
+      primaryFetcher: async () => { throw new Error('no captions'); },
+      captionFallback: async () => { throw new Error('yt-dlp: no subtitles'); },
+      whisperResolver: () => ({ bin: 'whisper-cli', model: 'base' }),
+      transcriber: async () => { throw new Error('some model crash'); },
+      transcribe: 'fallback',
+      retryDelaysMs: [],
+    }),
+    (e) => {
+      assert.equal(e.reason, 'whisper_failed');
+      assert.equal(e.message, "Whisper couldn't transcribe this video");
+      return true;
+    }
+  );
+});
+
+test('fetchTranscript: with Whisper off, an unclassifiable failure still yields the no_captions card', async () => {
+  await assert.rejects(
+    fetchTranscript('vid', {
+      primaryFetcher: async () => { throw new Error('no captions'); },
+      captionFallback: async () => { throw new Error('yt-dlp: no subtitles'); },
+      whisperResolver: () => ({ bin: 'whisper-cli', model: 'base' }),
+      transcriber: async () => { throw new Error('should not be called'); },
+      transcribe: 'off',
+      retryDelaysMs: [],
+    }),
+    (e) => {
+      assert.equal(e.echoCode, 'TRANSCRIPT_UNAVAILABLE');
+      assert.equal(e.reason, 'no_captions');
+      return true;
+    }
+  );
+});
+
+test('fetchTranscript: a missing subtitle FILE (fs ENOENT) is NOT misread as a missing yt-dlp binary', async () => {
+  // Regression: yt-dlp runs fine but the video has no captions, so readFile of
+  // the (never-written) .json3 throws a bare fs ENOENT. That used to short to
+  // YTDLP_MISSING ("Install yt-dlp") AND skip the Whisper fallback.
+  const fsEnoent = new Error("ENOENT: no such file or directory, open '/tmp/x.en.json3'");
+  fsEnoent.code = 'ENOENT';
+  fsEnoent.syscall = 'open';
+  fsEnoent.path = '/tmp/x.en.json3';
+  await assert.rejects(
+    fetchTranscript('vid', {
+      primaryFetcher: async () => { throw new Error('Transcript is disabled on this video'); },
+      captionFallback: async () => { throw fsEnoent; },
+      transcribe: 'off',
+      retryDelaysMs: [],
+    }),
+    (e) => {
+      assert.equal(e.echoCode, 'TRANSCRIPT_UNAVAILABLE');
+      assert.equal(e.reason, 'no_captions');
+      assert.notEqual(e.reason, 'ytdlp_missing');
+      return true;
+    }
+  );
+});
+
+test('fetchTranscript: a genuine spawn ENOENT (yt-dlp binary absent) still reports ytdlp_missing', async () => {
+  const spawnEnoent = new Error('spawn yt-dlp ENOENT');
+  spawnEnoent.code = 'ENOENT';
+  spawnEnoent.syscall = 'spawn yt-dlp';
+  spawnEnoent.path = 'yt-dlp';
+  await assert.rejects(
+    fetchTranscript('vid', {
+      primaryFetcher: async () => { throw new Error('Transcript is disabled on this video'); },
+      captionFallback: async () => { throw spawnEnoent; },
+      transcribe: 'off',
+      retryDelaysMs: [],
+    }),
+    (e) => {
+      assert.equal(e.echoCode, 'YTDLP_MISSING');
+      assert.equal(e.reason, 'ytdlp_missing');
+      return true;
+    }
+  );
+});
+
+// ---------------------------------------------------------------------------
 // extractPlaylist: allowed-host validation (rejects before any yt-dlp spawn,
 // so these are network-free)
 // ---------------------------------------------------------------------------
