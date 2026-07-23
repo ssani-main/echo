@@ -1,5 +1,4 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { readFile } from 'node:fs/promises';
 import { runClaude } from './digest.js';
 
 // ---------------------------------------------------------------------------
@@ -35,11 +34,11 @@ const PRICING = {
 export const ClaudeCliProvider = {
   /**
    * @param {string} prompt
-   * @param {{ timeoutMs?: number, frames?: { dir: string, items: Array<{path:string, offsetSec:number}> } }} [opts]
+   * @param {{ timeoutMs?: number }} [opts]
    * @returns {Promise<{ result: string, usage: object }>}
    */
   async call(prompt, opts = {}) {
-    return runClaude(prompt, { timeoutMs: opts.timeoutMs, framesDir: opts.frames && opts.frames.dir });
+    return runClaude(prompt, { timeoutMs: opts.timeoutMs });
   },
 };
 
@@ -104,18 +103,7 @@ export const ApiKeyProvider = {
       throw mapAnthropicError(err);
     }
 
-    let content = prompt;
-    if (opts.frames && Array.isArray(opts.frames.items) && opts.frames.items.length) {
-      const blocks = [];
-      for (const it of opts.frames.items) {
-        try {
-          const data = await readFile(it.path);
-          blocks.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: data.toString('base64') } });
-        } catch { /* skip unreadable frame */ }
-      }
-      blocks.push({ type: 'text', text: prompt });
-      content = blocks;
-    }
+    const content = prompt;
 
     const start = Date.now();
     let response;

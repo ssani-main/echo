@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { getProvider } from './providers.js';
-import { searchWeb } from './websearch.js';
 
 // ---------------------------------------------------------------------------
 // Shared constants
@@ -20,38 +19,18 @@ const ISOLATED_SYSTEM_PROMPT =
   'Follow the instructions in the user message exactly and return only the requested output as Markdown. ' +
   'Do not add meta-commentary, do not ask questions, and never mention sessions, memory, files, tools, or any workspace or project.';
 
-// Frames variant of ISOLATED_SYSTEM_PROMPT — used only when a digest call
-// includes on-screen video frames for the CLI to Read. Kept free of cmd.exe
-// metacharacters (& | < > ^ % ") just like ISOLATED_SYSTEM_PROMPT, so it
-// survives the Windows `cmd.exe /c claude …` spawn path unescaped.
-const ISOLATED_SYSTEM_PROMPT_FRAMES =
-  'You are a precise summarization and digest engine for video transcripts and their on-screen frames. ' +
-  'Use the Read tool to view the provided frame image files, then follow the instructions in the user message exactly ' +
-  'and return only the requested digest as Markdown. ' +
-  'Do not add meta-commentary about your process, do not ask questions, and never mention sessions, memory, or the workspace.';
-
 const CLAUDE_ARGS = [
   '-p', '--model', 'sonnet', '--output-format', 'json',
   '--system-prompt', ISOLATED_SYSTEM_PROMPT,
 ];
 
 /**
- * Builds the CLI args array for a `claude -p` invocation. When `framesDir`
- * is supplied, swaps in the frames-aware system prompt and grants the CLI
- * Read access to that directory (via --allowedTools/--add-dir) so it can
- * view the sampled video frames. With no framesDir, returns the exact same
- * array as the module-level CLAUDE_ARGS — the text-only path is unchanged.
+ * Builds the CLI args array for a `claude -p` invocation.
  *
- * @param {{ framesDir?: string }} [opts]
  * @returns {string[]}
  */
-function buildClaudeArgs({ framesDir } = {}) {
-  if (!framesDir) return CLAUDE_ARGS;
-  return [
-    '-p', '--model', 'sonnet', '--output-format', 'json',
-    '--system-prompt', ISOLATED_SYSTEM_PROMPT_FRAMES,
-    '--allowedTools', 'Read', '--add-dir', framesDir,
-  ];
+function buildClaudeArgs() {
+  return CLAUDE_ARGS;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,8 +52,8 @@ const CHUNK_CONTENT_CHARS = 360_000; // ~90 k tokens per chunk
 // directly without shell:true. Instead, we invoke cmd.exe explicitly so we
 // keep shell:false on the spawn call itself (no deprecation warning) while
 // still being able to find the .cmd shim on PATH.
-export function buildSpawnTarget(opts = {}) {
-  const args = buildClaudeArgs(opts);
+export function buildSpawnTarget() {
+  const args = buildClaudeArgs();
   if (process.platform === 'win32') {
     const comspec = process.env.ComSpec || 'cmd.exe';
     return { exe: comspec, args: ['/c', 'claude', ...args] };
@@ -213,12 +192,12 @@ export function parseJsonLoose(str) {
  * plus a mapped usage object.
  *
  * @param {string} prompt
- * @param {{ timeoutMs?: number, framesDir?: string }} [opts]
+ * @param {{ timeoutMs?: number }} [opts]
  * @returns {Promise<{ result: string, usage: object }>}
  */
 export async function runClaude(prompt, opts = {}) {
-  const { timeoutMs = DEFAULT_TIMEOUT_MS, framesDir } = opts;
-  const { exe, args } = buildSpawnTarget({ framesDir });
+  const { timeoutMs = DEFAULT_TIMEOUT_MS } = opts;
+  const { exe, args } = buildSpawnTarget();
   const isWin = process.platform === 'win32';
 
   return new Promise((resolve, reject) => {
@@ -229,10 +208,8 @@ export async function runClaude(prompt, opts = {}) {
       stdio: ['pipe', 'pipe', 'pipe'],
       // Run from the OS temp dir, not the project dir, so the CLI does not
       // auto-load this project's Claude Code memory or a project CLAUDE.md
-      // (which would leak workspace context into the digest output). When
-      // frames are involved, framesDir is itself under the OS temp dir (see
-      // frames.js), so isolation is preserved.
-      cwd: framesDir || tmpdir(),
+      // (which would leak workspace context into the digest output).
+      cwd: tmpdir(),
       // On non-Windows, run in its own process group so we can kill the
       // whole tree (child + any grandchildren) on timeout via a negative pid.
       ...(isWin ? {} : { detached: true }),
@@ -415,8 +392,7 @@ export function chunkSegments(segments, budgetChars = CHUNK_CONTENT_CHARS) {
 
 /**
  * Split plain transcript text into ordered chunks at newline boundaries,
- * each fitting within budgetChars. Used for text-only tools (digest,
- * factcheck, ask).
+ * each fitting within budgetChars. Used for text-only tools (digest).
  *
  * @param {string} text
  * @param {number} [budgetChars]
@@ -465,36 +441,6 @@ function languageDirective(language) {
     return 'Answer in English using concise Markdown.';
   }
   return `Answer in ${trimmed} using concise Markdown.`;
-}
-
-/**
- * Builds the prompt block instructing the model to view and ground itself in
- * the sampled video frames saved alongside the CLI's working directory
- * (see buildClaudeArgs' --add-dir). Only used on the single-shot fast path.
- * Kept free of cmd.exe metacharacters (& | < > ^ % ") for the same reason as
- * ISOLATED_SYSTEM_PROMPT.
- *
- * @param {number} count
- * @returns {string}
- */
-function buildFramePromptBlock(count) {
-  const last = 'frame-' + String(count).padStart(3, '0') + '.jpg';
-  return (
-    `\n\nYou ALSO have ${count} still frames sampled from this video, saved as image files ` +
-    `frame-001.jpg through ${last} in your current working directory, in chronological order. ` +
-    `FIRST use the Read tool to view ALL ${count} frames. They show what was ON SCREEN — charts, prices, slides, ` +
-    `code, UI, product screenshots, and on-screen text — which the transcript's spoken words point at but usually ` +
-    `do NOT state. This on-screen detail is the main reason the digest can beat the transcript alone, so USE IT. ` +
-    `Numbers you can read are the highest-value, lowest-risk detail: whenever a frame clearly shows an exact price, ` +
-    `percentage, stat, metric, count, or date the transcript lacks, WORK IT INTO the digest and prefer that ` +
-    `specific figure over a vague paraphrase ("+23% sign-ups", not "more sign-ups"). ` +
-    `Be much stricter with NAMES: only name an app, company, product, or person if that name is plainly printed on ` +
-    `a frame or stated in the transcript. Do NOT infer a name from a logo you cannot read, from an app's look, or ` +
-    `from your own outside knowledge — recognizing a spin-wheel or a paywall style is NOT a licence to name the app. ` +
-    `Overall accuracy rule: state only what you can actually READ in a frame or that appears in the transcript; if ` +
-    `text is illegible or a frame is generic, leave it out rather than guessing, and never write "(referred to as X ` +
-    `in the transcript)" unless X is plainly what a frame shows.`
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -751,213 +697,36 @@ export async function generateDigest(transcriptText, opts = {}) {
   }
 
   // --- Fast path ---
-  // Optional multimodal grounding: still frames sampled from the video.
-  // Only applies to the single-shot fast path (long/map-reduce videos fall
-  // back to text-only).
-  const frames = opts.frames && Array.isArray(opts.frames.items) && opts.frames.items.length
-    ? opts.frames
-    : null;
-  const frameBlock = frames ? buildFramePromptBlock(frames.items.length) : '';
-
   // Article and digest modes use their own self-contained instructions
   // (already include the language directive) instead of the generic
   // summary-oriented prefix below.
   const prompt =
     format === 'article' || format === 'digest'
-      ? `Write your entire response in ${language}, regardless of what language the transcript is in.\n\n${titleContext}${structureInstructions}${frameBlock}\n\nHere is the transcript:\n\n${transcriptText}`
+      ? `Write your entire response in ${language}, regardless of what language the transcript is in.\n\n${titleContext}${structureInstructions}\n\nHere is the transcript:\n\n${transcriptText}`
       : 'You are given the raw auto-generated transcript of a YouTube video. ' +
         'It may be in any language. ' +
         `Write your entire response in ${language}. ` +
         titleContext +
         structureInstructions +
-        frameBlock +
         '\n\nHere is the transcript:\n\n' +
         transcriptText;
 
-  const { result, usage } = await callProvider(prompt, { ...opts, frames });
-  return { digest: result, usage, strategy: 'single', visualFrames: frames ? frames.items.length : 0 };
-}
-
-/**
- * Generate a single comparative synthesis across multiple saved video entries.
- *
- * Source material preference (controls Claude call cost):
- *   1. Entry's saved digest, if present — reuses existing work with no extra Claude call.
- *   2. Compact raw-transcript excerpt (~3000 chars) for entries without a saved digest.
- *
- * A single Claude call produces the final markdown output with four sections:
- * Overview / Common Themes / Key Differences–Contradictions / Per-Video Notes.
- *
- * @param {Array<{ videoId: string, title?: string, digest?: string|null, segments?: Array<{text:string}> }>} entries
- *   Full entry objects as returned by store.getEntry().
- * @param {{ language?: string }} [options]
- * @returns {Promise<{ digest: string, usage: object }>}
- */
-export async function generateCrossDigest(entries, options = {}) {
-  if (!Array.isArray(entries) || entries.length < 2) {
-    throw new Error('generateCrossDigest requires at least 2 entries.');
-  }
-
-  const { language = 'English' } = options;
-
-  // Maximum chars to include from a raw transcript when no digest exists.
-  // Keeps the prompt size manageable without an extra round-trip Claude call.
-  const MAX_EXCERPT_CHARS = 3000;
-
-  const videoSections = entries.map((entry) => {
-    const title = entry.title || entry.videoId;
-    let material;
-
-    if (entry.digest && entry.digest.trim()) {
-      // Preferred path: reuse the already-generated per-video digest.
-      material = entry.digest.trim();
-    } else {
-      // Fallback: compact raw-transcript excerpt (no extra Claude call needed).
-      const transcriptText = Array.isArray(entry.segments)
-        ? entry.segments
-            .map((s) => (s.text || '').replace(/\s+/g, ' ').trim())
-            .filter(Boolean)
-            .join(' ')
-        : '';
-
-      if (!transcriptText) {
-        material = '(No transcript or digest available for this video.)';
-      } else {
-        const truncated = transcriptText.length > MAX_EXCERPT_CHARS;
-        material =
-          transcriptText.slice(0, MAX_EXCERPT_CHARS) +
-          (truncated ? ' … [transcript excerpt only — full digest not available]' : '');
-      }
-    }
-
-    return `### ${title}\n\n${material}`;
-  });
-
-  const combined = videoSections.join('\n\n---\n\n');
-
-  const prompt =
-    `You are given summaries or excerpts from ${entries.length} YouTube videos. ` +
-    'Synthesise them into a single comparative cross-video analysis. ' +
-    `Write your entire response in ${language}. ` +
-    'Use EXACTLY these Markdown sections in this order — no preamble before the first heading:\n\n' +
-    '## Overview\n' +
-    `A 2–4 sentence introduction covering what all ${entries.length} videos broadly address.\n\n` +
-    '## Common Themes\n' +
-    'Topics, ideas, or conclusions that appear across multiple videos. Use sub-bullets per theme.\n\n' +
-    '## Key Differences / Contradictions\n' +
-    'Points where the videos disagree, take different angles, or emphasise different things. ' +
-    'If they are strongly aligned, note differences in depth, framing, or scope.\n\n' +
-    '## Per-Video Notes\n' +
-    'A bulleted list — one bullet per video, introduced with the video title in bold — ' +
-    'highlighting its unique angle or contribution relative to the other videos.\n\n' +
-    'Be faithful to the material provided; do not invent facts not present in the summaries.\n\n' +
-    'VIDEO MATERIAL (one section per video):\n\n' +
-    combined;
-
-  const { result, usage } = await callProvider(prompt, options);
-
-  if (!result || !result.trim()) {
-    throw new Error('generateCrossDigest: Claude returned an empty result.');
-  }
-
-  // mergeUsage normalises the shape even for a single usage object.
-  return { digest: result, usage: mergeUsage([usage]) };
-}
-
-/**
- * Builds a compact web-search query from a user's highlighted selection,
- * optionally padded with a couple of salient words from the surrounding
- * transcript context (helps disambiguate short/ambiguous selections).
- *
- * @param {string} selection
- * @param {string} context
- * @returns {string}
- */
-function buildSearchQuery(selection, context) {
-  const base = selection.trim().replace(/\s+/g, ' ');
-  const MAX_QUERY_CHARS = 200;
-  if (base.length >= 60 || !context || !context.trim()) {
-    return base.slice(0, MAX_QUERY_CHARS);
-  }
-
-  // Selection is short — append a couple of salient (longer, non-generic)
-  // words from the context to help disambiguate the search.
-  const stopwords = new Set([
-    'this', 'that', 'these', 'those', 'with', 'from', 'about', 'which',
-    'their', 'there', 'where', 'would', 'could', 'should', 'because',
-    'have', 'been', 'were', 'what', 'when', 'your', 'just', 'like',
-  ]);
-  const selectionWords = new Set(base.toLowerCase().split(/\W+/).filter(Boolean));
-  const contextWords = context
-    .trim()
-    .split(/\W+/)
-    .filter((w) => w.length > 4 && !stopwords.has(w.toLowerCase()) && !selectionWords.has(w.toLowerCase()));
-
-  const extra = contextWords.slice(0, 3).join(' ');
-  const query = extra ? `${base} ${extra}` : base;
-  return query.slice(0, MAX_QUERY_CHARS);
-}
-
-/**
- * Formats a searchWeb() results array as a numbered list for prompt
- * inclusion. Indexes are 1-based to match how the model is asked to cite
- * them in "sourceIndexes".
- *
- * @param {Array<{title: string, url: string, snippet: string}>} results
- * @returns {string}
- */
-function formatWebResults(results) {
-  if (!results.length) return '(no web results were found)';
-  return results
-    .map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\nSnippet: ${r.snippet || '(no snippet)'}`)
-    .join('\n\n');
-}
-
-/**
- * Maps a model-returned array of 1-based sourceIndexes back to the actual
- * { title, url } objects from the searchWeb() results array. This is what
- * guarantees every citation is a real, fetched URL — the model never gets
- * to emit a raw URL that ends up in the final output. Out-of-range or
- * non-numeric indexes are silently ignored; duplicates are de-duplicated.
- *
- * @param {unknown} sourceIndexes
- * @param {Array<{title: string, url: string, snippet: string}>} results
- * @returns {Array<{title: string, url: string}>}
- */
-function mapSourceIndexes(sourceIndexes, results) {
-  if (!Array.isArray(sourceIndexes)) return [];
-  const seen = new Set();
-  const sources = [];
-  for (const idx of sourceIndexes) {
-    const i = Number(idx);
-    if (!Number.isInteger(i) || i < 1 || i > results.length) continue;
-    if (seen.has(i)) continue;
-    seen.add(i);
-    const r = results[i - 1];
-    sources.push({ title: r.title, url: r.url });
-  }
-  return sources;
+  const { result, usage } = await callProvider(prompt, opts);
+  return { digest: result, usage, strategy: 'single' };
 }
 
 /**
  * Enrich a user's highlighted selection from a transcript with an
- * explanation, background context, or a fact-check verdict.
+ * explanation or background context.
  *
- * 'explain' is a pure model call over the transcript context + the model's
- * general knowledge — no web search, no citations.
- *
- * 'background' and 'factcheck' perform a RAG pipeline: the SERVER runs a
- * real web search (see websearch.js) and passes only the fetched
- * title/url/snippet results into the prompt. The model is instructed to
- * reason ONLY over those results and the transcript context, and to cite
- * results ONLY by their numbered index — the final `sources` array is then
- * built in code from that index, so every URL returned to the caller is a
- * real URL Echo actually fetched, never one the model invented.
+ * Both modes are pure model calls over the transcript context + the model's
+ * general knowledge — no web search, no citations. 'sources' is always
+ * returned empty; it is kept in the return shape for caller compatibility.
  *
  * @param {string} selection - the exact highlighted text
- * @param {{ context?: string, mode?: 'explain'|'background'|'factcheck', language?: string }} [opts]
+ * @param {{ context?: string, mode?: 'explain'|'background', language?: string }} [opts]
  *   Any additional providerOpts (e.g. apiKey) are forwarded to callProvider unchanged.
- * @returns {Promise<{ mode: string, text: string, sources: Array<{title:string,url:string}>, usage: object, verdict?: string }>}
+ * @returns {Promise<{ mode: string, text: string, sources: Array<{title:string,url:string}>, usage: object }>}
  */
 export async function enrich(selection, opts = {}) {
   if (!selection || !selection.trim()) {
@@ -985,60 +754,16 @@ export async function enrich(selection, opts = {}) {
     return { mode: 'explain', text: result.trim(), sources: [], usage, results: null };
   }
 
-  if (mode === 'background' || mode === 'factcheck') {
-    const query = buildSearchQuery(trimmedSelection, trimmedContext);
-    const results = await searchWeb(query);
-    const resultsBlock = formatWebResults(results);
-
-    const groundingRules =
-      'CRITICAL RULES:\n' +
-      '- Use ONLY the WEB RESULTS and TRANSCRIPT CONTEXT below. Never invent facts, sources, or URLs from ' +
-      'your own training knowledge.\n' +
-      '- You may cite a source ONLY by its bracketed index number (e.g. [2]) from the WEB RESULTS list — ' +
-      'never write out a URL yourself.\n' +
-      '- If the WEB RESULTS are empty or do not contain enough information to support a conclusion, say so ' +
-      'plainly instead of guessing.\n\n';
-
-    if (mode === 'factcheck') {
-      const prompt =
-        'A user is reading a YouTube video transcript and highlighted a claim to fact-check. ' +
-        groundingRules +
-        languageDirective(language) + '\n\n' +
-        contextBlock +
-        `HIGHLIGHTED CLAIM: "${trimmedSelection}"\n\n` +
-        `WEB RESULTS:\n\n${resultsBlock}\n\n` +
-        'Return STRICT JSON and nothing else — no prose before or after, no code fences:\n' +
-        '{"verdict":"supported|disputed|unverifiable","explanation":"<=2 sentences","sourceIndexes":[<result index numbers used>]}\n\n' +
-        'The verdict MUST be "unverifiable" if the web results are empty or insufficient to judge the claim.';
-
-      const { result, usage } = await callProvider(prompt, providerOpts);
-
-      let parsed;
-      try {
-        parsed = parseJsonLoose(result);
-      } catch (err) {
-        throw new Error(`enrich: factcheck mode returned invalid JSON. ${err.message}`);
-      }
-
-      const validVerdicts = new Set(['supported', 'disputed', 'unverifiable']);
-      const verdict = validVerdicts.has(parsed?.verdict) ? parsed.verdict : 'unverifiable';
-      const explanation = typeof parsed?.explanation === 'string' ? parsed.explanation : '';
-      const sources = results.length ? mapSourceIndexes(parsed?.sourceIndexes, results) : [];
-
-      return { mode: 'factcheck', verdict, text: explanation, sources, usage, results: results.length };
-    }
-
-    // mode === 'background'
+  if (mode === 'background') {
     const prompt =
       'A user is reading a YouTube video transcript and highlighted a piece of text they want more ' +
-      'background/context on. ' +
-      groundingRules +
+      'background/context on. Use the surrounding transcript context (if provided) plus your general ' +
+      'knowledge. If you are not confident in a fact, say so plainly instead of guessing. ' +
       languageDirective(language) + '\n\n' +
       contextBlock +
       `HIGHLIGHTED TEXT: "${trimmedSelection}"\n\n` +
-      `WEB RESULTS:\n\n${resultsBlock}\n\n` +
       'Return STRICT JSON and nothing else — no prose before or after, no code fences:\n' +
-      '{"text":"2-4 sentence background/context","sourceIndexes":[<result index numbers used>]}';
+      '{"text":"2-4 sentence background/context"}';
 
     const { result, usage } = await callProvider(prompt, providerOpts);
 
@@ -1050,12 +775,11 @@ export async function enrich(selection, opts = {}) {
     }
 
     const text = typeof parsed?.text === 'string' ? parsed.text : '';
-    const sources = results.length ? mapSourceIndexes(parsed?.sourceIndexes, results) : [];
 
-    return { mode: 'background', text, sources, usage, results: results.length };
+    return { mode: 'background', text, sources: [], usage, results: null };
   }
 
-  throw new Error(`enrich: unknown mode "${mode}". Expected 'explain', 'background', or 'factcheck'.`);
+  throw new Error(`enrich: unknown mode "${mode}". Expected 'explain' or 'background'.`);
 }
 
 // Maximum chars of material (digest or transcript excerpt) to feed the
@@ -1124,178 +848,3 @@ export async function suggestTags(material, opts = {}) {
   return { tags, usage: mergeUsage([usage]) };
 }
 
-// ---------------------------------------------------------------------------
-// Web-verified claim-checking
-// ---------------------------------------------------------------------------
-
-// Zero-usage placeholder for paths that skip the Claude CLI entirely (e.g.
-// verifyClaim() when the web search returns no results).
-function zeroUsage() {
-  return {
-    costUsd: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheReadTokens: 0,
-    cacheCreationTokens: 0,
-    totalTokens: 0,
-    durationMs: 0,
-  };
-}
-
-/**
- * Runs a small bounded-concurrency pool over `items`, calling `worker(item)`
- * for each and returning results in the original order. Mirrors the
- * map-reduce approach in this file, but caps concurrency instead of firing
- * every call at once (used here to avoid hammering the web-search endpoint
- * and the provider CLI with unbounded parallel claims).
- *
- * @template T, R
- * @param {T[]} items
- * @param {number} limit
- * @param {(item: T, index: number) => Promise<R>} worker
- * @returns {Promise<R[]>}
- */
-async function runPool(items, limit, worker) {
-  const results = new Array(items.length);
-  let next = 0;
-
-  async function runner() {
-    while (true) {
-      const i = next++;
-      if (i >= items.length) return;
-      results[i] = await worker(items[i], i);
-    }
-  }
-
-  const workers = Array.from({ length: Math.min(limit, items.length) }, () => runner());
-  await Promise.all(workers);
-  return results;
-}
-
-/**
- * Extract the most important checkable factual claims from a digest.
- *
- * @param {string} digestMd
- * @param {{ maxClaims?: number, apiKey?: string }} [opts]
- * @returns {Promise<{ claims: Array<{ claim: string }>, usage: object }>}
- */
-export async function extractClaims(digestMd, opts = {}) {
-  if (!digestMd || !digestMd.trim()) {
-    return { claims: [], usage: zeroUsage() };
-  }
-
-  const maxClaims = opts.maxClaims ?? 8;
-
-  const prompt =
-    'Read the following video digest and extract the most important CHECKABLE factual claims it makes — ' +
-    'specific, verifiable assertions (e.g. a named fact, statistic, date, event, or attributed statement). ' +
-    'Do NOT extract opinions, vague generalities, or subjective statements.\n\n' +
-    `List at most ${maxClaims} claims, ordered from most to least important.\n\n` +
-    'Output ONLY a JSON array and nothing else — no prose before or after, no code fences:\n' +
-    '[{"claim": "..."}, {"claim": "..."}]\n\n' +
-    'DIGEST:\n\n' +
-    digestMd;
-
-  const { result, usage } = await callProvider(prompt, opts);
-
-  let parsed;
-  try {
-    const s = String(result || '').replace(/```[a-z]*\n?/gi, '').replace(/```/g, '').trim();
-    parsed = JSON.parse(s);
-  } catch (_) {
-    return { claims: [], usage };
-  }
-
-  if (!Array.isArray(parsed)) {
-    return { claims: [], usage };
-  }
-
-  const claims = parsed
-    .filter((c) => c && typeof c.claim === 'string' && c.claim.trim())
-    .map((c) => ({ claim: c.claim.trim() }))
-    .slice(0, maxClaims);
-
-  return { claims, usage };
-}
-
-/**
- * Verify a single claim against real web-search results.
- *
- * @param {string} claim
- * @param {{ apiKey?: string, language?: string }} [opts]
- * @returns {Promise<{ status: string, note: string, sources: Array<{title:string,url:string}>, usage: object }>}
- */
-export async function verifyClaim(claim, opts = {}) {
-  const trimmedClaim = String(claim || '').trim();
-  if (!trimmedClaim) {
-    return { status: 'unverifiable', note: '', sources: [], usage: zeroUsage() };
-  }
-
-  const results = await searchWeb(trimmedClaim, { n: 4 });
-
-  if (!results.length) {
-    return {
-      status: 'unverifiable',
-      note: 'No web results found.',
-      sources: [],
-      usage: zeroUsage(),
-    };
-  }
-
-  const resultsBlock = formatWebResults(results);
-
-  const prompt =
-    'You are fact-checking a claim from a video digest using real web search results. ' +
-    'Judge whether the WEB RESULTS below support the CLAIM. ' +
-    'Use ONLY the WEB RESULTS provided — do not rely on your own training knowledge to invent facts, ' +
-    'and never cite a source that is not in the WEB RESULTS.\n\n' +
-    `CLAIM: "${trimmedClaim}"\n\n` +
-    `WEB RESULTS:\n\n${resultsBlock}\n\n` +
-    'Return STRICT JSON and nothing else — no prose before or after, no code fences:\n' +
-    '{"status":"supported|unsupported|mixed|unverifiable","note":"one short sentence"}';
-
-  const { result, usage } = await callProvider(prompt, opts);
-
-  let status = 'unverifiable';
-  let note = '';
-  try {
-    const s = String(result || '').replace(/```[a-z]*\n?/gi, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(s);
-    const validStatuses = new Set(['supported', 'unsupported', 'mixed', 'unverifiable']);
-    status = validStatuses.has(parsed?.status) ? parsed.status : 'unverifiable';
-    note = typeof parsed?.note === 'string' ? parsed.note : '';
-  } catch (_) {
-    status = 'unverifiable';
-    note = '';
-  }
-
-  const sources = results.map((r) => ({ title: r.title, url: r.url }));
-
-  return { status, note, sources, usage };
-}
-
-/**
- * Extracts checkable claims from a digest, then verifies each against the
- * web with bounded concurrency, merging usage across every Claude call.
- *
- * @param {string} digestMd
- * @param {{ maxClaims?: number, apiKey?: string, language?: string }} [opts]
- * @returns {Promise<{ claims: Array<{ claim: string, status: string, note: string, sources: Array<{title:string,url:string}> }>, usage: object }>}
- */
-export async function verifyClaims(digestMd, opts = {}) {
-  const { claims: extracted, usage: extractUsage } = await extractClaims(digestMd, opts);
-
-  if (extracted.length === 0) {
-    return { claims: [], usage: mergeUsage([extractUsage]) };
-  }
-
-  const verified = await runPool(extracted, 4, async (c) => {
-    const { status, note, sources, usage } = await verifyClaim(c.claim, opts);
-    return { claim: c.claim, status, note, sources, usage };
-  });
-
-  const usages = [extractUsage, ...verified.map((v) => v.usage)];
-  const claims = verified.map(({ claim, status, note, sources }) => ({ claim, status, note, sources }));
-
-  return { claims, usage: mergeUsage(usages) };
-}

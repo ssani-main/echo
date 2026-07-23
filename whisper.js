@@ -185,8 +185,7 @@ export async function transcribeViaWhisper(videoId, opts = {}) {
   }
 }
 
-// Mirrors frames.js mapFramesError: echoCode passthrough, then ENOENT+binary-name
-// detection, then timeout, then generic.
+// echoCode passthrough, then ENOENT+binary-name detection, then timeout, then generic.
 export function mapWhisperError(err) {
   if (!err) {
     return { echoCode: 'WHISPER_FAILED', message: 'Unknown error during transcription.', hint: 'Could not transcribe this video.' };

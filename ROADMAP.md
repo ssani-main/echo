@@ -2,7 +2,7 @@
 
 > **⚠️ SUPERSEDED (2026-07-14) — historical, do not act on this.** This 2026-07-06 plan is kept
 > only as a record of the ingestion/interop/knowledge-base direction. Several features it lists
-> as shipped (A1 multi-paste, C1 ask-across-library) were **later cut** in the public-launch audit
+> as shipped (A1 multi-paste, A2 channel following, C1 ask-across-library, and others) were **later cut** in the public-launch audit
 > ([`PLAN.md`](PLAN.md)). For the current feature set and what's left, see [`CLAUDE.md`](CLAUDE.md)
 > ("Where things stand"); trust the code + git history over anything below.
 
@@ -12,7 +12,7 @@
 > Anti-goal: don't re-bloat the app. The recent feature cut (embeddings, clips, notes, favorites, highlights)
 > was correct. Only ship features that earn their place in the core loop: *paste → transcript → digest → library*.
 
-**Implementation status (2026-07-07):** Features A1, C2, C1, B1, A2 are **implemented and runtime-verified** on the dev tree (tests 204/204 green, security-scanned). B2 (TTS read-aloud) was **intentionally dropped** at user request ("I just want to read it"). See annotations in each section below for key deviations (dedicated endpoint for C2, A2 local/desktop-only, C1's FTS query builder).
+**Implementation status (2026-07-07):** Features A1, C2, C1, B1, A2 were **implemented and runtime-verified** on the dev tree (tests 204/204 green, security-scanned). B2 (TTS read-aloud) and later A2 (Channel following) were **dropped at public-launch audit**. Only B1 (Vault sync) and C2 (Auto-tagging) remain in the shipped product. See annotations in each section below for key deviations.
 
 ## Mode cheat-sheet (the design filter)
 
@@ -37,7 +37,6 @@ client-side or degrades to on-demand. Call out the split per feature below rathe
 3. **C2 — Auto-tagging on save** — low effort, feeds Discovery + C1.
 4. **C1 — Ask-across-library** — headline knowledge-base feature; C2 improves its retrieval.
 5. **B1 — Markdown vault sync** — high value for local/desktop; web falls back to existing ZIP.
-6. **A2 — Channel following** — highest ceiling, most work, only genuinely mode-divergent one. Do it last.
 
 ---
 
@@ -71,48 +70,6 @@ client-side or degrades to on-demand. Call out the split per feature below rathe
 **Open questions:**
 - Auto-save each digested item, or stage them for review first? (Lean: auto-save in local/desktop, stage in web.)
 - Concurrency: keep serial (1 at a time) to stay under CLI/BYOK limits, or small pool? (Lean: serial first.)
-
-## A2. Channel / creator following  ·  effort: MEDIUM–HIGH  ·  priority: 6  ·  ✅ Implemented 2026-07-07 (local/desktop only)
-
-**Shipped 2026-07-07 — exceeds plan:** Inbox is now a paginated full-catalog card-grid browser (original plan was unseen-title list). One-click Follow now works from Discovery cards, loaded videos, AND saved entries (original plan covered only Discovery + loaded). Old saved entries lacking channelUrl transparently self-heal via `GET /api/video-meta` oEmbed backfill. **Known limitation:** YouTube doesn't expose caption availability in channel listings, so grids show all uploads; non-transcribed videos fall back to the existing "no transcript" message on open (pre-filtering would require per-video probing).
-
-**Goal:** "Follow a channel" → periodically pull latest N uploads → surface *new* ones in an inbox.
-This is what turns Echo from a converter into a **replacement for watching**.
-
-**Implementation note:** `follows` + `follow_seen` tables; `GET/POST/DELETE /api/follows`, `GET /api/follows/inbox`, `POST /api/follows/seen`; discovery.js `normalizeChannel()` + `enumerateChannelUploads()` (15-min TTL); Inbox pane with per-channel badges; one-click Follow on Discovery cards + loaded video channel; **web mode hides Inbox/Follow after cost-sink hardening** (keyless yt-dlp discovery no longer available in web); env `ECHO_MAX_FOLLOWS` (25), `ECHO_FOLLOW_UPLOADS` (10).
-
-**Reuse:** yt-dlp already enumerates channel/playlist videos (`discovery.js` / `transcript.js` playlist path).
-
-**Cross-mode — this is the one that genuinely diverges. Decide the split early:**
-- local/desktop: persist a `follows` list + a `seen` set server-side. Refresh on app open **and**
-  optionally on an interval (local/desktop can run a timer). New-since-last-visit → inbox badge.
-- web: **no background, no server persistence.** `follows` + `seen` live in IndexedDB; refresh only
-  happens when the user opens the app / clicks "check now." Same feature, degraded to manual pull.
-  → **Explicitly accept "web = manual refresh only" before building this.**
-
-**Data model (local/desktop):**
-- [ ] `follows(channelId TEXT PK, title, url, addedAt, lastCheckedAt)`
-- [ ] `follow_seen(channelId, videoId, seenAt, UNIQUE(channelId, videoId))`
-- [ ] web mirror: two IndexedDB stores with the same shape.
-
-**Backend (local/desktop):**
-- [ ] `GET/POST/DELETE /api/follows` — manage follow list.
-- [ ] `GET /api/follows/inbox` — enumerate each follow's latest uploads via yt-dlp, diff against `follow_seen`,
-      return unseen items. Cache per channel (yt-dlp is slow) — reuse the caching pattern in `usage.js`.
-- [ ] Optional: interval refresh (setInterval in server, local/desktop only). Keep it opt-in + cheap.
-
-**Frontend:**
-- [✅] "Follow" button on Discovery result cards + on a loaded video's channel (visible at rest, not hover-only).
-- [✅] One-click Follow on saved library entries (with transparent self-heal for old entries lacking channelUrl).
-- [✅] New **Inbox** pane (sibling to Library/Discovery): paginated full-catalog card-grid with thumbnails, duration, "New" badges, and "Saved" markers.
-- [✅] Mark-as-seen on open; "check now" button everywhere; per-channel selector chips + "Load more" pagination.
-
-**Open questions:**
-- yt-dlp channel enumeration cost/rate — how many follows before it's slow? Cap follows (e.g. 25) + stagger checks.
-- Do we auto-digest new uploads or just list them? (Lean: list only; digest is a click. Auto-digest burns tokens.)
-- Channel ID extraction from arbitrary channel URLs (@handle, /channel/UC..., /c/name) — normalize in `transcript.js`.
-
----
 
 # B — Interop / Export out
 
@@ -275,14 +232,8 @@ bun.sh/docs/bundler/executables · github.com/oven-sh/bun/issues/31402 · tauri.
 
 ---
 
-# Start-here checklist for tomorrow
+# Historical note
 
-1. **B2 TTS** — smallest win, ship it first to build momentum. Pure frontend in `public/index.html`.
-2. **A1 multi-paste** — generalize `playlistJob.js`; reuse the playlist progress UI.
-3. **C2 auto-tagging** — piggyback tags on digest generation; opt-in in web.
-4. Then **C1**, **B1**, and finally **A2** (decide the "web = manual refresh" split before starting A2).
-
-Reminder from CLAUDE.md gotchas: server **caches index.html at boot** (restart to see frontend edits);
-`node --test` **doesn't** exercise the real CLI or CSP-loaded page — do a real digest + light/dark/mobile
-screenshot pass before calling any UI work done; new backend `.js` modules must be added to
-`tauri.conf.json` `bundle.resources` (guarded by `tests/tauri-bundle.test.js`).
+This roadmap was the development plan for 2026-07-06. Several features listed (A1, A2, B2, C1) have since
+been cut in the public-launch audit — see CLAUDE.md for what actually shipped. This document is kept for
+reference only. Active development should reference CLAUDE.md and the codebase, not this plan.

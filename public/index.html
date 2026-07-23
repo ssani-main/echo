@@ -912,54 +912,12 @@
       cursor: default;
     }
 
-    /* Inline panel opened by #followChannelBtn to confirm/paste a channel
-       URL — we don't have the loaded video's channel URL client-side, so
-       this stands in for a one-click follow. */
-    .follow-channel-panel {
-      display: flex;
-      align-items: center;
-      gap: var(--space-5);
-      flex-wrap: wrap;
-      background: var(--surface);
-      border: 1px solid var(--rule);
-      border-radius: var(--radius);
-      padding: var(--space-7) var(--space-8);
-      margin: -0.5rem 0 var(--space-9);
-    }
-
-    /* [hidden] must beat the unconditional display:flex above (author display overrides the UA [hidden] rule) */
-    .follow-channel-panel[hidden] { display: none; }
-
-    .follow-channel-panel input[type="text"] {
-      flex: 1 1 180px;
-      min-width: 140px;
-      padding: var(--space-4) var(--space-5);
-      font-family: var(--font-sans);
-      font-size: var(--text-sm);
-      color: var(--ink);
-      background: var(--paper);
-      border: 1px solid var(--rule);
-      border-radius: 6px;
-      outline: none;
-    }
-
-    .follow-channel-panel input[type="text"]:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--accent-soft);
-    }
-
-    .follow-channel-panel .saved-status-msg {
-      flex-basis: 100%;
-      margin: 0;
-    }
-
     @media (max-width: 520px) {
       .header-save-btn {
         padding: var(--space-4) var(--space-6);
       }
       /* Collapse to an icon-only pill on very narrow screens to protect the title */
-      .header-save-btn #saveBtnLabel,
-      .header-save-btn #followChannelBtnLabel {
+      .header-save-btn #saveBtnLabel {
         display: none;
       }
     }
@@ -1619,12 +1577,7 @@
     }
 
     /* On hover-capable devices, keep secondary actions calm until the card is
-       hovered or focused — this is what removes the "wall of buttons" feel.
-       Exception: .saved-card-actions blocks that hold ONLY a Discovery
-       Follow button (.discovery-follow-btn-only) stay visible at rest —
-       "follow this channel" is a discoverability-critical action, not a
-       housekeeping one like save/delete, so hiding it behind hover hurt
-       findability. */
+       hovered or focused — this is what removes the "wall of buttons" feel. */
     @media (hover: hover) {
       .saved-card-actions {
         opacity: 0;
@@ -1632,9 +1585,6 @@
       }
       .saved-card:hover .saved-card-actions,
       .saved-card:focus-within .saved-card-actions {
-        opacity: 1;
-      }
-      .saved-card-actions.discovery-follow-btn-only {
         opacity: 1;
       }
     }
@@ -1782,137 +1732,6 @@
       gap: var(--space-4);
       margin-bottom: var(--space-5);
       flex-wrap: wrap;
-    }
-
-    /* ==============================================
-       17b. CLAIM VERIFICATION + SHARE RESULT
-       Rendered into #claimsOutput / #shareResult, siblings of
-       #digestExportRow inside #aiPanelSummary. Reuses the same
-       accent/warn/warn-amber/muted palette the toast system uses for its
-       success/error/warning/info states so the claim status pills stay
-       theme-aware without new tokens.
-    =============================================== */
-    .claims-output {
-      margin-bottom: var(--space-9);
-      padding: var(--space-9);
-      background: var(--surface-2);
-      border: 1px solid var(--rule);
-      border-radius: var(--radius-sm);
-    }
-
-    .claims-heading {
-      font-family: var(--font-sans);
-      font-size: var(--text-2xs);
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: var(--space-8);
-    }
-
-    .claims-empty {
-      font-family: var(--font-ui);
-      font-size: var(--text-sm);
-      color: var(--muted);
-    }
-
-    .claim-row {
-      padding: var(--space-7) 0;
-      border-top: 1px solid var(--rule);
-    }
-
-    .claim-row:first-of-type {
-      border-top: none;
-      padding-top: 0;
-    }
-
-    .claim-status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: var(--space-3);
-      font-family: var(--font-ui);
-      font-size: var(--text-2xs);
-      font-weight: 600;
-      padding: var(--space-2) var(--space-6);
-      border-radius: var(--radius-sm);
-      margin-bottom: var(--space-4);
-      white-space: nowrap;
-    }
-
-    .claim-status-pill.is-supported {
-      color: var(--accent);
-      background: var(--accent-soft);
-    }
-
-    .claim-status-pill.is-unsupported {
-      color: var(--warn);
-      background: var(--warn-soft);
-    }
-
-    .claim-status-pill.is-mixed {
-      color: var(--warn-amber);
-      background: var(--warn-amber-soft);
-    }
-
-    .claim-status-pill.is-unverifiable {
-      color: var(--muted);
-      background: var(--surface-3);
-    }
-
-    .claim-text {
-      font-family: var(--font-serif);
-      font-size: var(--text-sm);
-      color: var(--ink);
-      line-height: 1.5;
-      margin-bottom: var(--space-3);
-    }
-
-    .claim-note {
-      font-family: var(--font-ui);
-      font-size: var(--text-xs);
-      color: var(--muted);
-      line-height: 1.5;
-      margin-bottom: var(--space-4);
-    }
-
-    .claim-sources {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-5);
-    }
-
-    .claim-source-link {
-      font-family: var(--font-ui);
-      font-size: var(--text-2xs);
-      color: var(--accent);
-      text-decoration: none;
-      border-bottom: 1px solid transparent;
-    }
-
-    .claim-source-link:hover,
-    .claim-source-link:focus-visible {
-      border-bottom-color: var(--accent);
-    }
-
-    .share-result {
-      display: flex;
-      align-items: center;
-      gap: var(--space-6);
-      flex-wrap: wrap;
-      margin-bottom: var(--space-9);
-      padding: var(--space-7) var(--space-8);
-      background: var(--surface-2);
-      border: 1px solid var(--rule);
-      border-radius: var(--radius-sm);
-    }
-
-    .share-result-url {
-      font-family: var(--font-mono);
-      font-size: var(--text-xs);
-      color: var(--ink);
-      flex: 1 1 auto;
-      min-width: 0;
-      overflow-wrap: anywhere;
     }
 
     /* ==============================================
@@ -2076,18 +1895,6 @@
       color: var(--muted);
     }
 
-    .digest-visuals-toggle {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      cursor: pointer;
-    }
-
-    .digest-visuals-toggle input {
-      accent-color: var(--accent);
-      margin: 0;
-    }
-
     /* Mini segmented toggle — mirrors .view-toggle at a smaller scale */
     .digest-seg {
       display: inline-flex;
@@ -2177,8 +1984,7 @@
       min-width: 130px;
     }
 
-    #savedSearchInput,
-    #discoverySearchInput {
+    #savedSearchInput {
       width: 100%;
       padding: var(--space-4) var(--space-7);
       font-family: var(--font-sans);
@@ -2191,20 +1997,17 @@
       transition: border-color var(--dur), box-shadow var(--dur);
     }
 
-    #savedSearchInput::placeholder,
-    #discoverySearchInput::placeholder {
+    #savedSearchInput::placeholder {
       color: var(--muted);
       opacity: 1;
     }
 
-    #savedSearchInput:focus,
-    #discoverySearchInput:focus {
+    #savedSearchInput:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 3px var(--accent-soft);
     }
 
-    #savedSearchInput::-webkit-search-cancel-button,
-    #discoverySearchInput::-webkit-search-cancel-button {
+    #savedSearchInput::-webkit-search-cancel-button {
       -webkit-appearance: none;
     }
 
@@ -2250,376 +2053,11 @@
       color: var(--warn);
     }
 
-    /* ==============================================
-       28a. DISCOVERY PANE (topic chips + result grid)
-       Reuses .saved-card / .saved-card-* library card styles so
-       Discovery results look native alongside the Library grid.
-    =============================================== */
-    .discovery-chips {
-      display: flex;
-      align-items: center;
-      gap: var(--space-4);
-      flex-wrap: wrap;
-      margin-bottom: var(--space-6);
-    }
-
-    .discovery-chip {
-      padding: var(--space-3) var(--space-7);
-      font-family: var(--font-sans);
-      font-size: var(--text-xs);
-      font-weight: 500;
-      color: var(--muted);
-      background: var(--surface-2);
-      border: 1px solid var(--rule);
-      border-radius: 999px;
-      cursor: pointer;
-      outline: none;
-      transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
-    }
-
-    .discovery-chip:hover {
-      border-color: var(--rule-strong);
-      color: var(--ink);
-    }
-
-    .discovery-chip:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
-    }
-
-    .discovery-chip.is-active {
-      color: var(--accent);
-      background: var(--accent-soft);
-      border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-    }
-
-    .discovery-subtitle {
-      font-family: var(--font-sans);
-      font-size: var(--text-xs);
-      color: var(--muted);
-      margin-bottom: var(--space-5);
-      min-height: 1.1em;
-    }
-
-    /* Result grid — identical layout to #savedOutput's card grid */
-    .discovery-results {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(236px, 1fr));
-      gap: var(--space-10);
-    }
-
-    @media (max-width: 520px) {
-      .discovery-results {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    /* Duration badge overlaid on a Discovery result thumbnail (bottom-right,
-       distinct corner from the top-left Library "Digest" badge). */
-    .discovery-duration-badge {
-      position: absolute;
-      right: 0.5rem;
-      bottom: 0.5rem;
-      z-index: 3;
-      font-family: var(--font-mono);
-      font-size: var(--text-3xs);
-      font-weight: 600;
-      letter-spacing: 0.02em;
-      color: #fff;
-      background: rgba(0, 0, 0, 0.72);
-      border-radius: 4px;
-      padding: var(--space-1) var(--space-4);
-    }
-
-    .discovery-loadmore-wrap {
-      display: flex;
-      justify-content: center;
-      margin-top: var(--space-10);
-    }
-
-    /* Follow button on a Discovery result card — quiet pill, consistent with
-       .saved-export-btn, promoted to filled accent once following. */
-    .discovery-follow-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: var(--space-2);
-      padding: var(--space-2) var(--space-6);
-      font-family: var(--font-sans);
-      font-size: var(--text-2xs);
-      font-weight: 500;
-      color: var(--accent);
-      background: var(--accent-soft);
-      border: 1px solid transparent;
-      border-radius: 999px;
-      cursor: pointer;
-      outline: none;
-      white-space: nowrap;
-      transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
-    }
-
-    .discovery-follow-btn:hover:not(:disabled) {
-      border-color: var(--accent);
-    }
-
-    .discovery-follow-btn:disabled {
-      opacity: 0.75;
-      cursor: default;
-    }
-
-    /* ==============================================
-       28c. INBOX PANE (followed channels + new uploads)
-       Reuses .saved-toolbar / .mini-btn / .saved-status-msg for visual
-       consistency with the Library and Discovery panes.
-    =============================================== */
-    .inbox-manage-panel {
-      background: var(--surface);
-      border: 1px solid var(--rule);
-      border-radius: var(--radius);
-      padding: var(--space-8) var(--space-9);
-      margin-bottom: var(--space-9);
-    }
-
-    .inbox-manage-row {
-      display: flex;
-      align-items: center;
-      gap: var(--space-5);
-      flex-wrap: wrap;
-    }
-
-    .inbox-manage-row input[type="text"] {
-      flex: 1 1 200px;
-      min-width: 140px;
-      padding: var(--space-4) var(--space-6);
-      font-family: var(--font-sans);
-      font-size: var(--text-sm);
-      color: var(--ink);
-      background: var(--paper);
-      border: 1px solid var(--rule);
-      border-radius: 6px;
-      outline: none;
-    }
-
-    .inbox-manage-row input[type="text"]:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px var(--accent-soft);
-    }
-
-    .followed-list {
-      margin-top: var(--space-7);
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-4);
-    }
-
-    .followed-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: var(--space-6);
-      padding: var(--space-4) var(--space-1);
-      border-bottom: 1px solid var(--rule);
-    }
-
-    .followed-item:last-child {
-      border-bottom: none;
-    }
-
-    .followed-item-title {
-      font-family: var(--font-sans);
-      font-size: var(--text-sm);
-      color: var(--ink);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .followed-unfollow-btn {
-      flex-shrink: 0;
-      padding: var(--space-2) var(--space-5);
-      font-family: var(--font-sans);
-      font-size: var(--text-xs);
-      font-weight: 500;
-      color: var(--muted);
-      background: transparent;
-      border: 1px solid transparent;
-      border-radius: 6px;
-      cursor: pointer;
-      outline: none;
-      white-space: nowrap;
-      transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
-    }
-
-    .followed-unfollow-btn:hover {
-      color: var(--warn);
-      border-color: var(--warn);
-      background: var(--warn-soft);
-    }
-
-    .inbox-content {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-9);
-    }
-
-    .inbox-channel-group {
-      background: var(--surface);
-      border: 1px solid var(--rule);
-      border-radius: var(--radius);
-      padding: var(--space-8) var(--space-9);
-    }
-
-    .inbox-channel-header {
-      display: flex;
-      align-items: center;
-      gap: var(--space-6);
-      flex-wrap: wrap;
-      margin-bottom: var(--space-5);
-    }
-
-    .inbox-channel-title {
-      font-family: var(--font-serif);
-      font-size: var(--text-lg);
-      font-weight: 500;
-      color: var(--ink);
-    }
-
-    .inbox-new-badge {
-      font-family: var(--font-sans);
-      font-size: var(--text-2xs);
-      font-weight: 700;
-      letter-spacing: 0.02em;
-      color: var(--on-accent);
-      background: var(--accent);
-      border-radius: 999px;
-      padding: var(--space-1) var(--space-5);
-    }
-
-    .inbox-mark-seen-btn {
-      margin-left: auto;
-    }
-
-    .inbox-item-list {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-4);
-    }
-
-    .inbox-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: var(--space-6);
-      padding: var(--space-4) 0;
-      border-bottom: 1px solid var(--rule);
-    }
-
-    .inbox-item:last-child {
-      border-bottom: none;
-    }
-
-    .inbox-item-title {
-      font-family: var(--font-sans);
-      font-size: var(--text-sm);
-      color: var(--ink);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .inbox-item-read-btn {
-      flex-shrink: 0;
-    }
-
-    .inbox-empty-note,
-    .inbox-error-note {
-      font-family: var(--font-sans);
-      font-size: var(--text-sm);
-      color: var(--muted);
-      margin: 0;
-    }
-
-    .inbox-error-note {
-      color: var(--warn);
-    }
-
-    #paneInbox .empty-state {
-      display: block;
-      max-width: 460px;
-      margin: var(--space-14) auto;
-      padding: var(--space-12) var(--space-11);
-      text-align: center;
-      font-family: var(--font-serif);
-      font-size: var(--text-lg);
-      line-height: 1.55;
-      color: var(--muted);
-      background: var(--surface);
-      border: 1px solid var(--rule);
-      border-radius: var(--radius-lg);
-    }
-
-    /* Channel selector chips + selected-channel header + card grid —
-       28d. below. .inbox-channel-chips reuses .discovery-chips (see class
-       list on the element); .inbox-card-grid reuses .discovery-results. */
-    .inbox-chip-badge {
-      margin-left: var(--space-3);
-      padding: var(--space-1) var(--space-4);
-    }
-
-    .inbox-channel-header-bar {
-      display: flex;
-      align-items: center;
-      gap: var(--space-6);
-      flex-wrap: wrap;
-      margin-bottom: var(--space-6);
-    }
-
-    .inbox-channel-header-bar .inbox-mark-seen-btn {
-      margin-left: auto;
-    }
-
-    /* [hidden] guard: these elements set `display` via a class, which overrides
-       the UA `[hidden]{display:none}` rule — so JS `el.hidden = true` fails to
-       hide them (left an orphaned "Mark all seen" + "Load more" on the empty
-       Inbox). Restore the expected hide behavior. */
-    .inbox-channel-header-bar[hidden],
-    .discovery-chips[hidden],
-    #paneInbox .empty-state[hidden],
-    .share-result[hidden],
-    .digest-visuals-toggle[hidden],
+    /* [hidden] guard: .mini-btn sets `display` via a class in some contexts,
+       which overrides the UA `[hidden]{display:none}` rule. Restore the
+       expected hide behavior. */
     .mini-btn[hidden] {
       display: none !important;
-    }
-
-    /* Informational flag badges (Membership / No transcript) overlaid on a
-       channel-card thumbnail (top-left, distinct corner from the bottom-right
-       duration badge). Stacked in a column so both can appear at once. */
-    .inbox-flag-badges {
-      position: absolute;
-      left: 0.5rem;
-      top: 0.5rem;
-      z-index: 3;
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      gap: var(--space-2);
-    }
-
-    .inbox-flag-badge {
-      font-family: var(--font-mono);
-      font-size: var(--text-3xs);
-      font-weight: 600;
-      letter-spacing: 0.02em;
-      color: #fff;
-      background: rgba(0, 0, 0, 0.72);
-      border-radius: 4px;
-      padding: var(--space-1) var(--space-4);
-    }
-
-    .inbox-saved-badge {
-      font-family: var(--font-sans);
-      font-size: var(--text-xs);
-      font-weight: 500;
-      color: var(--muted);
     }
 
     /* ==============================================
@@ -3253,154 +2691,6 @@
     }
 
     /* ==============================================
-       38. PLAYLIST PANEL
-    =============================================== */
-    .playlist-panel {
-      background: var(--surface);
-      border: 1px solid var(--rule);
-      border-radius: var(--radius);
-      margin-bottom: var(--space-9);
-      overflow: hidden;
-    }
-
-    .playlist-header {
-      display: flex;
-      align-items: center;
-      gap: var(--space-5);
-      padding: var(--space-5) var(--space-9);
-      border-bottom: 1px solid var(--rule);
-    }
-
-    .playlist-header-title {
-      flex: 1;
-      font-family: var(--font-sans);
-      font-size: var(--text-sm);
-      font-weight: 600;
-      color: var(--ink);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .playlist-header-count {
-      font-family: var(--font-mono);
-      font-size: var(--text-2xs);
-      color: var(--muted);
-      flex-shrink: 0;
-      white-space: nowrap;
-    }
-
-    .playlist-header-toggle,
-    .playlist-header-dismiss {
-      background: transparent;
-      border: 1px solid var(--rule);
-      border-radius: 4px;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: var(--text-xs);
-      padding: var(--space-1) var(--space-4);
-      outline: none;
-      flex-shrink: 0;
-      transition: color 0.1s, border-color 0.1s;
-    }
-
-    .playlist-header-toggle:hover,
-    .playlist-header-dismiss:hover {
-      color: var(--ink);
-      border-color: var(--accent);
-    }
-
-    .playlist-header-dismiss:hover {
-      color: var(--warn);
-      border-color: var(--warn);
-    }
-
-    .playlist-header-toggle:focus-visible,
-    .playlist-header-dismiss:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 1px;
-    }
-
-    .playlist-body {
-      max-height: 260px;
-      overflow-y: auto;
-      overscroll-behavior: contain;
-    }
-
-    .playlist-body.collapsed {
-      display: none;
-    }
-
-    .playlist-item {
-      display: flex;
-      align-items: baseline;
-      gap: var(--space-5);
-      padding: var(--space-4) var(--space-9);
-      border-bottom: 1px solid var(--rule);
-      cursor: pointer;
-      font-family: var(--font-serif);
-      font-size: var(--text-md);
-      color: var(--ink);
-      line-height: 1.35;
-      transition: background 0.1s;
-      outline: none;
-    }
-
-    .playlist-item:last-of-type {
-      border-bottom: none;
-    }
-
-    .playlist-item:hover {
-      background: var(--accent-soft);
-    }
-
-    .playlist-item:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: -2px;
-    }
-
-    .playlist-item.active {
-      background: var(--accent-soft);
-      color: var(--accent);
-      font-weight: 500;
-    }
-
-    .playlist-item-num {
-      font-family: var(--font-mono);
-      font-size: var(--text-2xs);
-      color: var(--muted);
-      flex-shrink: 0;
-      min-width: 1.6rem;
-      text-align: right;
-    }
-
-    .playlist-item.active .playlist-item-num {
-      color: var(--accent);
-    }
-
-    .playlist-item-badge {
-      margin-left: auto;
-      font-family: var(--font-mono);
-      font-size: var(--text-xs);
-      flex-shrink: 0;
-    }
-
-    .playlist-more {
-      padding: var(--space-4) var(--space-9);
-      font-family: var(--font-sans);
-      font-size: var(--text-xs);
-      color: var(--muted);
-    }
-
-    .playlist-digest-progress {
-      padding: var(--space-4) var(--space-9);
-      font-family: var(--font-mono);
-      font-size: var(--text-xs);
-      color: var(--muted);
-      border-top: 1px solid var(--rule);
-    }
-
-    /* ==============================================
        39. KEYBOARD SHORTCUTS OVERLAY
     =============================================== */
     .shortcuts-toggle {
@@ -3838,167 +3128,6 @@
     }
 
     /* ==============================================
-       41. COMPARE MODE (cross-video digest)
-    =============================================== */
-    /* Checkbox — rendered on every card, hidden unless compare mode is active.
-       Sits as an overlay on the top-left corner of the card thumbnail. */
-    .saved-compare-check {
-      display: none;
-      position: absolute;
-      top: 0.4rem;
-      left: 0.4rem;
-      z-index: 2;
-      width: 16px;
-      height: 16px;
-      accent-color: var(--accent);
-      cursor: pointer;
-      background: var(--surface);
-      border-radius: 3px;
-    }
-
-    #savedOutput.compare-mode .saved-compare-check {
-      display: inline-block;
-    }
-
-    /* Checked-card highlight in compare mode */
-    #savedOutput.compare-mode .saved-card.compare-selected {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 2px var(--accent-soft);
-    }
-
-    /* Compare action bar — appears when 2+ cards are selected */
-    #compareBar {
-      display: flex;
-      align-items: center;
-      gap: var(--space-5);
-      padding: var(--space-4) var(--space-7) var(--space-4) var(--space-6);
-      margin-bottom: var(--space-5);
-      background: var(--surface-2);
-      border: 1px solid var(--rule);
-      border-left: 2px solid var(--accent);
-      border-radius: var(--radius);
-      flex-wrap: wrap;
-    }
-
-    #compareBar[hidden] { display: none; }
-
-    #compareCountLabel {
-      font-family: var(--font-mono);
-      font-size: var(--text-2xs);
-      font-weight: 500;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--accent);
-      flex: 1;
-    }
-
-    /* Cross-digest result modal — same positioning pattern as shortcuts overlay */
-    #crossDigestOverlay {
-      position: fixed;
-      inset: 0;
-      z-index: var(--z-overlay);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    #crossDigestOverlay[hidden] { display: none; }
-
-    .cross-digest-backdrop {
-      position: absolute;
-      inset: 0;
-      background: var(--overlay-backdrop);
-    }
-
-    .cross-digest-modal {
-      position: relative;
-      background: var(--surface);
-      border: 1px solid var(--rule);
-      border-radius: var(--radius-lg);
-      box-shadow: 0 8px 40px var(--shadow-indicator);
-      padding: var(--space-11) var(--space-12);
-      max-width: 720px;
-      width: calc(100% - 2rem);
-      z-index: 1;
-      max-height: calc(100vh - 4rem);
-      overflow-y: auto;
-    }
-
-    .cross-digest-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: var(--space-7);
-      margin-bottom: var(--space-9);
-      flex-wrap: wrap;
-    }
-
-    .cross-digest-title {
-      font-family: var(--font-sans);
-      font-size: var(--text-lg);
-      font-weight: 700;
-      letter-spacing: 0.03em;
-      color: var(--ink);
-    }
-
-    .cross-digest-btn-row {
-      display: flex;
-      align-items: center;
-      gap: var(--space-4);
-    }
-
-    /* Markdown content — reuses digestOutput typography exactly */
-    #crossDigestContent { word-break: break-word; }
-
-    #crossDigestContent h2 {
-      font-family: var(--font-sans);
-      font-size: var(--text-xl);
-      font-weight: 700;
-      color: var(--accent);
-      letter-spacing: -0.01em;
-      margin-top: var(--space-11);
-      margin-bottom: var(--space-4);
-      padding-bottom: var(--space-3);
-      border-bottom: 1px solid var(--rule);
-    }
-
-    #crossDigestContent h2:first-of-type { margin-top: 0; }
-
-    #crossDigestContent h3 {
-      font-family: var(--font-sans);
-      font-size: var(--text-md);
-      font-weight: 600;
-      color: var(--ink);
-      margin-top: var(--space-9);
-      margin-bottom: var(--space-4);
-    }
-
-    #crossDigestContent p {
-      font-family: var(--font-serif);
-      font-size: var(--text-xl);
-      line-height: 1.72;
-      color: var(--ink);
-      margin-bottom: var(--space-7);
-    }
-
-    #crossDigestContent p:last-child { margin-bottom: 0; }
-
-    #crossDigestContent ul {
-      padding-left: var(--space-11);
-      margin-bottom: var(--space-8);
-    }
-
-    #crossDigestContent li {
-      font-family: var(--font-serif);
-      font-size: var(--text-xl);
-      line-height: 1.7;
-      color: var(--ink);
-      margin-bottom: var(--space-3);
-    }
-
-    #crossDigestContent strong { font-weight: 600; }
-
-    /* ==============================================
        DIGEST PROGRESS — live elapsed timer + large-transcript hint
        (used by startDigestTimer()/stopDigestTimer() in runDigest)
     =============================================== */
@@ -4086,9 +3215,8 @@
 
     /* ==============================================
        41. FIRST-RUN ONBOARDING CARD (empty-state welcome
-       + web-mode BYOK proactive prompt). Reuses the
-       .playlist-panel card look (surface/rule/radius) and
-       .mini-btn for actions.
+       + web-mode BYOK proactive prompt). Uses a standard
+       surface/rule/radius card look and .mini-btn for actions.
     =============================================== */
     .onboard-card {
       position: relative;
@@ -4284,37 +3412,6 @@
             <span id="libraryCount" class="library-btn-count">0</span>
           </button>
           <button
-            id="discoveryBtn"
-            class="library-btn"
-            type="button"
-            aria-pressed="false"
-            title="Discover new videos"
-          >
-            <svg class="library-btn-icon" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true" fill="none">
-              <g stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="9"/>
-                <path d="M15.5 8.5l-2.1 5.1-5.1 2.1 2.1-5.1z"/>
-              </g>
-            </svg>
-            <span class="library-btn-label">Discovery</span>
-          </button>
-          <button
-            id="inboxBtn"
-            class="library-btn"
-            type="button"
-            aria-pressed="false"
-            title="New uploads from channels you follow"
-          >
-            <svg class="library-btn-icon" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true" fill="none">
-              <g stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 8l9 6 9-6"/>
-                <rect x="3" y="5" width="18" height="14" rx="2"/>
-              </g>
-            </svg>
-            <span class="library-btn-label">Inbox</span>
-            <span id="inboxCount" class="library-btn-count" hidden>0</span>
-          </button>
-          <button
             id="themeToggle"
             class="theme-toggle"
             aria-label="Switch to dark theme"
@@ -4412,33 +3509,6 @@
         </svg>
         <span id="saveBtnLabel">Save</span>
       </button>
-      <!-- Follow-channel affordance — local/desktop only (hidden in web mode).
-           One-click follow when currentMeta.channelUrl is available (from
-           the /api/transcript response); otherwise this falls back to a
-           small inline panel where the user confirms/pastes the channel URL
-           or @handle. See updateNowReading() for the visibility gate. -->
-      <button id="followChannelBtn" class="header-save-btn" type="button"
-              aria-label="Follow this video's channel" aria-expanded="false">
-        <svg class="save-ico" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"
-             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 8l9 6 9-6"/>
-          <rect x="3" y="5" width="18" height="14" rx="2"/>
-        </svg>
-        <span id="followChannelBtnLabel">Follow channel</span>
-      </button>
-    </div>
-
-    <!-- FOLLOW-CHANNEL PANEL — inline form opened by #followChannelBtn -->
-    <div id="followChannelPanel" class="follow-channel-panel" hidden>
-      <label class="sr-only" for="followChannelUrlInput">Channel URL or @handle</label>
-      <input id="followChannelUrlInput" type="text" placeholder="Channel URL or @handle"
-             autocomplete="off" spellcheck="false" />
-      <label class="sr-only" for="followChannelTitleInput">Label (optional)</label>
-      <input id="followChannelTitleInput" type="text" placeholder="Label (optional)"
-             autocomplete="off" spellcheck="false" />
-      <button id="followChannelSubmitBtn" class="mini-btn" type="button">Follow</button>
-      <button id="followChannelCancelBtn" class="mini-btn" type="button">Cancel</button>
-      <div id="followChannelStatus" class="saved-status-msg" aria-live="polite"></div>
     </div>
 
     <!-- LENS TABS (Transcript | Digest) -->
@@ -4552,9 +3622,6 @@
         </div>
       </div>
 
-      <!-- PLAYLIST PANEL — hidden until a playlist URL is submitted -->
-      <div id="playlistPanel" class="playlist-panel" hidden></div>
-
       <!-- TRANSCRIPT OUTPUT -->
       <div id="output" class="visible">
         <!-- FIRST-RUN ONBOARDING CARD — shown once on the initial empty state
@@ -4650,10 +3717,6 @@
             placeholder="English"
             aria-label="Language for digest output"
           />
-          <label class="digest-opt-label digest-visuals-toggle" id="digestVisualsWrap" title="Also read still frames from the video (slides, charts, on-screen text) so the digest can capture what the transcript can't. Local/desktop only; adds time.">
-            <input type="checkbox" id="digestVisualsToggle" name="digestVisuals" />
-            Include visuals
-          </label>
           <button
             id="digestRegenBtn"
             class="mini-btn"
@@ -4673,13 +3736,7 @@
                   aria-label="Download digest as a Markdown file">Download .md</button>
           <button class="mini-btn" id="digestPrintBtn"
                   aria-label="Print digest or save as PDF">Print / Save as PDF</button>
-          <button class="mini-btn" id="digestVerifyBtn"
-                  aria-label="Verify the digest's factual claims against the web">Verify claims</button>
-          <button class="mini-btn" id="digestShareBtn"
-                  aria-label="Create a public shareable link to this digest">Share</button>
         </div>
-        <div id="claimsOutput" class="claims-output" hidden></div>
-        <div id="shareResult" class="share-result" hidden></div>
 
         <div id="digestOutput"></div>
         <div id="usageStats" class="usage-stats"></div>
@@ -4714,109 +3771,10 @@
           class="mini-btn"
           aria-label="Export saved library as a ZIP of Markdown files"
         >Export library</button>
-        <button
-          id="savedCompareBtn"
-          class="mini-btn"
-          aria-label="Toggle compare mode to select videos for cross-digest"
-          aria-pressed="false"
-        >Compare</button>
-      </div>
-      <!-- Compare action bar — visible when 2+ cards are selected in compare mode -->
-      <div id="compareBar" hidden role="status" aria-live="polite">
-        <span id="compareCountLabel">0 selected</span>
-        <button id="crossDigestRunBtn" class="mini-btn" disabled>Cross-digest (0)</button>
-        <button id="compareClearBtn" class="mini-btn">Clear</button>
       </div>
       <div id="savedResultCount" class="saved-result-count" aria-live="polite" aria-atomic="true"></div>
       <div id="savedStatusMsg" class="saved-status-msg" aria-live="polite" aria-atomic="true"></div>
       <div id="savedOutput"></div>
-    </div>
-
-    <!-- DISCOVERY PANE -->
-    <div id="paneDiscovery" role="tabpanel" aria-labelledby="discoveryBtn" hidden>
-      <div class="saved-toolbar">
-        <div class="saved-search-wrap">
-          <input
-            id="discoverySearchInput"
-            type="search"
-            placeholder="Search YouTube…"
-            autocomplete="off"
-            spellcheck="false"
-            aria-label="Search YouTube videos"
-          />
-        </div>
-        <button
-          id="discoverySearchBtn"
-          class="mini-btn"
-          aria-label="Search YouTube"
-        >Search</button>
-        <button
-          id="discoveryForYouBtn"
-          class="mini-btn"
-          aria-label="Show For You suggestions based on your library"
-        >For You</button>
-      </div>
-      <div id="discoveryChips" class="discovery-chips" role="group" aria-label="Topic shortcuts">
-        <button class="discovery-chip" type="button" data-topic="Tech">Tech</button>
-        <button class="discovery-chip" type="button" data-topic="Science">Science</button>
-        <button class="discovery-chip" type="button" data-topic="Business">Business</button>
-        <button class="discovery-chip" type="button" data-topic="Podcasts">Podcasts</button>
-        <button class="discovery-chip" type="button" data-topic="News">News</button>
-        <button class="discovery-chip" type="button" data-topic="AI">AI</button>
-        <button class="discovery-chip" type="button" data-topic="History">History</button>
-        <button class="discovery-chip" type="button" data-topic="Health">Health</button>
-      </div>
-      <div id="discoverySubtitle" class="discovery-subtitle" aria-live="polite" aria-atomic="true"></div>
-      <div id="discoveryResultCount" class="saved-result-count" aria-live="polite" aria-atomic="true"></div>
-      <div id="discoveryStatusMsg" class="saved-status-msg" aria-live="polite" aria-atomic="true"></div>
-      <div id="discoveryResults" class="discovery-results"></div>
-      <div class="discovery-loadmore-wrap">
-        <button id="discoveryLoadMoreBtn" class="mini-btn" hidden>Load more</button>
-      </div>
-    </div>
-
-    <!-- INBOX PANE — new uploads from followed channels. Local/desktop only;
-         the whole tab is hidden in web mode (see JS init below), since the
-         backend /api/follows* routes 503 in that mode. -->
-    <div id="paneInbox" role="tabpanel" aria-labelledby="inboxBtn" hidden>
-      <div class="saved-toolbar">
-        <button id="inboxRefreshBtn" class="mini-btn">Check now</button>
-        <button id="inboxManageBtn" class="mini-btn" aria-expanded="false">Manage follows</button>
-      </div>
-
-      <!-- MANAGE FOLLOWS — add a channel by URL/handle, unfollow existing ones -->
-      <div id="inboxManagePanel" class="inbox-manage-panel" hidden>
-        <div class="inbox-manage-row">
-          <label class="sr-only" for="followUrlInput">Channel URL or @handle</label>
-          <input id="followUrlInput" type="text" placeholder="Channel URL or @handle"
-                 autocomplete="off" spellcheck="false" aria-label="Channel URL or handle" />
-          <label class="sr-only" for="followTitleInput">Label (optional)</label>
-          <input id="followTitleInput" type="text" placeholder="Label (optional)"
-                 autocomplete="off" spellcheck="false" aria-label="Channel label" />
-          <button id="followAddBtn" class="mini-btn" type="button">Follow</button>
-        </div>
-        <div id="followManageStatus" class="saved-status-msg" aria-live="polite"></div>
-        <div id="followedList" class="followed-list"></div>
-      </div>
-
-      <!-- Followed-channel selector — one chip per channel, with its unseen
-           count. Selecting a chip loads that channel's full uploads catalog
-           as a card grid below (see loadChannelPage()). -->
-      <div id="inboxChannelChips" class="discovery-chips inbox-channel-chips" aria-label="Followed channels"></div>
-
-      <div id="inboxChannelHeader" class="inbox-channel-header-bar" hidden>
-        <span id="inboxChannelHeaderTitle" class="inbox-channel-title"></span>
-        <button type="button" id="inboxMarkAllSeenBtn" class="mini-btn inbox-mark-seen-btn" hidden>Mark all seen</button>
-      </div>
-
-      <div id="inboxStatusMsg" class="saved-status-msg" aria-live="polite" aria-atomic="true"></div>
-      <div id="inboxContent" class="inbox-content">
-        <p id="inboxEmptyState" class="empty-state" hidden>You’re not following any channels yet — follow one from Discovery or a loaded video.</p>
-        <div id="inboxCardGrid" class="discovery-results inbox-card-grid"></div>
-        <div class="discovery-loadmore-wrap">
-          <button id="inboxLoadMoreBtn" class="mini-btn" hidden>Load more</button>
-        </div>
-      </div>
     </div>
 
     <!-- SITE FOOTER — legal/trust links -->
@@ -4829,22 +3787,6 @@
     </footer>
 
   </div><!-- /.container -->
-
-  <!-- CROSS-DIGEST OVERLAY (result modal for cross-video synthesis) -->
-  <div id="crossDigestOverlay" role="dialog" aria-modal="true" aria-label="Cross-video digest" hidden>
-    <div class="cross-digest-backdrop" id="crossDigestBackdrop"></div>
-    <div class="cross-digest-modal">
-      <div class="cross-digest-header">
-        <span class="cross-digest-title">Cross-video synthesis</span>
-        <div class="cross-digest-btn-row">
-          <button class="mini-btn" id="crossDigestCopyBtn" aria-label="Copy digest to clipboard">Copy</button>
-          <button class="mini-btn" id="crossDigestDownloadBtn" aria-label="Download digest as Markdown file">Download .md</button>
-          <button class="mini-btn" id="crossDigestCloseBtn" aria-label="Close cross-digest panel">✕</button>
-        </div>
-      </div>
-      <div id="crossDigestContent"></div>
-    </div>
-  </div>
 
   <!-- LEGAL OVERLAY (Privacy / Terms — single modal, content swapped by JS) -->
   <div id="legalOverlay" role="dialog" aria-modal="true" aria-label="Legal information" hidden>
@@ -5055,7 +3997,6 @@
     <div class="hl-popover-actions">
       <button class="mini-btn" id="enrichBtnExplain" aria-label="Explain this passage"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.45.9 1.02.9 1.6H14.6c0-.58.3-1.15.9-1.6A6 6 0 0 0 12 3z"/></svg> Explain</button>
       <button class="mini-btn" id="enrichBtnBackground" aria-label="Get background on this passage"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h7M9 11h7"/></svg> Background</button>
-      <button class="mini-btn" id="enrichBtnFactcheck" aria-label="Verify this passage">✓ Verify</button>
     </div>
     <div class="enrich-toolbar-result" id="enrichToolbarResult" aria-live="polite" hidden></div>
   </div>
@@ -5064,14 +4005,10 @@
   <script>
     /* ==============================================
        WEB MODE FLAG — injected by the server as
-       window.__ECHO__ = { mode, sharesEnabled }. Falls
-       back to local-mode defaults when unset (e.g. tests).
+       window.__ECHO__ = { mode }. Falls back to local-mode
+       defaults when unset (e.g. tests).
     =============================================== */
     const ECHO = window.__ECHO__ || { mode: 'local' };
-    // sharesEnabled is always true in local/desktop; in web mode it reflects
-    // the server's ECHO_SHARES opt-in flag. Fall back to the pre-flag
-    // heuristic (disabled only in web mode) if the server didn't inject it.
-    const sharesEnabled = (ECHO.sharesEnabled ?? (ECHO.mode !== 'web'));
 
     /* ==============================================
        LIBRARY STORAGE ADAPTER
@@ -5593,7 +4530,6 @@
     let currentMeta    = null;  // { videoId, url, title }
     let currentDigest  = null;  // string | null
     let currentSuggestedTags = []; // string[] — computed server-side alongside the digest, applied at save time
-    let currentClaims  = null;  // Array<{claim,status,note,sources}> | null
 
     // Saved library state
     let savedList           = [];     // full fetched list from /api/saved
@@ -5601,11 +4537,6 @@
     let savedSortMode       = 'recent'; // 'recent' | 'title'
     let savedApiResults     = null;   // { results, mode } from /api/search, or null = use local filter
     let savedSearchDebTimer = null;   // debounce timer handle
-
-    // Compare / cross-digest state
-    let compareMode          = false;           // whether compare checkboxes are visible
-    const selectedVideoIds   = new Set();       // videoIds checked in compare mode
-    let crossDigestMarkdown  = '';              // most recently received cross-digest markdown
 
     // Find-in-transcript state
     let findQuery         = '';
@@ -5654,59 +4585,6 @@
     const libraryBtn         = document.getElementById('libraryBtn');
     const libraryCountEl     = document.getElementById('libraryCount');
     const savedOutput        = document.getElementById('savedOutput');
-    const discoveryBtn            = document.getElementById('discoveryBtn');
-    const paneDiscovery           = document.getElementById('paneDiscovery');
-    const discoverySearchInput    = document.getElementById('discoverySearchInput');
-    const discoverySearchBtn      = document.getElementById('discoverySearchBtn');
-    const discoveryForYouBtn      = document.getElementById('discoveryForYouBtn');
-    const discoveryChipsEl        = document.getElementById('discoveryChips');
-    const discoverySubtitleEl     = document.getElementById('discoverySubtitle');
-    const discoveryStatusMsgEl    = document.getElementById('discoveryStatusMsg');
-    const discoveryResultsEl      = document.getElementById('discoveryResults');
-    const discoveryResultCountEl  = document.getElementById('discoveryResultCount');
-    const discoveryLoadMoreBtn    = document.getElementById('discoveryLoadMoreBtn');
-
-    // Inbox pane (followed channels) — local/desktop only
-    const inboxBtn             = document.getElementById('inboxBtn');
-    const inboxCountEl         = document.getElementById('inboxCount');
-    const paneInbox            = document.getElementById('paneInbox');
-    const inboxRefreshBtn      = document.getElementById('inboxRefreshBtn');
-    const inboxManageBtn       = document.getElementById('inboxManageBtn');
-    const inboxManagePanel     = document.getElementById('inboxManagePanel');
-    const followUrlInput       = document.getElementById('followUrlInput');
-    const followTitleInput     = document.getElementById('followTitleInput');
-    const followAddBtn         = document.getElementById('followAddBtn');
-    const followManageStatusEl = document.getElementById('followManageStatus');
-    const followedListEl       = document.getElementById('followedList');
-    const inboxStatusMsgEl     = document.getElementById('inboxStatusMsg');
-    const inboxContentEl       = document.getElementById('inboxContent');
-    const inboxChipsEl             = document.getElementById('inboxChannelChips');
-    const inboxChannelHeaderEl     = document.getElementById('inboxChannelHeader');
-    const inboxChannelHeaderTitleEl= document.getElementById('inboxChannelHeaderTitle');
-    const inboxMarkAllSeenBtn      = document.getElementById('inboxMarkAllSeenBtn');
-    const inboxCardGridEl          = document.getElementById('inboxCardGrid');
-    const inboxEmptyStateEl        = document.getElementById('inboxEmptyState');
-    const inboxLoadMoreBtn         = document.getElementById('inboxLoadMoreBtn');
-
-    // Follow-channel panel — attached to the loaded-video content header
-    const followChannelBtn        = document.getElementById('followChannelBtn');
-    const followChannelPanel      = document.getElementById('followChannelPanel');
-    const followChannelUrlInput   = document.getElementById('followChannelUrlInput');
-    const followChannelTitleInput = document.getElementById('followChannelTitleInput');
-    const followChannelSubmitBtn  = document.getElementById('followChannelSubmitBtn');
-    const followChannelCancelBtn  = document.getElementById('followChannelCancelBtn');
-    const followChannelStatusEl   = document.getElementById('followChannelStatus');
-
-    const savedCompareBtn    = document.getElementById('savedCompareBtn');
-    const compareBar         = document.getElementById('compareBar');
-    const compareCountLabel  = document.getElementById('compareCountLabel');
-    const crossDigestRunBtn  = document.getElementById('crossDigestRunBtn');
-    const compareClearBtn    = document.getElementById('compareClearBtn');
-    const crossDigestOverlay = document.getElementById('crossDigestOverlay');
-    const crossDigestContent = document.getElementById('crossDigestContent');
-    const crossDigestCopyBtn    = document.getElementById('crossDigestCopyBtn');
-    const crossDigestDownloadBtn = document.getElementById('crossDigestDownloadBtn');
-    const crossDigestCloseBtn   = document.getElementById('crossDigestCloseBtn');
     const contentHeaderEl       = document.getElementById('contentHeader');
     const contentHeaderThumb    = document.getElementById('contentHeaderThumb');
     const contentHeaderTitle    = document.getElementById('contentHeaderTitle');
@@ -5720,10 +4598,6 @@
     const digestCopyBtn         = document.getElementById('digestCopyBtn');
     const digestDownloadBtn     = document.getElementById('digestDownloadBtn');
     const digestPrintBtn        = document.getElementById('digestPrintBtn');
-    const digestVerifyBtn       = document.getElementById('digestVerifyBtn');
-    const digestShareBtn        = document.getElementById('digestShareBtn');
-    const claimsOutput          = document.getElementById('claimsOutput');
-    const shareResult           = document.getElementById('shareResult');
     const digestPrintArea       = document.getElementById('digestPrintArea');
     const findInput             = document.getElementById('findInput');
     const findCounter           = document.getElementById('findCounter');
@@ -5744,9 +4618,9 @@
     let lastReaderLens = 'transcript'; // 'transcript' | 'digest'
 
     function switchTab(name) {
-      const names   = ['transcript', 'digest', 'saved', 'discovery', 'inbox'];
-      const tabEls  = [tabTranscript, tabDigest, null, null, null];
-      const paneEls = [paneTranscript, paneDigest, paneSaved, paneDiscovery, paneInbox];
+      const names   = ['transcript', 'digest', 'saved'];
+      const tabEls  = [tabTranscript, tabDigest, null];
+      const paneEls = [paneTranscript, paneDigest, paneSaved];
 
       names.forEach((n, i) => {
         const active = n === name;
@@ -5759,12 +4633,8 @@
 
       if (name === 'transcript' || name === 'digest') lastReaderLens = name;
       if (name === 'saved') { loadSaved(); }
-      if (name === 'discovery') initDiscoveryPane();
-      if (name === 'inbox') loadInbox();
       if (name === 'digest') hideNextActionNudge();
       libraryBtn.setAttribute('aria-pressed', name === 'saved' ? 'true' : 'false');
-      if (discoveryBtn) discoveryBtn.setAttribute('aria-pressed', name === 'discovery' ? 'true' : 'false');
-      if (inboxBtn) inboxBtn.setAttribute('aria-pressed', name === 'inbox' ? 'true' : 'false');
       updateReaderChromeVisibility();
       saveSession();
     }
@@ -5780,47 +4650,20 @@
       }
     }
 
-    /** Toggle the Discovery destination the same way libraryBtnClick toggles
-     *  the Library — open it, or return to the last reader lens if already open. */
-    function discoveryBtnClick() {
-      const isDiscoveryActive = paneDiscovery && !paneDiscovery.hidden;
-      if (isDiscoveryActive && currentMeta) {
-        switchTab(lastReaderLens);
-      } else {
-        switchTab('discovery');
-      }
-    }
-
-    /** Toggle the Inbox destination the same way libraryBtnClick/discoveryBtnClick
-     *  toggle their destinations — open it, or return to the last reader lens. */
-    function inboxBtnClick() {
-      const isInboxActive = paneInbox && !paneInbox.hidden;
-      if (isInboxActive && currentMeta) {
-        switchTab(lastReaderLens);
-      } else {
-        switchTab('inbox');
-      }
-    }
-
     /** Show/hide the content header + lens tabs: only while a video is loaded
-     *  AND the active pane is a reader lens (not the Library/Discovery/Inbox). */
+     *  AND the active pane is a reader lens (not the Library). */
     function updateReaderChromeVisibility() {
       const activePane = !paneTranscript.hidden ? 'transcript'
                         : !paneDigest.hidden     ? 'digest'
-                        : (paneDiscovery && !paneDiscovery.hidden) ? 'discovery'
-                        : (paneInbox && !paneInbox.hidden) ? 'inbox'
                         : 'saved';
-      const show = !!currentMeta && activePane !== 'saved' && activePane !== 'discovery' && activePane !== 'inbox';
+      const show = !!currentMeta && activePane !== 'saved';
       tabBarEl.hidden       = !show;
       contentHeaderEl.hidden = !show;
-      if (!show) followChannelPanel.hidden = true;
     }
 
     tabTranscript.addEventListener('click', () => switchTab('transcript'));
     tabDigest.addEventListener('click',     () => switchTab('digest'));
     libraryBtn.addEventListener('click',    libraryBtnClick);
-    if (discoveryBtn) discoveryBtn.addEventListener('click', discoveryBtnClick);
-    if (inboxBtn) inboxBtn.addEventListener('click', inboxBtnClick);
 
     // Arrow-key roving focus within the lens tab bar (2 tabs)
     const tabBtns  = [tabTranscript, tabDigest];
@@ -6268,14 +5111,6 @@
       // drives visibility of the reading controls / find bar / lang picker
       // via the `has-transcript` CSS gate (see section 18b).
       document.body.classList.toggle('has-transcript', !!currentMeta);
-      // Follow-channel button is only ever worth showing when we have a
-      // real channelUrl to follow one-click — otherwise it's just a button
-      // that opens a form, which isn't worth the header real estate. Web
-      // mode hides it unconditionally at init (backend routes 503 there);
-      // this only applies in local/desktop mode.
-      if (followChannelBtn && ECHO.mode !== 'web') {
-        followChannelBtn.hidden = !(currentMeta && currentMeta.channelUrl);
-      }
       if (!currentMeta) {
         contentHeaderThumb.hidden = true;
         contentHeaderThumb.removeAttribute('src');
@@ -6477,155 +5312,6 @@
     // afterprint fires whether the user prints or cancels the dialog — either
     // way we want to restore the normal on-screen view.
     window.addEventListener('afterprint', stopPrintingDigest);
-
-    /* ==============================================
-       CLAIM VERIFICATION + SHARE  (Feature: digest trust tools)
-    =============================================== */
-    /**
-     * Render fact-check results into #claimsOutput. Every piece of
-     * claim/note/source text is user- or model-supplied, so it all goes
-     * through escapeHtml()/escapeAttr() before hitting innerHTML — never
-     * concatenated raw.
-     */
-    function renderClaims(claims) {
-      const STATUS_LABEL = {
-        supported:    { cls: 'is-supported',    text: '✓ Supported' },
-        unsupported:  { cls: 'is-unsupported',  text: '⚠ Unsupported' },
-        mixed:        { cls: 'is-mixed',        text: '~ Mixed' },
-        unverifiable: { cls: 'is-unverifiable', text: '? Unverifiable' },
-      };
-
-      if (!Array.isArray(claims) || claims.length === 0) {
-        claimsOutput.innerHTML = '<div class="claims-heading">Key claims</div>' +
-          '<div class="claims-empty">No checkable claims found.</div>';
-        claimsOutput.hidden = false;
-        return;
-      }
-
-      const rows = claims.map(c => {
-        const status = STATUS_LABEL[c?.status] || STATUS_LABEL.unverifiable;
-        const claimText = escapeHtml(String(c?.claim || ''));
-        const noteText  = c?.note ? escapeHtml(String(c.note)) : '';
-        const sources = Array.isArray(c?.sources) ? c.sources : [];
-
-        const sourceLinks = sources
-          .map(s => {
-            const safeUrl = safeHttpUrl(s?.url);
-            if (!safeUrl) return '';
-            const title = escapeHtml(String(s?.title || safeUrl));
-            return '<a class="claim-source-link" href="' + escapeAttr(safeUrl) + '" ' +
-              'target="_blank" rel="noopener noreferrer nofollow">' + title + '</a>';
-          })
-          .filter(Boolean)
-          .join('');
-
-        return (
-          '<div class="claim-row">' +
-            '<div class="claim-status-pill ' + status.cls + '">' + status.text + '</div>' +
-            '<div class="claim-text">' + claimText + '</div>' +
-            (noteText ? '<div class="claim-note">' + noteText + '</div>' : '') +
-            (sourceLinks ? '<div class="claim-sources">' + sourceLinks + '</div>' : '') +
-          '</div>'
-        );
-      }).join('');
-
-      claimsOutput.innerHTML = '<div class="claims-heading">Key claims</div>' + rows;
-      claimsOutput.hidden = false;
-    }
-
-    digestVerifyBtn?.addEventListener('click', async () => {
-      if (!currentDigest) return;
-      digestVerifyBtn.disabled = true;
-      setTopIndicator('working');
-      try {
-        const res  = await aiFetch('/api/claims', {
-          digest:  currentDigest,
-          title:   currentMeta?.title || '',
-          videoId: currentMeta?.videoId || undefined,
-        });
-        const data = await res.json();
-
-        if (!res.ok) {
-          const msg = apiErrorMessage(data, 'Failed to verify claims.');
-          setDigestStatus(msg, true);
-          setTopIndicator('error');
-          handleApiError(data, 'Failed to verify claims.');
-          return;
-        }
-
-        currentClaims = data.claims || [];
-        renderClaims(currentClaims);
-        setTopIndicator('done');
-      } catch (err) {
-        console.error('[echo] verify claims network error:', err);
-        setDigestStatus('Network error — could not reach the server.', true);
-        setTopIndicator('error');
-        showToast('error', 'Network error: ' + err.message);
-      } finally {
-        digestVerifyBtn.disabled = false;
-      }
-    });
-
-    digestShareBtn?.addEventListener('click', async () => {
-      if (!currentDigest) return;
-      if (!confirm('Create a public link to this digest? Anyone with the link will be able to read it.')) return;
-      digestShareBtn.disabled = true;
-      try {
-        const res  = await aiFetch('/api/share', {
-          videoId:   currentMeta?.videoId,
-          title:     currentMeta?.title || '',
-          sourceUrl: currentMeta?.url   || '',
-          digestMd:  currentDigest,
-          claims:    currentClaims || undefined,
-        });
-        const data = await res.json();
-
-        if (!res.ok) {
-          handleApiError(data, 'Failed to create share link.');
-          return;
-        }
-
-        const url = location.origin + data.path;
-        shareResult.innerHTML =
-          '<span class="share-result-url">' + escapeHtml(url) + '</span>' +
-          '<button class="mini-btn" id="shareCopyLinkBtn" aria-label="Copy share link">Copy link</button>' +
-          '<button class="mini-btn" id="shareUnpublishBtn" aria-label="Unpublish this shared digest">Unpublish</button>';
-        shareResult.hidden = false;
-
-        const shareId = data.id;
-        document.getElementById('shareCopyLinkBtn')?.addEventListener('click', (e) => {
-          copyToClipboard(e.currentTarget, url, 'Copy link');
-        });
-        document.getElementById('shareUnpublishBtn')?.addEventListener('click', async () => {
-          try {
-            const delRes = await fetch('/api/share/' + encodeURIComponent(shareId), { method: 'DELETE' });
-            if (delRes.ok) {
-              shareResult.hidden    = true;
-              shareResult.innerHTML = '';
-              showToast('success', 'Share link removed.');
-            } else {
-              showToast('error', 'Could not unpublish this share link.');
-            }
-          } catch (err) {
-            showToast('error', 'Network error: ' + err.message);
-          }
-        });
-      } catch (err) {
-        console.error('[echo] share network error:', err);
-        showToast('error', 'Network error: ' + err.message);
-      } finally {
-        digestShareBtn.disabled = false;
-      }
-    });
-
-    // Share is a server-persisted, cross-network-visible artifact — the
-    // /api/share route 503s when sharing is disabled (always on in
-    // local/desktop; opt-in via ECHO_SHARES in web mode), so hide the entry
-    // point entirely rather than let users hit a dead button. Verify
-    // claims stays available in every mode (it doesn't persist anything).
-    if (!sharesEnabled && digestShareBtn) {
-      digestShareBtn.hidden = true;
-    }
 
     /* ==============================================
        FIND IN TRANSCRIPT  (Feature 3)
@@ -6831,17 +5517,6 @@
       syncReadingControls();
     })();
 
-    // Init: restore the persisted "Include visuals" digest toggle. Null-safe —
-    // the control can be hidden/absent (web mode).
-    (function initDigestVisualsToggle() {
-      const toggle = document.getElementById('digestVisualsToggle');
-      if (!toggle) return;
-      toggle.checked = localStorage.getItem('echo-visuals-enabled') === '1';
-      toggle.addEventListener('change', () => {
-        localStorage.setItem('echo-visuals-enabled', toggle.checked ? '1' : '0');
-      });
-    })();
-
     // Font-size buttons — wired for every cluster on the page (Transcript + Digest)
     document.querySelectorAll('[data-reading-action="dec"]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -6887,10 +5562,9 @@
     /* --- Keyboard: Esc closes any open overlay ---
        Any visible [role="dialog"] modal — using its known close handler where
        one exists, otherwise just hiding it. This generically covers new
-       overlays (e.g. crossDigestOverlay) without needing a hardcoded id list. */
+       overlays without needing a hardcoded id list. */
     const DIALOG_CLOSE_FNS = {
       shortcutsOverlay:   closeShortcutsOverlay,
-      crossDigestOverlay: closeCrossDigestModal,
       settingsOverlay:    closeSettingsModal,
       legalOverlay:       closeLegalOverlay,
     };
@@ -6917,7 +5591,6 @@
     const enrichToolbarResult  = document.getElementById('enrichToolbarResult');
     const enrichBtnExplain     = document.getElementById('enrichBtnExplain');
     const enrichBtnBackground  = document.getElementById('enrichBtnBackground');
-    const enrichBtnFactcheck   = document.getElementById('enrichBtnFactcheck');
 
     // Captured at the moment the toolbar is shown, since the DOM selection
     // itself is often lost/collapsed by the time a toolbar button is clicked.
@@ -6928,19 +5601,11 @@
     const ENRICH_MODE_LABEL = {
       explain:    'Explain',
       background: 'Background',
-      factcheck:  'Fact-check',
     };
 
     const ENRICH_MODE_GERUND = {
       explain:    'Explaining',
       background: 'Finding background on',
-      factcheck:  'Fact-checking',
-    };
-
-    const ENRICH_VERDICT_LABEL = {
-      supported:    'Supported',
-      disputed:     'Disputed',
-      unverifiable: 'Unverifiable',
     };
 
     const ENRICH_BLOCK_SELECTOR = 'p, li, h1, h2, h3, h4, blockquote';
@@ -7186,20 +5851,13 @@
     function renderEnrichResult(body, data) {
       body.innerHTML = '';
 
-      if (data.mode === 'factcheck' && data.verdict) {
-        const badge = document.createElement('span');
-        badge.className = 'enrich-verdict enrich-verdict-' + data.verdict;
-        badge.textContent = ENRICH_VERDICT_LABEL[data.verdict] || data.verdict;
-        body.appendChild(badge);
-      }
-
       const textEl = document.createElement('div');
       textEl.className = 'enrich-card-text';
       textEl.textContent = data.text || '';
       body.appendChild(textEl);
 
       const sources = Array.isArray(data.sources) ? data.sources : [];
-      if (sources.length && (data.mode === 'background' || data.mode === 'factcheck')) {
+      if (sources.length && data.mode === 'background') {
         body.appendChild(buildEnrichSourcesEl(sources));
       }
 
@@ -7267,23 +5925,15 @@
 
     enrichBtnExplain?.addEventListener('click', () => enrichButtonClick('explain'));
     enrichBtnBackground?.addEventListener('click', () => enrichButtonClick('background'));
-    enrichBtnFactcheck?.addEventListener('click', () => enrichButtonClick('factcheck'));
 
     /* ==============================================
        FETCH TRANSCRIPT
     =============================================== */
-    // Flag: set to true by playlist item navigation so fetchTranscript preserves the panel
-    let _playlistNavFlag = false;
-
     async function fetchTranscript() {
       const url = urlInput.value.trim();
       if (!url) { setStatus('Please enter a YouTube URL or video ID.', true); return; }
       if (isFetching) return; // guard against overlapping fetches
       lastAutoFetchRef = url; // dedupe key so auto-triggers don't re-fire the same URL
-
-      // Read and clear the playlist-navigation flag before any await
-      const keepPlaylist = _playlistNavFlag;
-      _playlistNavFlag   = false;
 
       isFetching = true;
       outputEl.classList.remove('visible');
@@ -7327,14 +5977,6 @@
       if (_lpWrap)   { _lpWrap.hidden = true; }
       if (_lpSel)    { _lpSel.innerHTML = ''; }
       if (_lpStatus) { _lpStatus.textContent = ''; _lpStatus.className = 'lang-picker-status'; }
-
-      // Reset playlist panel unless this is a playlist-item navigation
-      if (!keepPlaylist) {
-        const _pp = document.getElementById('playlistPanel');
-        if (_pp) { _pp.hidden = true; }
-        playlistVideos    = [];
-        activePlaylistIdx = -1;
-      }
 
       const whisperMode = getWhisperMode();
       setStatus(whisperMode !== 'off'
@@ -7413,11 +6055,6 @@
 
         // Async (non-blocking): load caption language tracks for the picker
         loadLanguageTracks(data.videoId);
-
-        // Async (non-blocking): load playlist if this is a playlist URL
-        if (!keepPlaylist && url.includes('list=')) {
-          loadPlaylist(url);
-        }
 
         // Auto-generate the AI digest if enabled (Echo's default behavior).
         // In web mode, silently skip when no API key is set to avoid popping
@@ -7763,7 +6400,6 @@
       const lengthOpt = document.querySelector('input[name="digestLength"]:checked')?.value || 'detailed';
       const formatOpt = document.querySelector('input[name="digestFormat"]:checked')?.value || 'digest';
       const langOpt   = digestLangInput.value.trim() || 'English';
-      const visualsOpt = !!document.getElementById('digestVisualsToggle')?.checked;
 
       digestBtn.disabled      = true;
       digestRegenBtn.disabled = true;
@@ -7782,7 +6418,7 @@
       startDigestTimer(isLargeTranscript);
 
       try {
-        const res  = await aiFetch('/api/digest', { text: plainText, length: lengthOpt, format: formatOpt, language: langOpt, title: (currentMeta && currentMeta.title) || '', videoId: (currentMeta && currentMeta.videoId) || undefined, includeVisuals: visualsOpt });
+        const res  = await aiFetch('/api/digest', { text: plainText, length: lengthOpt, format: formatOpt, language: langOpt, title: (currentMeta && currentMeta.title) || '', videoId: (currentMeta && currentMeta.videoId) || undefined });
         const data = await res.json();
 
         if (!res.ok) {
@@ -7796,11 +6432,7 @@
         }
 
         // Render digest content
-        const framesUsed = Number(data.visualFrames) || 0;
-        const eyebrow = framesUsed > 0
-          ? '<div class="digest-eyebrow">AI Digest · read ' + framesUsed + ' on-screen frame' + (framesUsed === 1 ? '' : 's') + '</div>'
-          : '<div class="digest-eyebrow">AI Digest</div>';
-        digestOutput.innerHTML = eyebrow + renderMarkdown(data.digest);
+        digestOutput.innerHTML = '<div class="digest-eyebrow">AI Digest</div>' + renderMarkdown(data.digest);
         digestOutput.classList.add('visible');
 
         // Capture digest text so Save can include it
@@ -7808,13 +6440,6 @@
         // Auto-tag suggestions were computed server-side in parallel with the
         // digest itself (never shown until Save) — stash for maybeAutoSuggestTags().
         currentSuggestedTags = Array.isArray(data.suggestedTags) ? data.suggestedTags.filter(Boolean) : [];
-        // A fresh digest invalidates any previously-verified claims / share
-        // link — drop them so stale UI doesn't linger next to new content.
-        currentClaims = null;
-        claimsOutput.innerHTML = '';
-        claimsOutput.hidden    = true;
-        shareResult.innerHTML  = '';
-        shareResult.hidden     = true;
         syncDigestExportRow();
         syncDigestRegenBtn(); // switch label to "Regenerate"
 
@@ -8079,14 +6704,6 @@
                    data-title="${escapeAttr(title)}"
                    aria-label="Send ${escapeAttr(title)} to Obsidian">Send to Obsidian</button>`;
 
-        // Compare-mode checkbox — hidden via CSS until compareMode is active
-        const compareCheck =
-          `<input type="checkbox"
-                  class="saved-compare-check"
-                  data-videoid="${escapeAttr(entry.videoId)}"
-                  aria-label="Select ${escapeAttr(title)} for comparison"
-                  ${selectedVideoIds.has(entry.videoId) ? 'checked' : ''}>`;
-
         // Thumbnail — only fetched for entries whose URL passed the safe-URL
         // check (unsafe/striped entries get no remote fetch). A failed image
         // load removes itself so the card degrades to the no-thumbnail layout.
@@ -8098,7 +6715,7 @@
                   onerror="this.remove()">`
           : '';
 
-        return `<div class="saved-card${selectedVideoIds.has(entry.videoId) ? ' compare-selected' : ''}"
+        return `<div class="saved-card"
                      data-videoid="${escapeAttr(entry.videoId)}"
                      tabindex="0"
                      role="button"
@@ -8112,7 +6729,6 @@
               </svg>
             </div>
             ${thumbHtml}
-            ${compareCheck}
             ${digestBadge}
           </div>
           <div class="saved-card-body">
@@ -8145,7 +6761,6 @@
           if (e.target.closest('.saved-tag-chip'))      return;
           if (e.target.closest('.saved-tag-add-btn'))   return;
           if (e.target.closest('.saved-tag-input'))     return;
-          if (e.target.closest('.saved-compare-check')) return;
           if (e.target.closest('.saved-export-btn'))    return;
           if (e.target.closest('.saved-obsidian-btn'))  return;
           openSavedEntry(card.dataset.videoid);
@@ -8214,136 +6829,7 @@
         });
       });
 
-      // Compare-mode checkboxes — track selection and refresh compare bar
-      savedOutput.querySelectorAll('.saved-compare-check').forEach(cb => {
-        cb.addEventListener('change', e => {
-          e.stopPropagation();
-          const vid = cb.dataset.videoid;
-          const card = cb.closest('.saved-card');
-          if (cb.checked) {
-            selectedVideoIds.add(vid);
-            card?.classList.add('compare-selected');
-          } else {
-            selectedVideoIds.delete(vid);
-            card?.classList.remove('compare-selected');
-          }
-          updateCompareBar();
-        });
-      });
     }
-
-    /* ==============================================
-       SAVED LIBRARY — COMPARE MODE
-    =============================================== */
-    /** Update the compare action bar label and button state. */
-    function updateCompareBar() {
-      const n = selectedVideoIds.size;
-      if (compareCountLabel) compareCountLabel.textContent = `${n} selected`;
-      if (crossDigestRunBtn) {
-        crossDigestRunBtn.textContent = `Cross-digest (${n})`;
-        crossDigestRunBtn.disabled    = n < 2;
-      }
-      if (compareBar) compareBar.hidden = n === 0;
-    }
-
-    /** Toggle compare mode on/off. Clears selection when disabling. */
-    function setCompareMode(active) {
-      compareMode = active;
-      if (!active) {
-        selectedVideoIds.clear();
-        updateCompareBar();
-      }
-      savedOutput.classList.toggle('compare-mode', compareMode);
-      if (savedCompareBtn) {
-        savedCompareBtn.setAttribute('aria-pressed', compareMode ? 'true' : 'false');
-        savedCompareBtn.textContent = compareMode ? 'Exit compare' : 'Compare';
-      }
-      // Re-render to sync checkbox checked state after clearing selection
-      if (!active) renderSavedFiltered();
-    }
-
-    savedCompareBtn?.addEventListener('click', () => setCompareMode(!compareMode));
-
-    compareClearBtn?.addEventListener('click', () => {
-      selectedVideoIds.clear();
-      updateCompareBar();
-      renderSavedFiltered(); // re-render to uncheck all checkboxes
-    });
-
-    /** Call POST /api/cross-digest with the selected videoIds and show the result. */
-    async function runCrossDigest() {
-      const ids = [...selectedVideoIds];
-      if (ids.length < 2) return;
-      if (!requireApiKey()) return;
-
-      setTopIndicator('digesting');
-      if (crossDigestRunBtn) crossDigestRunBtn.disabled = true;
-
-      try {
-        let body;
-        if (ECHO.mode === 'web') {
-          // Web mode has no server-side store of record — resolve the full
-          // entry objects from IndexedDB client-side and send them inline
-          // so the server's cross-digest route (isWeb + req.body.entries
-          // branch) can build the digest without a DB lookup.
-          const entries = [];
-          for (const id of ids) {
-            const r = await Library.getEntry(id);
-            if (r.ok) entries.push(await r.json());
-          }
-          body = { entries };
-        } else {
-          body = { videoIds: ids };
-        }
-
-        const res = await aiFetch('/api/cross-digest', body);
-
-        const data = await res.json().catch(() => ({}));
-
-        if (!res.ok) {
-          setTopIndicator('error');
-          handleApiError(data, 'Cross-digest failed.');
-          return;
-        }
-
-        crossDigestMarkdown = data.digest || '';
-        setTopIndicator('idle');
-        openCrossDigestModal(crossDigestMarkdown);
-      } catch (err) {
-        console.error('[echo] runCrossDigest network error:', err);
-        setTopIndicator('error');
-        showToast('error', 'Network error during cross-digest: ' + err.message);
-      } finally {
-        updateCompareBar(); // re-enables button when selection is still ≥ 2
-      }
-    }
-
-    crossDigestRunBtn?.addEventListener('click', runCrossDigest);
-
-    /** Open the cross-digest overlay and render the markdown. */
-    function openCrossDigestModal(markdown) {
-      if (!crossDigestOverlay || !crossDigestContent) return;
-      crossDigestContent.innerHTML = renderMarkdown(markdown);
-      crossDigestOverlay.hidden    = false;
-      crossDigestCloseBtn?.focus();
-    }
-
-    function closeCrossDigestModal() {
-      if (crossDigestOverlay) crossDigestOverlay.hidden = true;
-    }
-
-    crossDigestCloseBtn?.addEventListener('click', closeCrossDigestModal);
-    document.getElementById('crossDigestBackdrop')?.addEventListener('click', closeCrossDigestModal);
-
-    crossDigestCopyBtn?.addEventListener('click', () => {
-      if (!crossDigestMarkdown) return;
-      copyToClipboard(crossDigestCopyBtn, crossDigestMarkdown, 'Copy');
-    });
-
-    crossDigestDownloadBtn?.addEventListener('click', () => {
-      if (!crossDigestMarkdown) return;
-      downloadMd('echo-cross-digest', crossDigestMarkdown);
-    });
 
     /* ==============================================
        SAVED LIBRARY — TAGS
@@ -8530,11 +7016,6 @@
         // Restore shared state
         lastSegments    = entry.segments;
         currentSegments = entry.segments;
-        // Newer saved entries persist channel/channelUrl (round-tripped
-        // through /api/saved) so the Follow-channel button can one-click
-        // follow just like a freshly-loaded video. Older entries saved
-        // before this field existed come back with null and fall back to
-        // the manual panel, same as before.
         currentMeta     = {
           videoId: entry.videoId, url: entry.url, title: entry.title,
           channel: entry.channel ?? null, channelUrl: entry.channelUrl ?? null,
@@ -8547,14 +7028,6 @@
         // Sync UI — command bar and now-reading strip
         urlInput.value = entry.url;
         updateNowReading();
-
-        // Lazy backfill: pre-migration saved entries have channelUrl: null,
-        // so Follow-channel falls back to the manual paste form instead of
-        // one-click follow. Fire-and-forget a cheap oEmbed lookup to heal
-        // this entry in the background — never blocks/delays the open flow.
-        if (ECHO.mode !== 'web' && !currentMeta.channelUrl && currentMeta.videoId) {
-          backfillChannelForCurrent(entry);
-        }
 
         // Saved entries don't record which caption track was used, so we
         // can't reliably pre-select the right language option (showing the
@@ -8614,51 +7087,6 @@
       } catch (err) {
         console.error('[echo] openSavedEntry network error:', err);
         showToast('error', 'Network error opening saved video: ' + err.message);
-      }
-    }
-
-    /* ==============================================
-       SAVED LIBRARY — LAZY CHANNEL BACKFILL
-       Pre-migration entries were saved before channel/channelUrl were
-       persisted. When one is opened, do a best-effort background lookup
-       + persist so the Follow-channel button works one-click from then on.
-       Must never throw into the caller — this is a pure background heal.
-    =============================================== */
-    async function backfillChannelForCurrent(entry) {
-      try {
-        const vid = currentMeta && currentMeta.videoId;
-        if (!vid) return;
-
-        const res = await fetch('/api/video-meta?videoId=' + encodeURIComponent(vid));
-        if (!res.ok) return;
-        const data = await res.json().catch(() => null);
-        if (!data || !data.channelUrl) return;
-
-        // Guard against navigation races: bail if the user opened another
-        // video/entry while this lookup was in flight.
-        if (!currentMeta || currentMeta.videoId !== vid) return;
-
-        currentMeta.channel    = data.channel || currentMeta.channel;
-        currentMeta.channelUrl = data.channelUrl;
-        updateNowReading(); // reveals the Follow-channel button now that we have a URL
-
-        // Persist so this is a one-time heal — upsert preserves everything
-        // else on the entry, just adds the channel fields.
-        try {
-          await Library.saveEntry({
-            url:        entry.url,
-            videoId:    entry.videoId,
-            title:      entry.title,
-            segments:   entry.segments,
-            digest:     entry.digest,
-            channel:    currentMeta.channel,
-            channelUrl: currentMeta.channelUrl,
-          });
-        } catch (persistErr) {
-          console.debug('[echo] backfillChannelForCurrent: persist failed', persistErr);
-        }
-      } catch (err) {
-        console.debug('[echo] backfillChannelForCurrent failed', err);
       }
     }
 
@@ -8947,278 +7375,6 @@
         langPickerBusy = false;
       }
     });
-
-    /* ==============================================
-       PLAYLIST MODE — FEATURE 2
-    =============================================== */
-    const playlistPanelEl = document.getElementById('playlistPanel');
-
-    let playlistVideos    = [];
-    let activePlaylistIdx = -1;
-    let currentPlaylistUrl = null;
-
-    // Playlist digest job state
-    let playlistJobId      = null;
-    let playlistPollTimer  = null;
-    let playlistPollInFlight = false;
-
-    const PLAYLIST_DISPLAY_CAP = 20;
-
-    function renderPlaylist(title, videos, opts = {}) {
-      if (!playlistPanelEl || !videos || videos.length === 0) {
-        if (playlistPanelEl) playlistPanelEl.hidden = true;
-        return;
-      }
-
-      const displayTitle   = title || 'Playlist';
-      const digestAllBtnHtml = opts.hideDigestAllBtn ? '' :
-        `<button class="mini-btn" id="playlistDigestAllBtn"` +
-          ` aria-label="Digest all videos in this playlist"${playlistJobId ? ' disabled' : ''}>Digest all</button>`;
-
-      const displayCount = Math.min(videos.length, PLAYLIST_DISPLAY_CAP);
-      const remaining    = videos.length - displayCount;
-
-      let itemsHtml = '';
-      for (let i = 0; i < displayCount; i++) {
-        const v        = videos[i];
-        const isActive = i === activePlaylistIdx;
-        const num      = String(i + 1).padStart(2, '0');
-        itemsHtml +=
-          `<div class="playlist-item${isActive ? ' active' : ''}"` +
-            ` data-idx="${i}"` +
-            ` tabindex="0"` +
-            ` role="button"` +
-            ` aria-label="Load: ${escapeAttr(v.title)}"` +
-            ` aria-current="${isActive ? 'true' : 'false'}">` +
-            `<span class="playlist-item-num">${num}</span>` +
-            `<span>${escapeHtml(v.title)}</span>` +
-          `</div>`;
-      }
-      if (remaining > 0) {
-        itemsHtml += `<div class="playlist-more">…and ${remaining} more video${remaining !== 1 ? 's' : ''}</div>`;
-      }
-
-      playlistPanelEl.innerHTML =
-        `<div class="playlist-header" id="playlistHeader">` +
-          `<span class="playlist-header-title">${escapeHtml(displayTitle)}</span>` +
-          `<span class="playlist-header-count">${videos.length} video${videos.length !== 1 ? 's' : ''}</span>` +
-          digestAllBtnHtml +
-          `<button class="playlist-header-toggle" id="playlistToggleBtn"` +
-            ` aria-label="Collapse playlist" aria-expanded="true">&#9660;</button>` +
-          `<button class="playlist-header-dismiss" id="playlistDismissBtn"` +
-            ` aria-label="Dismiss playlist">&#10005;</button>` +
-        `</div>` +
-        `<div class="playlist-body" id="playlistBody">${itemsHtml}</div>` +
-        `<div id="playlistDigestProgress" class="playlist-digest-progress" hidden></div>`;
-
-      playlistPanelEl.hidden = false;
-
-      // Batch digest-all button
-      const digestAllBtn = document.getElementById('playlistDigestAllBtn');
-      digestAllBtn && digestAllBtn.addEventListener('click', e => {
-        e.stopPropagation();
-        startPlaylistDigestAll();
-      });
-
-      // Toggle collapse
-      const toggleBtn = document.getElementById('playlistToggleBtn');
-      const bodyEl    = document.getElementById('playlistBody');
-      toggleBtn && toggleBtn.addEventListener('click', e => {
-        e.stopPropagation();
-        const collapsed = bodyEl.classList.toggle('collapsed');
-        toggleBtn.innerHTML  = collapsed ? '&#9654;' : '&#9660;';
-        toggleBtn.setAttribute('aria-expanded',  String(!collapsed));
-        toggleBtn.setAttribute('aria-label', collapsed ? 'Expand playlist' : 'Collapse playlist');
-      });
-
-      // Header row click toggles too (but not the buttons)
-      const headerEl = document.getElementById('playlistHeader');
-      headerEl && headerEl.addEventListener('click', e => {
-        if (e.target.closest('.playlist-header-toggle')) return;
-        if (e.target.closest('.playlist-header-dismiss')) return;
-        toggleBtn && toggleBtn.click();
-      });
-
-      // Dismiss
-      const dismissBtn = document.getElementById('playlistDismissBtn');
-      dismissBtn && dismissBtn.addEventListener('click', e => {
-        e.stopPropagation();
-        playlistPanelEl.hidden = true;
-        playlistVideos         = [];
-        activePlaylistIdx      = -1;
-      });
-
-      // Video row clicks
-      playlistPanelEl.querySelectorAll('.playlist-item').forEach(item => {
-        const loadVideo = e => {
-          e.stopPropagation();
-          const idx = Number(item.dataset.idx);
-          const v   = playlistVideos[idx];
-          if (!v) return;
-          activePlaylistIdx = idx;
-          // Re-render panel with updated active state (capture title before re-render).
-          const panelTitle = playlistPanelEl.querySelector('.playlist-header-title')?.textContent || '';
-          renderPlaylist(panelTitle, playlistVideos);
-          // Load the video through normal fetch flow, preserving the playlist panel
-          const ytUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(v.videoId)}`;
-          urlInput.value   = ytUrl;
-          _playlistNavFlag = true;
-          fetchTranscript();
-        };
-        item.addEventListener('click', loadVideo);
-        item.addEventListener('keydown', e => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadVideo(e); }
-        });
-      });
-    }
-
-    async function loadPlaylist(url) {
-      try {
-        const res  = await fetch('/api/playlist', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ url }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          // Playlist is non-critical — warn but don't block the user
-          console.warn('[echo] loadPlaylist failed:', data);
-          showToast('warning', 'Could not load playlist — ' + apiErrorMessage(data, 'unknown error.'));
-          return;
-        }
-        if (!Array.isArray(data.videos) || data.videos.length === 0) return;
-        playlistVideos      = data.videos;
-        activePlaylistIdx   = -1;
-        currentPlaylistUrl  = url;
-        renderPlaylist(data.playlistTitle || 'Playlist', data.videos);
-      } catch (err) {
-        /* Silently ignore network errors for playlist (non-critical) */
-        console.warn('[echo] loadPlaylist network error:', err);
-      }
-    }
-
-    /* ==============================================
-       BATCH PLAYLIST DIGEST — FEATURE 8
-    =============================================== */
-
-    async function startPlaylistDigestAll() {
-      if (!currentPlaylistUrl) {
-        showToast('warning', 'No playlist loaded to digest.');
-        return;
-      }
-      if (playlistJobId) return; // already running
-
-      const lengthOpt = document.querySelector('input[name="digestLength"]:checked')?.value || 'detailed';
-      const formatOpt = document.querySelector('input[name="digestFormat"]:checked')?.value || 'digest';
-      const langOpt   = (typeof digestLangInput !== 'undefined' && digestLangInput.value.trim()) || 'English';
-
-      const digestAllBtn = document.getElementById('playlistDigestAllBtn');
-      if (digestAllBtn) digestAllBtn.disabled = true;
-
-      try {
-        const res = await fetch('/api/playlist/digest', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({
-            url:    currentPlaylistUrl,
-            length: lengthOpt,
-            format: formatOpt,
-            language: langOpt,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          if (digestAllBtn) digestAllBtn.disabled = false;
-          handleApiError(data, 'Could not start playlist digest.');
-          return;
-        }
-
-        playlistJobId = data.jobId;
-        showToast('info', 'Digesting playlist…', 'This can take a while for large playlists.');
-
-        const progressEl = document.getElementById('playlistDigestProgress');
-        if (progressEl) {
-          progressEl.hidden = false;
-          progressEl.textContent = 'Digesting… starting up';
-        }
-
-        if (playlistPollTimer) clearInterval(playlistPollTimer);
-        playlistPollTimer = setInterval(pollPlaylistJob, 1500);
-      } catch (err) {
-        if (digestAllBtn) digestAllBtn.disabled = false;
-        showToast('error', 'Network error starting playlist digest: ' + err.message);
-      }
-    }
-
-    async function pollPlaylistJob() {
-      if (playlistPollInFlight || !playlistJobId) return;
-      playlistPollInFlight = true;
-
-      try {
-        const res  = await fetch('/api/playlist/digest/status?jobId=' + encodeURIComponent(playlistJobId));
-        const job  = await res.json().catch(() => null);
-        if (!res.ok || !job) {
-          playlistPollInFlight = false;
-          return;
-        }
-
-        const progressEl = document.getElementById('playlistDigestProgress');
-        if (progressEl) {
-          progressEl.hidden = false;
-          progressEl.textContent =
-            `Digesting… ${job.saved} saved · ${job.failed} failed · ${job.skipped} skipped of ${job.total}`;
-        }
-
-        // Best-effort per-item status badges, matched by videoId.
-        if (Array.isArray(job.items)) {
-          const badgeByStatus = { saved: ' ✓', failed: ' ✕', skipped: ' –' };
-          job.items.forEach((item, idx) => {
-            const rowEl = playlistPanelEl && playlistPanelEl.querySelector(`.playlist-item[data-idx="${idx}"]`);
-            if (!rowEl) return;
-            const badge = badgeByStatus[item.status];
-            let badgeEl = rowEl.querySelector('.playlist-item-badge');
-            if (badge) {
-              if (!badgeEl) {
-                badgeEl = document.createElement('span');
-                badgeEl.className = 'playlist-item-badge';
-                rowEl.appendChild(badgeEl);
-              }
-              badgeEl.textContent = badge;
-            } else if (badgeEl) {
-              badgeEl.remove();
-            }
-          });
-        }
-
-        if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') {
-          clearInterval(playlistPollTimer);
-          playlistPollTimer = null;
-          playlistJobId = null;
-          playlistPollInFlight = false;
-
-          const digestAllBtn = document.getElementById('playlistDigestAllBtn');
-          if (digestAllBtn) digestAllBtn.disabled = false;
-
-          if (job.status === 'error' && job.error) {
-            showToast('error', job.error);
-          } else if (job.status === 'cancelled') {
-            showToast('warning', 'Playlist digest cancelled.');
-          } else if (job.failed > 0) {
-            showToast('warning', `Playlist digest finished with ${job.failed} failure${job.failed !== 1 ? 's' : ''}.`,
-              `${job.saved} saved, ${job.skipped} skipped.`);
-          } else {
-            showToast('success', `Playlist digest complete — ${job.saved} saved, ${job.skipped} skipped.`);
-          }
-
-          loadSaved();
-          return;
-        }
-      } catch (err) {
-        console.warn('[echo] pollPlaylistJob network error:', err);
-      }
-
-      playlistPollInFlight = false;
-    }
 
     /* ==============================================
        KEYBOARD SHORTCUTS OVERLAY — FEATURE 4
@@ -10340,7 +8496,7 @@
         }
 
         // Restore active tab — does not trigger the next-action nudge or any AI call.
-        switchTab(['digest', 'saved', 'discovery', 'inbox'].includes(snap.activeTab) ? snap.activeTab : 'transcript');
+        switchTab(['digest', 'saved'].includes(snap.activeTab) ? snap.activeTab : 'transcript');
 
         setStatus(`Session restored — ${lastSegments.length} segment${lastSegments.length === 1 ? '' : 's'}.`);
         return true;
@@ -10350,894 +8506,8 @@
     }
 
     /* ==============================================
-       DISCOVERY PANE — search/browse YouTube without leaving the app,
-       then click a result to load it straight into the reader via the
-       existing fetchTranscript() path (same one autoLoadFromQuery uses).
-       Local-only feature: hidden entirely when ECHO.mode === 'web'
-       (the backend routes 503 in that mode).
-    =============================================== */
-    let discoveryInitialised = false; // guards the first-open lazy-load
-
-    /** Client-side pagination state for Discovery results — yt-dlp search has
-     *  no page tokens, so we fetch a larger batch once and page through it
-     *  locally via a "Load more" button. */
-    let discoveryPageState = { items: [], shown: 0, pageSize: 12 };
-
-    /** Formats a raw view count into a compact label, e.g. 1234567 -> "1.2M views". */
-    function formatViews(n) {
-      if (n == null || isNaN(n)) return '';
-      const num = Number(n);
-      let label;
-      if (num >= 1_000_000) label = (num / 1_000_000).toFixed(num >= 10_000_000 ? 0 : 1) + 'M';
-      else if (num >= 1_000) label = (num / 1_000).toFixed(num >= 10_000 ? 0 : 1) + 'K';
-      else label = String(num);
-      return `${label} view${num === 1 ? '' : 's'}`;
-    }
-
-    /** Builds the .saved-card HTML markup for a single Discovery Card
-     *  object, reusing the visual language from the Library grid. */
-    function discoveryCardHtml(card) {
-      const title    = card.title || card.videoId || 'Untitled';
-      const channel  = card.channel || '';
-      const viewsStr = formatViews(card.views);
-      const durBadge = card.durationText
-        ? `<span class="discovery-duration-badge">${escapeHtml(card.durationText)}</span>`
-        : '';
-      const safeUrl  = safeHttpUrl(card.url);
-      const thumbHtml = (card.thumbnail && safeHttpUrl(card.thumbnail))
-        ? `<img class="saved-card-thumb"
-                src="${escapeAttr(card.thumbnail)}"
-                alt="" loading="lazy"
-                onerror="this.remove()">`
-        : '';
-
-      // Follow button — local/desktop only (channel-following backend 503s in
-      // web mode), and only shown when the card carries a resolvable
-      // channelUrl (from yt-dlp's channel_url/uploader_url/channel_id) so a
-      // click is a genuine one-click follow rather than a guess that just
-      // reopens the manual form. Cards without a channelUrl simply don't get
-      // a Follow button.
-      const followBtnHtml = (card.channelUrl && ECHO.mode !== 'web')
-        ? `<button type="button" class="discovery-follow-btn"
-                    data-channel-url="${escapeAttr(card.channelUrl)}"
-                    data-channel="${escapeAttr(channel)}"
-                    aria-label="Follow ${escapeAttr(channel || 'this channel')}">+ Follow</button>`
-        : '';
-
-      return `<div class="saved-card"
-                   data-url="${escapeAttr(safeUrl || card.url || '')}"
-                   tabindex="0"
-                   role="button"
-                   aria-label="Load ${escapeAttr(title)}">
-        <div class="saved-card-thumb-wrap">
-          <div class="saved-card-thumb-fallback" aria-hidden="true">
-            <svg width="34" height="34" viewBox="0 0 24 24" fill="none"
-                 stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
-              <rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/>
-              <path d="M10 8.75 15 12l-5 3.25z" fill="currentColor" stroke="none"/>
-            </svg>
-          </div>
-          ${thumbHtml}
-          ${durBadge}
-        </div>
-        <div class="saved-card-body">
-          <div class="saved-card-title-row">
-            <div class="saved-card-title">${escapeHtml(title)}</div>
-          </div>
-          <div class="saved-card-meta">
-            ${channel ? `<span class="saved-meta-item">${escapeHtml(channel)}</span>` : ''}
-            ${(channel && viewsStr) ? '<span class="saved-meta-sep" aria-hidden="true">·</span>' : ''}
-            ${viewsStr ? `<span class="saved-meta-item">${escapeHtml(viewsStr)}</span>` : ''}
-          </div>
-          ${followBtnHtml ? `<div class="saved-card-actions discovery-follow-btn-only">${followBtnHtml}</div>` : ''}
-        </div>
-      </div>`;
-    }
-
-    /** Appends a page of Discovery Card objects to #discoveryResults
-     *  (does NOT clear existing cards) and wires up click/keydown handling
-     *  on just the newly-added cards. */
-    function appendDiscoveryCards(cards) {
-      if (!Array.isArray(cards) || cards.length === 0) return;
-      discoveryResultsEl.insertAdjacentHTML('beforeend', cards.map(discoveryCardHtml).join(''));
-
-      const allCards = discoveryResultsEl.querySelectorAll('.saved-card');
-      const newCards = Array.from(allCards).slice(allCards.length - cards.length);
-      newCards.forEach(card => {
-        card.addEventListener('click', e => {
-          if (e.target.closest('.discovery-follow-btn')) return;
-          loadDiscoveryCard(card.dataset.url);
-        });
-        card.addEventListener('keydown', e => {
-          if (e.target.closest('.discovery-follow-btn')) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            loadDiscoveryCard(card.dataset.url);
-          }
-        });
-        const followBtn = card.querySelector('.discovery-follow-btn');
-        if (followBtn) {
-          followBtn.addEventListener('click', e => {
-            e.stopPropagation();
-            attemptQuickFollow(followBtn, followBtn.dataset.channelUrl, followBtn.dataset.channel);
-          });
-        }
-      });
-    }
-
-    /** Updates the "Showing N of M" count label and the Load more button's
-     *  visibility to match the current discoveryPageState. */
-    function updateDiscoveryPagingUI() {
-      const { items, shown } = discoveryPageState;
-      if (!discoveryResultCountEl || !discoveryLoadMoreBtn) return;
-      if (items.length === 0) {
-        discoveryResultCountEl.textContent = '';
-        discoveryLoadMoreBtn.hidden = true;
-        return;
-      }
-      discoveryResultCountEl.textContent = `Showing ${shown} of ${items.length}`;
-      discoveryLoadMoreBtn.hidden = shown >= items.length;
-    }
-
-    /** Renders an array of Discovery Card objects into #discoveryResults,
-     *  resetting pagination and showing the first page. */
-    function renderDiscoveryResults(results) {
-      discoveryResultsEl.innerHTML = '';
-      discoveryPageState.items = Array.isArray(results) ? results : [];
-      discoveryPageState.shown = 0;
-
-      if (discoveryPageState.items.length === 0) {
-        updateDiscoveryPagingUI();
-        return;
-      }
-
-      const firstPage = discoveryPageState.items.slice(0, discoveryPageState.pageSize);
-      appendDiscoveryCards(firstPage);
-      discoveryPageState.shown = firstPage.length;
-      updateDiscoveryPagingUI();
-    }
-
-    /** Appends the next page of already-fetched Discovery results. */
-    function loadMoreDiscoveryResults() {
-      const { items, shown, pageSize } = discoveryPageState;
-      if (shown >= items.length) return;
-      const nextPage = items.slice(shown, shown + pageSize);
-      appendDiscoveryCards(nextPage);
-      discoveryPageState.shown = shown + nextPage.length;
-      updateDiscoveryPagingUI();
-    }
-
-    /** Clears the Discovery grid and pagination state — used before a new
-     *  search/chip/For You load, and on empty/error states. */
-    function resetDiscoveryPaging() {
-      discoveryResultsEl.innerHTML = '';
-      discoveryPageState.items = [];
-      discoveryPageState.shown = 0;
-      updateDiscoveryPagingUI();
-    }
-
-    if (discoveryLoadMoreBtn) {
-      discoveryLoadMoreBtn.addEventListener('click', loadMoreDiscoveryResults);
-    }
-
-    /** Loads a Discovery result into the reader — the exact same sequence
-     *  autoLoadFromQuery() uses: populate #urlInput, then fetchTranscript()
-     *  (which itself calls switchTab('transcript') once the fetch begins). */
-    function loadDiscoveryCard(url) {
-      if (!url) return;
-      urlInput.value = url;
-      fetchTranscript();
-    }
-
-    function setDiscoveryStatus(text, isError) {
-      discoveryStatusMsgEl.textContent = text || '';
-      discoveryStatusMsgEl.className   = 'saved-status-msg' + (isError ? ' error' : '');
-    }
-
-    /** Runs a Discovery search for `q` and renders the results (or an
-     *  empty/error state) into #discoveryResults. */
-    async function runDiscoverySearch(q) {
-      const query = (q || '').trim();
-      if (!query) return;
-      discoverySubtitleEl.textContent = '';
-      setDiscoveryStatus('Searching…', false);
-      resetDiscoveryPaging();
-      try {
-        const res  = await fetch(`/api/discovery/search?q=${encodeURIComponent(query)}&n=36`);
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const msg = data && data.echoCode === 'YTDLP_MISSING'
-            ? "Couldn't reach YouTube. Is yt-dlp installed?"
-            : (data && data.error) || 'Search failed.';
-          setDiscoveryStatus(msg, true);
-          resetDiscoveryPaging();
-          return;
-        }
-        const results = Array.isArray(data.results) ? data.results : [];
-        if (results.length === 0) {
-          setDiscoveryStatus(`No videos found for '${query}'.`, false);
-          renderDiscoveryResults([]);
-          return;
-        }
-        setDiscoveryStatus('', false);
-        renderDiscoveryResults(results);
-      } catch (e) {
-        setDiscoveryStatus("Couldn't reach YouTube. Is yt-dlp installed?", true);
-        resetDiscoveryPaging();
-      }
-    }
-
-    /** Loads /api/discovery/foryou — personalised suggestions derived from
-     *  the local library — and shows a "Based on: …" subtitle, or a
-     *  friendly hint when the library is empty. */
-    async function loadDiscoveryForYou() {
-      setDiscoveryStatus('Loading suggestions…', false);
-      discoverySubtitleEl.textContent = '';
-      resetDiscoveryPaging();
-      try {
-        const res  = await fetch('/api/discovery/foryou');
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const msg = data && data.echoCode === 'YTDLP_MISSING'
-            ? "Couldn't reach YouTube. Is yt-dlp installed?"
-            : (data && data.error) || 'Could not load suggestions.';
-          setDiscoveryStatus(msg, true);
-          resetDiscoveryPaging();
-          return;
-        }
-        const results = Array.isArray(data.results) ? data.results : [];
-        const basedOn = Array.isArray(data.basedOn) ? data.basedOn : [];
-        if (results.length === 0) {
-          setDiscoveryStatus('', false);
-          discoverySubtitleEl.textContent =
-            'Save a few videos and For You will suggest more like them.';
-          renderDiscoveryResults([]);
-          return;
-        }
-        setDiscoveryStatus('', false);
-        discoverySubtitleEl.textContent = basedOn.length > 0
-          ? `Based on: ${basedOn.join(', ')}`
-          : '';
-        renderDiscoveryResults(results);
-      } catch (e) {
-        setDiscoveryStatus("Couldn't reach YouTube. Is yt-dlp installed?", true);
-        resetDiscoveryPaging();
-      }
-    }
-
-    if (discoverySearchBtn) {
-      discoverySearchBtn.addEventListener('click', () => runDiscoverySearch(discoverySearchInput.value));
-    }
-    if (discoverySearchInput) {
-      discoverySearchInput.addEventListener('keydown', e => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          runDiscoverySearch(discoverySearchInput.value);
-        }
-      });
-    }
-    if (discoveryForYouBtn) {
-      discoveryForYouBtn.addEventListener('click', loadDiscoveryForYou);
-    }
-    if (discoveryChipsEl) {
-      discoveryChipsEl.querySelectorAll('.discovery-chip').forEach(chip => {
-        chip.addEventListener('click', () => {
-          discoveryChipsEl.querySelectorAll('.discovery-chip').forEach(c => c.classList.remove('is-active'));
-          chip.classList.add('is-active');
-          discoverySearchInput.value = chip.dataset.topic;
-          runDiscoverySearch(chip.dataset.topic);
-        });
-      });
-    }
-
-    /** First-open lazy-load for the Discovery pane: if the library already
-     *  has saved videos, lead with personalised For You suggestions;
-     *  otherwise leave the topic chips as the entry point. */
-    function initDiscoveryPane() {
-      if (discoveryInitialised) return;
-      discoveryInitialised = true;
-      if (Array.isArray(savedList) && savedList.length > 0) {
-        loadDiscoveryForYou();
-      } else {
-        discoverySubtitleEl.textContent =
-          'Save a few videos and For You will suggest more like them.';
-      }
-    }
-
-    /* ==============================================
-       CHANNEL / CREATOR FOLLOWING — local/desktop only (backend /api/follows*
-       routes 503 in web mode; the Inbox tab and all Follow buttons are
-       hidden entirely in that mode — see the INITIALISE block below).
-    =============================================== */
-
-    /** Shared helper: POST /api/follows { url, title }. Returns the parsed
-     *  response body on success (2xx), or null on failure (shows a toast). */
-    async function followChannel(url, title) {
-      try {
-        const res  = await fetch('/api/follows', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ url, title: title || undefined }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          showToast('error', (data && data.error) || "Couldn't follow that channel.");
-          return null;
-        }
-        showToast('success', `Following ${(data.follow && data.follow.title) || title || 'channel'}.`);
-        return data;
-      } catch (e) {
-        showToast('error', "Couldn't reach the server to follow that channel.");
-        return null;
-      }
-    }
-
-    /** Best-effort "Follow" click from a card/button. `url` is normally a
-     *  real channelUrl (one-click follow), but this stays defensive: on
-     *  failure it opens the Inbox's Manage-follows panel pre-filled so the
-     *  user can paste the real channel URL instead of silently doing nothing. */
-    async function attemptQuickFollow(btnEl, url, title) {
-      if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Following…'; }
-      const data = await followChannel(url, title);
-      if (data) {
-        if (btnEl) { btnEl.textContent = 'Following ✓'; }
-        loadFollowedList();
-        loadInbox();
-        return;
-      }
-      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '+ Follow'; }
-      // Couldn't resolve a channel reference from the display name alone —
-      // hand off to the manual "Manage follows" form, pre-filled.
-      if (inboxBtn && !inboxBtn.hidden) {
-        switchTab('inbox');
-        inboxManagePanel.hidden = false;
-        inboxManageBtn.setAttribute('aria-expanded', 'true');
-        if (followTitleInput) followTitleInput.value = title || '';
-        if (followUrlInput)  { followUrlInput.value = ''; followUrlInput.focus(); }
-        if (followManageStatusEl) {
-          followManageStatusEl.textContent = "Couldn't recognize that as a channel — paste the channel's URL or @handle to follow it.";
-          followManageStatusEl.className = 'saved-status-msg error';
-        }
-      }
-    }
-
-    /** Loads the followed-channels list into #followedList with unfollow ✕ buttons. */
-    async function loadFollowedList() {
-      if (!followedListEl) return;
-      try {
-        const res  = await fetch('/api/follows');
-        const data = await res.json().catch(() => ({}));
-        const follows = (res.ok && Array.isArray(data.follows)) ? data.follows : [];
-        if (res.ok) knownFollowCount = follows.length;
-        if (follows.length === 0) {
-          followedListEl.innerHTML = '<p class="empty-state">You\'re not following any channels yet.</p>';
-          return;
-        }
-        followedListEl.innerHTML = follows.map(f => `
-          <div class="followed-item" data-channelid="${escapeAttr(f.channelId)}">
-            <span class="followed-item-title">${escapeHtml(f.title || f.channelId)}</span>
-            <button type="button" class="followed-unfollow-btn" data-channelid="${escapeAttr(f.channelId)}"
-                    aria-label="Unfollow ${escapeAttr(f.title || f.channelId)}">✕ Unfollow</button>
-          </div>`).join('');
-        followedListEl.querySelectorAll('.followed-unfollow-btn').forEach(btn => {
-          btn.addEventListener('click', () => unfollowChannel(btn.dataset.channelid));
-        });
-      } catch (e) {
-        followedListEl.innerHTML = '<p class="empty-state">Could not load followed channels.</p>';
-      }
-    }
-
-    /** Unfollows a channel, then refreshes both the manage list and the inbox. */
-    async function unfollowChannel(channelId) {
-      if (!channelId) return;
-      try {
-        const res = await fetch(`/api/follows/${encodeURIComponent(channelId)}`, { method: 'DELETE' });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          showToast('error', (data && data.error) || 'Could not unfollow that channel.');
-          return;
-        }
-        showToast('info', 'Unfollowed.');
-        loadFollowedList();
-        loadInbox();
-      } catch (e) {
-        showToast('error', 'Could not reach the server to unfollow.');
-      }
-    }
-
-    /** Updates the Inbox nav-tab unseen-count badge. */
-    function updateInboxBadge(count) {
-      if (!inboxCountEl) return;
-      if (count > 0) {
-        inboxCountEl.textContent = String(count);
-        inboxCountEl.hidden = false;
-      } else {
-        inboxCountEl.hidden = true;
-      }
-    }
-
-    // Channel-catalog browser state — which followed channel's card grid is
-    // currently shown, and the pagination cursor into GET /api/follows/channel.
-    // inboxSummary holds the last /api/follows/inbox response (per-channel
-    // title + unseen list), which drives the chip row, unseen badges, and
-    // the "Mark all seen" affordance; it is intentionally decoupled from the
-    // card grid itself so marking items seen doesn't reset scroll/pagination.
-    let inboxSummary        = [];
-    let inboxSelectedChannelId = null;
-    let inboxChannelState   = { channelId: null, offset: 0, limit: 12, hasMore: false };
-    let inboxLoadMoreBusy   = false;
-    // Last-known followed-channel count from any successful /api/follows or
-    // /api/follows/inbox fetch — lets loadInbox() key #inboxEmptyState off a
-    // trustworthy value immediately, so a failed inbox fetch (early return)
-    // can't leave the empty-state bar stuck showing stale info. null = unknown.
-    let knownFollowCount    = null;
-
-    /** Marks a channel's given videoIds as seen on the server, then quietly
-     *  refreshes the nav badge / chip badges / "Mark all seen" affordance —
-     *  it deliberately does NOT reload the card grid, so a single-card click
-     *  doesn't reset the user's pagination/scroll position. */
-    async function markChannelSeen(channelId, videoIds) {
-      try {
-        await fetch('/api/follows/seen', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ channelId, videoIds }),
-        });
-      } catch (e) {
-        // Best-effort — a failed mark-as-seen just means the badge stays inflated
-        // until the next successful check; not worth surfacing as an error.
-      }
-      // Update local state instead of re-fetching GET /api/follows/inbox, which
-      // would re-trigger the server-side per-channel yt-dlp fan-out on every
-      // video open. Marking seen only ever shrinks unseen counts, so a local
-      // diff is authoritative enough; the full aggregate is refreshed on the
-      // next explicit inbox load / "Check now".
-      applySeenLocally(channelId, videoIds);
-    }
-
-    /** Removes the given videoIds from the matching channel's unseen[] in
-     *  inboxSummary, then refreshes the nav badge, chip row, and channel header
-     *  — no network call. */
-    function applySeenLocally(channelId, videoIds) {
-      const seen = new Set(Array.isArray(videoIds) ? videoIds : []);
-      const ch = inboxSummary.find(c => c.channelId === channelId);
-      if (ch && Array.isArray(ch.unseen)) {
-        ch.unseen = ch.unseen.filter(u => !seen.has(u.videoId));
-      }
-      const unseenTotal = inboxSummary.reduce((sum, c) => sum + (Array.isArray(c.unseen) ? c.unseen.length : 0), 0);
-      updateInboxBadge(unseenTotal);
-      renderInboxChips();
-      renderChannelHeader();
-    }
-
-    /** Loads a followed channel's video into the reader via the same path
-     *  pasting a URL uses, then marks it seen. */
-    function openInboxItem(channelId, videoId) {
-      if (!videoId) return;
-      urlInput.value = `https://www.youtube.com/watch?v=${videoId}`;
-      fetchTranscript();
-      markChannelSeen(channelId, [videoId]);
-    }
-
-    /** Re-fetches GET /api/follows/inbox and refreshes just the nav badge,
-     *  chip row, and channel header — used after marking items seen so the
-     *  currently-rendered card grid (and its pagination) is left untouched. */
-    async function refreshInboxSummaryQuietly() {
-      try {
-        const res  = await fetch('/api/follows/inbox');
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !Array.isArray(data.channels)) return;
-        inboxSummary = data.channels;
-        knownFollowCount = inboxSummary.length;
-        const unseenTotal = inboxSummary.reduce((sum, c) => sum + (Array.isArray(c.unseen) ? c.unseen.length : 0), 0);
-        updateInboxBadge(unseenTotal);
-        renderInboxChips();
-        renderChannelHeader();
-      } catch (e) {
-        // Best-effort — badges just stay stale until the next successful check.
-      }
-    }
-
-    /** Renders the followed-channel chip row from inboxSummary, highlighting
-     *  the selected channel and showing each channel's unseen count. */
-    function renderInboxChips() {
-      if (!inboxChipsEl) return;
-      if (inboxSummary.length === 0) { inboxChipsEl.innerHTML = ''; return; }
-      inboxChipsEl.innerHTML = inboxSummary.map(ch => {
-        const unseen = Array.isArray(ch.unseen) ? ch.unseen.length : 0;
-        const active = ch.channelId === inboxSelectedChannelId;
-        return `<button type="button" class="discovery-chip inbox-channel-chip${active ? ' is-active' : ''}"
-                         data-channelid="${escapeAttr(ch.channelId)}"
-                         aria-pressed="${active ? 'true' : 'false'}">
-          ${escapeHtml(ch.title || ch.channelId)}${unseen > 0 ? ` <span class="inbox-new-badge inbox-chip-badge">${unseen}</span>` : ''}
-        </button>`;
-      }).join('');
-      inboxChipsEl.querySelectorAll('.inbox-channel-chip').forEach(chip => {
-        chip.addEventListener('click', () => {
-          const channelId = chip.dataset.channelid;
-          if (!channelId || channelId === inboxSelectedChannelId) return;
-          inboxSelectedChannelId = channelId;
-          renderInboxChips();
-          renderChannelHeader();
-          loadChannelPage(channelId, 0);
-        });
-      });
-    }
-
-    /** Renders the selected channel's header bar (title + "Mark all seen"),
-     *  reading unseen counts from inboxSummary. */
-    function renderChannelHeader() {
-      if (!inboxChannelHeaderEl) return;
-      const ch = inboxSummary.find(c => c.channelId === inboxSelectedChannelId);
-      if (!ch) { inboxChannelHeaderEl.hidden = true; return; }
-      const unseen = Array.isArray(ch.unseen) ? ch.unseen.length : 0;
-      inboxChannelHeaderEl.hidden = false;
-      if (inboxChannelHeaderTitleEl) inboxChannelHeaderTitleEl.textContent = ch.title || ch.channelId;
-      if (inboxMarkAllSeenBtn) {
-        inboxMarkAllSeenBtn.hidden = unseen === 0;
-        inboxMarkAllSeenBtn.dataset.channelid = ch.channelId;
-      }
-    }
-
-    /** Builds the card markup for a single channel-catalog item, mirroring
-     *  discoveryCardHtml()'s .saved-card structure so channel uploads look
-     *  native alongside the Library/Discovery grids. Adds "Membership" and
-     *  "No transcript" badges and a "Saved" marker for uploads already in
-     *  the local library. */
-    function inboxCardHtml(item, channelId) {
-      const title    = item.title || item.videoId || 'Untitled';
-      const viewsStr = formatViews(item.views);
-      const durBadge = item.durationText
-        ? `<span class="discovery-duration-badge">${escapeHtml(item.durationText)}</span>`
-        : '';
-      const flagBadges = [
-        item.membersOnly ? `<span class="inbox-flag-badge">Membership</span>` : '',
-        (item.hasTranscript === false || item.hasTranscript === 0)
-          ? `<span class="inbox-flag-badge">No transcript</span>`
-          : '',
-      ].filter(Boolean).join('');
-      const flagBadgesHtml = flagBadges
-        ? `<div class="inbox-flag-badges">${flagBadges}</div>`
-        : '';
-      const savedBadge = item.saved
-        ? `<span class="inbox-saved-badge">&#10003; Saved</span>`
-        : '';
-      const thumbHtml = (item.thumbnail && safeHttpUrl(item.thumbnail))
-        ? `<img class="saved-card-thumb"
-                src="${escapeAttr(item.thumbnail)}"
-                alt="" loading="lazy"
-                onerror="this.remove()">`
-        : '';
-
-      return `<div class="saved-card inbox-card"
-                   data-videoid="${escapeAttr(item.videoId)}"
-                   data-channelid="${escapeAttr(channelId)}"
-                   tabindex="0"
-                   role="button"
-                   aria-label="Load ${escapeAttr(title)}">
-        <div class="saved-card-thumb-wrap">
-          <div class="saved-card-thumb-fallback" aria-hidden="true">
-            <svg width="34" height="34" viewBox="0 0 24 24" fill="none"
-                 stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
-              <rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/>
-              <path d="M10 8.75 15 12l-5 3.25z" fill="currentColor" stroke="none"/>
-            </svg>
-          </div>
-          ${thumbHtml}
-          ${flagBadgesHtml}
-          ${durBadge}
-        </div>
-        <div class="saved-card-body">
-          <div class="saved-card-title-row">
-            <div class="saved-card-title">${escapeHtml(title)}</div>
-          </div>
-          <div class="saved-card-meta">
-            ${viewsStr ? `<span class="saved-meta-item">${escapeHtml(viewsStr)}</span>` : ''}
-            ${(viewsStr && savedBadge) ? '<span class="saved-meta-sep" aria-hidden="true">&middot;</span>' : ''}
-            ${savedBadge}
-          </div>
-        </div>
-      </div>`;
-    }
-
-    /** Appends a page of channel-catalog items to #inboxCardGrid (does NOT
-     *  clear existing cards) and wires up click/keydown handling on just the
-     *  newly-added cards — loads the video via openInboxItem()
-     *  (no full grid re-render). */
-    function appendChannelCards(items, channelId) {
-      if (!Array.isArray(items) || items.length === 0 || !inboxCardGridEl) return;
-      inboxCardGridEl.insertAdjacentHTML('beforeend', items.map(it => inboxCardHtml(it, channelId)).join(''));
-
-      const allCards = inboxCardGridEl.querySelectorAll('.inbox-card');
-      const newCards = Array.from(allCards).slice(allCards.length - items.length);
-      newCards.forEach(card => {
-        const openCard = () => {
-          openInboxItem(card.dataset.channelid, card.dataset.videoid);
-        };
-        card.addEventListener('click', openCard);
-        card.addEventListener('keydown', e => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCard(); }
-        });
-      });
-    }
-
-    /** Loads one page of a followed channel's full uploads catalog from
-     *  GET /api/follows/channel and appends it to the card grid. Pass
-     *  offset 0 to reset the grid (channel switch / Check now); any other
-     *  offset appends (Load more). Stale responses (channel switched again
-     *  before this resolved) are discarded via the inboxSelectedChannelId
-     *  guard. */
-    async function loadChannelPage(channelId, offset) {
-      if (!channelId || !inboxCardGridEl) return;
-      const isFirstPage = offset === 0;
-      if (!isFirstPage) {
-        inboxLoadMoreBusy = true;
-        if (inboxLoadMoreBtn) { inboxLoadMoreBtn.disabled = true; inboxLoadMoreBtn.textContent = 'Loading…'; }
-      }
-      if (isFirstPage && inboxStatusMsgEl) {
-        inboxStatusMsgEl.textContent = 'Loading uploads…';
-        inboxStatusMsgEl.className   = 'saved-status-msg';
-      }
-      try {
-        const res  = await fetch(`/api/follows/channel?channelId=${encodeURIComponent(channelId)}&offset=${offset}&limit=${inboxChannelState.limit}`);
-        const data = await res.json().catch(() => ({}));
-        if (channelId !== inboxSelectedChannelId) return; // stale — user switched channels
-        if (!res.ok) {
-          if (isFirstPage && inboxCardGridEl) inboxCardGridEl.innerHTML = '';
-          if (inboxStatusMsgEl) {
-            inboxStatusMsgEl.textContent = (data && data.error) || "Could not load this channel's uploads.";
-            inboxStatusMsgEl.className   = 'saved-status-msg error';
-          }
-          inboxChannelState = { channelId, offset: 0, limit: inboxChannelState.limit, hasMore: false };
-          if (inboxLoadMoreBtn) inboxLoadMoreBtn.hidden = true;
-          return;
-        }
-        if (inboxStatusMsgEl) inboxStatusMsgEl.textContent = '';
-        const items = Array.isArray(data.items) ? data.items : [];
-        if (isFirstPage) {
-          inboxCardGridEl.innerHTML = '';
-          if (items.length === 0) {
-            inboxCardGridEl.innerHTML = '<p class="empty-state">No uploads found for this channel yet.</p>';
-          }
-        }
-        appendChannelCards(items, channelId);
-        inboxChannelState = {
-          channelId,
-          offset: (typeof data.offset === 'number' ? data.offset : offset) + items.length,
-          limit:  inboxChannelState.limit,
-          hasMore: !!data.hasMore,
-        };
-        if (inboxLoadMoreBtn) inboxLoadMoreBtn.hidden = !inboxChannelState.hasMore;
-      } catch (e) {
-        if (channelId === inboxSelectedChannelId && inboxStatusMsgEl) {
-          inboxStatusMsgEl.textContent = "Couldn't reach the server to load this channel.";
-          inboxStatusMsgEl.className   = 'saved-status-msg error';
-        }
-      } finally {
-        if (!isFirstPage) {
-          inboxLoadMoreBusy = false;
-          if (inboxLoadMoreBtn) { inboxLoadMoreBtn.disabled = false; inboxLoadMoreBtn.textContent = 'Load more'; }
-        }
-      }
-    }
-
-    /** Fetches the next page of the currently-selected channel's catalog. */
-    function loadMoreChannelPage() {
-      if (inboxLoadMoreBusy || !inboxChannelState.channelId || !inboxChannelState.hasMore) return;
-      loadChannelPage(inboxChannelState.channelId, inboxChannelState.offset);
-    }
-
-    /** Loads GET /api/follows/inbox (chip row + unseen badges), then loads
-     *  the selected channel's first card-grid page — auto-selecting the
-     *  followed channel with the most unseen uploads (or the first one) on
-     *  first load / if the previously-selected channel was unfollowed. Also
-     *  used by "Check now" to re-check follows AND reload the current
-     *  channel's first page. */
-    async function loadInbox() {
-      if (!inboxContentEl) return;
-      // Key the empty-state bar off the last-known follow count *before* the
-      // fetch below runs, so if that fetch fails (and we early-return) the
-      // bar reflects the last trustworthy count instead of being left stale.
-      if (inboxEmptyStateEl && knownFollowCount !== null) {
-        inboxEmptyStateEl.hidden = knownFollowCount > 0;
-      }
-      if (inboxStatusMsgEl) { inboxStatusMsgEl.textContent = 'Checking…'; inboxStatusMsgEl.className = 'saved-status-msg'; }
-      try {
-        const res  = await fetch('/api/follows/inbox');
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          if (inboxStatusMsgEl) {
-            inboxStatusMsgEl.textContent = (data && data.error) || 'Could not check your follows.';
-            inboxStatusMsgEl.className   = 'saved-status-msg error';
-          }
-          return;
-        }
-        const channels = Array.isArray(data.channels) ? data.channels : [];
-        inboxSummary = channels;
-        knownFollowCount = channels.length;
-        const unseenTotal = channels.reduce((sum, c) => sum + (Array.isArray(c.unseen) ? c.unseen.length : 0), 0);
-        updateInboxBadge(unseenTotal);
-
-        if (channels.length === 0) {
-          if (inboxStatusMsgEl) inboxStatusMsgEl.textContent = '';
-          inboxSelectedChannelId = null;
-          renderInboxChips();
-          renderChannelHeader();
-          if (inboxEmptyStateEl) inboxEmptyStateEl.hidden = false;
-          if (inboxChannelHeaderEl) inboxChannelHeaderEl.hidden = true;
-          if (inboxChipsEl) inboxChipsEl.hidden = true;
-          if (inboxCardGridEl) inboxCardGridEl.innerHTML = '';
-          if (inboxLoadMoreBtn) inboxLoadMoreBtn.hidden = true;
-          return;
-        }
-        if (inboxEmptyStateEl) inboxEmptyStateEl.hidden = true;
-
-        const stillFollowed = channels.some(c => c.channelId === inboxSelectedChannelId);
-        if (!stillFollowed) {
-          const withMostUnseen = channels.reduce((best, c) => {
-            const n = Array.isArray(c.unseen) ? c.unseen.length : 0;
-            return (!best || n > best.n) ? { channelId: c.channelId, n } : best;
-          }, null);
-          inboxSelectedChannelId = (withMostUnseen && withMostUnseen.channelId) || channels[0].channelId;
-        }
-        renderInboxChips();
-        renderChannelHeader();
-        loadChannelPage(inboxSelectedChannelId, 0);
-      } catch (e) {
-        if (inboxStatusMsgEl) {
-          inboxStatusMsgEl.textContent = "Couldn't reach the server to check your follows.";
-          inboxStatusMsgEl.className   = 'saved-status-msg error';
-        }
-      }
-    }
-
-    /** Refreshes the unseen-count badge on load without switching to the
-     *  Inbox tab or forcing a full re-render — used at startup so the badge
-     *  is accurate before the user ever opens the tab. */
-    function refreshInboxBadgeQuietly() {
-      if (!inboxBtn || inboxBtn.hidden) return;
-      fetch('/api/follows/inbox')
-        .then(res => res.ok ? res.json() : null)
-        .then(data => {
-          if (!data || !Array.isArray(data.channels)) return;
-          knownFollowCount = data.channels.length;
-          const unseenTotal = data.channels.reduce((sum, c) => sum + (Array.isArray(c.unseen) ? c.unseen.length : 0), 0);
-          updateInboxBadge(unseenTotal);
-        })
-        .catch(() => {});
-    }
-
-    if (inboxRefreshBtn) inboxRefreshBtn.addEventListener('click', loadInbox);
-    if (inboxLoadMoreBtn) inboxLoadMoreBtn.addEventListener('click', loadMoreChannelPage);
-    if (inboxMarkAllSeenBtn) {
-      inboxMarkAllSeenBtn.addEventListener('click', async () => {
-        const channelId = inboxMarkAllSeenBtn.dataset.channelid;
-        if (!channelId) return;
-        const ch = inboxSummary.find(c => c.channelId === channelId);
-        const videoIds = (ch && Array.isArray(ch.unseen)) ? ch.unseen.map(u => u.videoId).filter(Boolean) : [];
-        if (videoIds.length === 0) return;
-        inboxMarkAllSeenBtn.disabled = true;
-        await markChannelSeen(channelId, videoIds);
-        inboxMarkAllSeenBtn.disabled = false;
-      });
-    }
-    if (inboxManageBtn) {
-      inboxManageBtn.addEventListener('click', () => {
-        const show = inboxManagePanel.hidden;
-        inboxManagePanel.hidden = !show;
-        inboxManageBtn.setAttribute('aria-expanded', String(show));
-        if (show) loadFollowedList();
-      });
-    }
-    if (followAddBtn) {
-      followAddBtn.addEventListener('click', async () => {
-        const url   = (followUrlInput.value || '').trim();
-        const title = (followTitleInput.value || '').trim();
-        if (!url) {
-          followManageStatusEl.textContent = 'Enter a channel URL or @handle.';
-          followManageStatusEl.className   = 'saved-status-msg error';
-          return;
-        }
-        followAddBtn.disabled = true;
-        const data = await followChannel(url, title);
-        followAddBtn.disabled = false;
-        if (data) {
-          followUrlInput.value = '';
-          followTitleInput.value = '';
-          followManageStatusEl.textContent = '';
-          followManageStatusEl.className   = 'saved-status-msg';
-          loadFollowedList();
-          loadInbox();
-        }
-      });
-    }
-
-    // Follow-channel button (attached to the loaded-video content header) —
-    // when the loaded video's metadata carried a resolvable channelUrl this
-    // is a genuine one-click follow; otherwise it falls back to a small
-    // confirm/paste form (the button itself is hidden by updateNowReading()
-    // when there's nothing to follow at all).
-    if (followChannelBtn) {
-      followChannelBtn.addEventListener('click', async () => {
-        if (currentMeta && currentMeta.channelUrl) {
-          followChannelBtn.disabled = true;
-          const data = await followChannel(currentMeta.channelUrl, currentMeta.channel || currentMeta.title || '');
-          followChannelBtn.disabled = false;
-          if (data) {
-            loadFollowedList();
-            loadInbox();
-          }
-          return;
-        }
-        const show = followChannelPanel.hidden;
-        followChannelPanel.hidden = !show;
-        followChannelBtn.setAttribute('aria-expanded', String(show));
-        if (show) {
-          followChannelUrlInput.value = '';
-          followChannelTitleInput.value = '';
-          followChannelStatusEl.textContent = '';
-          followChannelStatusEl.className = 'saved-status-msg';
-          followChannelUrlInput.focus();
-        }
-      });
-    }
-    if (followChannelCancelBtn) {
-      followChannelCancelBtn.addEventListener('click', () => {
-        followChannelPanel.hidden = true;
-        followChannelBtn.setAttribute('aria-expanded', 'false');
-      });
-    }
-    if (followChannelSubmitBtn) {
-      followChannelSubmitBtn.addEventListener('click', async () => {
-        const url   = (followChannelUrlInput.value || '').trim();
-        const title = (followChannelTitleInput.value || '').trim();
-        if (!url) {
-          followChannelStatusEl.textContent = 'Enter a channel URL or @handle.';
-          followChannelStatusEl.className   = 'saved-status-msg error';
-          return;
-        }
-        followChannelSubmitBtn.disabled = true;
-        const data = await followChannel(url, title);
-        followChannelSubmitBtn.disabled = false;
-        if (data) {
-          followChannelPanel.hidden = true;
-          followChannelBtn.setAttribute('aria-expanded', 'false');
-          loadFollowedList();
-          loadInbox();
-        } else {
-          followChannelStatusEl.textContent = "Couldn't recognize that as a channel URL/handle.";
-          followChannelStatusEl.className   = 'saved-status-msg error';
-        }
-      });
-    }
-
-    /* ==============================================
        INITIALISE
     =============================================== */
-    if (ECHO.mode === 'web' && discoveryBtn) {
-      // Discovery's backend routes 503 in web mode — hide the entry point.
-      discoveryBtn.hidden = true;
-    }
-    if (ECHO.mode === 'web') {
-      // Verify affordances hit routes that are disabled/gated in web mode
-      // (POST /api/claims is blockInWeb; POST /api/enrich mode:'factcheck'
-      // is rejected server-side) — hide both entry points. `.mini-btn[hidden]`
-      // is already in the scoped [hidden] guard (see the CSS block near the
-      // top of this file), so setting .hidden = true here actually hides
-      // these buttons rather than being overridden by the mini-btn display.
-      if (digestVerifyBtn) digestVerifyBtn.hidden = true;
-      if (enrichBtnFactcheck) enrichBtnFactcheck.hidden = true;
-      // Frames are disabled server-side in web mode — hide the toggle entirely.
-      const digestVisualsWrap = document.getElementById('digestVisualsWrap');
-      if (digestVisualsWrap) digestVisualsWrap.hidden = true;
-    }
-    if (ECHO.mode === 'web') {
-      // Channel following's backend routes 503 in web mode — hide every entry point.
-      if (inboxBtn) inboxBtn.hidden = true;
-      if (followChannelBtn) followChannelBtn.hidden = true;
-    } else {
-      refreshInboxBadgeQuietly();
-    }
     loadSaved();
     let _restored = false;
     if (hasQueryTarget()) {

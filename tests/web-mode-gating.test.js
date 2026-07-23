@@ -118,9 +118,6 @@ const GATED_ROUTES = [
   ['DELETE', '/api/saved/some-video-id'],
   ['PATCH', '/api/saved/some-video-id/tags'],
   ['GET', '/api/search'],
-  ['POST', '/api/playlist'],
-  ['POST', '/api/share'],
-  ['DELETE', '/api/share/some-share-id'],
 ];
 
 let webServer;
@@ -137,44 +134,6 @@ for (const [method, path] of GATED_ROUTES) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// POST /api/playlist is gated via an inline `if (isWeb)` check (not the
-// shared blockInWeb() middleware, since it also needs webLimit()), so it is
-// worth a dedicated assertion with a realistic playlist URL body, in addition
-// to its entry in GATED_ROUTES above (which only sends `{}`) — proving the
-// isWeb short-circuit fires before any yt-dlp playlist enumeration is
-// attempted, regardless of what the caller sends.
-// ---------------------------------------------------------------------------
-
-test('web mode: POST /api/playlist with a real playlist URL body returns 503 WEB_MODE_UNSUPPORTED (never spawns yt-dlp)', async () => {
-  const res = await fetch(`${webServer.base}/api/playlist`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: 'https://www.youtube.com/playlist?list=PLxyz' }),
-  });
-  assert.equal(res.status, 503, `expected 503, got ${res.status}`);
-  const body = await res.json();
-  assert.equal(body.error.code, 'WEB_MODE_UNSUPPORTED');
-});
-
-// ---------------------------------------------------------------------------
-// POST /api/enrich mode:'factcheck' ("Verify") is disabled in web mode (the
-// enrich Verify button and the "Verify claims" button are also hidden
-// client-side — see public/index.html's ECHO.mode==='web' init block), while
-// every other enrich mode stays available (gated the normal way, behind
-// requireWebKey since no API key is sent here).
-// ---------------------------------------------------------------------------
-
-test('web mode: POST /api/enrich mode:"factcheck" returns 400 FACTCHECK_DISABLED_IN_WEB', async () => {
-  const res = await fetch(`${webServer.base}/api/enrich`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ selection: 'The sky is blue.', mode: 'factcheck' }),
-  });
-  assert.equal(res.status, 400, `expected 400, got ${res.status}`);
-  const body = await res.json();
-  assert.equal(body.error.code, 'FACTCHECK_DISABLED_IN_WEB');
-});
 
 test('web mode: POST /api/enrich mode:"explain" is not blocked by the factcheck gate (falls through to the normal API-key requirement)', async () => {
   const res = await fetch(`${webServer.base}/api/enrich`, {
