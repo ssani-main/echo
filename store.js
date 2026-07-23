@@ -190,6 +190,29 @@ function toMeta(entry) {
 }
 
 /**
+ * Map a raw (unparsed, snake_case) videos-table row — as produced by the
+ * projected listEntries() SELECT — plus its tags array to the same 12-field
+ * metadata shape toMeta() produces. Kept in sync with toMeta() by hand;
+ * listEntries()'s own row→object mapping used to drift from it.
+ */
+function metaFromRow(row, tags) {
+  return {
+    videoId:        row.videoId,
+    url:            row.url,
+    title:          row.title,
+    savedAt:        row.savedAt,
+    hasDigest:      !!row.hasDigest,
+    segmentCount:   row.segment_count || 0,
+    tags:           Array.isArray(tags) ? tags : [],
+    favorite:       row.favorite === 1,
+    channel:        row.channel ?? null,
+    channelUrl:     row.channelUrl ?? null,
+    transcriptSource: row.transcript_source ?? null,
+    whisperModel:     row.whisper_model ?? null,
+  };
+}
+
+/**
  * (Re)populate the FTS5 row for a given videoId from the videos table.
  * Called after every write that may affect title, segments, or digest.
  */
@@ -283,10 +306,17 @@ function syncFts(videoId) {
 
 /**
  * Return metadata for all saved entries, sorted by savedAt descending (newest first).
- * Uses batch queries to avoid N+1 round-trips.
+ * Uses batch queries to avoid N+1 round-trips. Projects only the columns
+ * needed for the metadata shape — does NOT select segments/digest (the full
+ * transcript JSON / digest markdown blobs), since those are discarded anyway.
  */
 export async function listEntries() {
-  const rows = db.prepare('SELECT * FROM videos ORDER BY savedAt DESC').all();
+  const rows = db.prepare(`
+    SELECT videoId, url, title, savedAt, favorite, segment_count, channel, channelUrl,
+           transcript_source, whisper_model, (digest IS NOT NULL) AS hasDigest
+    FROM videos
+    ORDER BY savedAt DESC
+  `).all();
 
   // Batch-load related data in three queries instead of N per-video lookups
   const allTags        = db.prepare('SELECT videoId, tag FROM tags ORDER BY videoId, rowid').all();
@@ -298,16 +328,7 @@ export async function listEntries() {
     tagsByVideo[t.videoId].push(t.tag);
   }
 
-  return rows.map((row) => ({
-    videoId:        row.videoId,
-    url:            row.url,
-    title:          row.title,
-    savedAt:        row.savedAt,
-    hasDigest:      !!row.digest,
-    segmentCount:   row.segment_count || 0,
-    tags:           tagsByVideo[row.videoId]       || [],
-    favorite:       row.favorite === 1,
-  }));
+  return rows.map((row) => metaFromRow(row, tagsByVideo[row.videoId]));
 }
 
 /**
