@@ -953,35 +953,36 @@
       }
     }
 
-    /* Reimagined transcript error card: one human-classified message, ink-on-
-       paper (no accent hue), with the raw two-strike log tucked behind a
-       collapsible technical-details disclosure. */
-    .transcript-error {
+    /* Reimagined error card: one human-classified message, ink-on-paper (no
+       accent hue), with the raw machine log tucked behind a collapsible
+       technical-details disclosure. Shared by the transcript and digest
+       failure flows (renderTranscriptError / renderDigestError). */
+    .error-card {
       border-left: 2px solid var(--rule-strong);
       padding: var(--space-8) 0 var(--space-8) var(--space-10);
     }
 
-    .transcript-error-head {
+    .error-card-head {
       color: var(--title);
       font-weight: 700;
     }
 
-    .transcript-error-hint {
+    .error-card-hint {
       color: var(--muted);
       margin-top: var(--space-5);
     }
 
-    .transcript-error-detail {
+    .error-card-detail {
       margin-top: var(--space-9);
     }
 
-    .transcript-error-detail summary {
+    .error-card-detail summary {
       cursor: pointer;
       color: var(--muted);
       user-select: none;
     }
 
-    .transcript-error-detail pre {
+    .error-card-detail pre {
       margin-top: var(--space-6);
       color: var(--muted);
       font-size: var(--text-sm);
@@ -990,12 +991,12 @@
       overflow-x: auto;
     }
 
-    .transcript-error-nudge {
+    .error-card-nudge {
       margin-top: var(--space-9);
       color: var(--muted);
     }
 
-    .transcript-error-nudge button {
+    .error-card-nudge button {
       background: none;
       border: none;
       padding: 0;
@@ -4842,6 +4843,48 @@
     }
 
     /**
+     * Builds a shared reimagined error card DOM node: one human-classified
+     * headline + optional next-step hint, with an optional raw machine log
+     * tucked behind a collapsible "technical details" disclosure. Used by
+     * both the transcript-fetch and digest-generation failure flows —
+     * callers append any action buttons (e.g. a "nudge" div) and insert the
+     * returned node into their own container.
+     *
+     * @param {{ headline: string, hint?: string, detail?: string }} opts
+     * @returns {HTMLDivElement}
+     */
+    function buildErrorCard({ headline, hint, detail }) {
+      const card = document.createElement('div');
+      card.className = 'error-card';
+
+      const head = document.createElement('div');
+      head.className = 'error-card-head';
+      head.textContent = headline;
+      card.appendChild(head);
+
+      if (hint) {
+        const hintEl = document.createElement('div');
+        hintEl.className = 'error-card-hint';
+        hintEl.textContent = hint;
+        card.appendChild(hintEl);
+      }
+
+      if (detail) {
+        const details = document.createElement('details');
+        details.className = 'error-card-detail';
+        const summary = document.createElement('summary');
+        summary.textContent = 'Show technical details';
+        const pre = document.createElement('pre');
+        pre.textContent = detail;
+        details.appendChild(summary);
+        details.appendChild(pre);
+        card.appendChild(details);
+      }
+
+      return card;
+    }
+
+    /**
      * Render a reimagined transcript-fetch error into #output: one
      * human-classified headline + next-step hint, with the raw two-strike
      * machine log tucked behind a collapsible "technical details" disclosure.
@@ -4860,32 +4903,7 @@
 
       setStatus('');
 
-      const card = document.createElement('div');
-      card.className = 'transcript-error';
-
-      const head = document.createElement('div');
-      head.className = 'transcript-error-head';
-      head.textContent = headline;
-      card.appendChild(head);
-
-      if (hint) {
-        const hintEl = document.createElement('div');
-        hintEl.className = 'transcript-error-hint';
-        hintEl.textContent = hint;
-        card.appendChild(hintEl);
-      }
-
-      if (detail) {
-        const details = document.createElement('details');
-        details.className = 'transcript-error-detail';
-        const summary = document.createElement('summary');
-        summary.textContent = 'Show technical details';
-        const pre = document.createElement('pre');
-        pre.textContent = detail;
-        details.appendChild(summary);
-        details.appendChild(pre);
-        card.appendChild(details);
-      }
+      const card = buildErrorCard({ headline, hint, detail });
 
       try {
         if (
@@ -4895,7 +4913,7 @@
           getWhisperMode() === 'off'
         ) {
           const nudge = document.createElement('div');
-          nudge.className = 'transcript-error-nudge';
+          nudge.className = 'error-card-nudge';
           nudge.textContent = 'Tip: enable Whisper transcription in Settings to generate a transcript for videos without captions. ';
           if (typeof openSettingsModal === 'function') {
             const btn = document.createElement('button');
@@ -4915,6 +4933,84 @@
       outputEl.classList.add('visible');
 
       lastSegments = null;
+    }
+
+    /**
+     * Render a reimagined digest-generation error into #digestOutput: same
+     * shared error card as renderTranscriptError, with an action button
+     * chosen by echoCode ("Open Settings" for auth/key failures where that
+     * can actually help, "Try again" for transient/generic failures).
+     *
+     * @param {object} data - parsed response JSON (structured error envelope)
+     */
+    function renderDigestError(data) {
+      console.error('[echo] digest error:', data);
+
+      const env      = data?.error;
+      const code     = env?.code;
+      let headline   = env?.message || 'Failed to generate the digest.';
+      let hint       = env?.hint || '';
+      const detail   = env?.detail || '';
+
+      // Desktop-specific: the CLI isn't installed/authed and the user hasn't
+      // set a BYOK key yet — point them straight at Settings instead of
+      // showing the generic (CLI-oriented) error.
+      if (
+        (code === 'CLAUDE_NOT_INSTALLED' || code === 'CLAUDE_NOT_AUTHED') &&
+        ECHO.mode === 'desktop' &&
+        !getApiKey()
+      ) {
+        headline = 'AI features need a key or the Claude CLI';
+        hint     = 'Add your Anthropic API key in Settings, or install & sign in to the Claude Code CLI.';
+      }
+
+      const card = buildErrorCard({ headline, hint, detail });
+
+      try {
+        const settingsCanHelp =
+          code === 'CLAUDE_NOT_INSTALLED' ||
+          code === 'CLAUDE_NOT_AUTHED' ||
+          code === 'API_NOT_AUTHED';
+        const retryable =
+          code === 'API_RATE_LIMITED' ||
+          code === 'RATE_LIMITED' ||
+          code === 'API_FAILED' ||
+          code === 'CLAUDE_FAILED' ||
+          code === 'INTERNAL' ||
+          !code;
+
+        if (settingsCanHelp && (ECHO.mode !== 'local' || code === 'API_NOT_AUTHED')) {
+          if (typeof openSettingsModal === 'function') {
+            const nudge = document.createElement('div');
+            nudge.className = 'error-card-nudge';
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = 'Open Settings';
+            btn.addEventListener('click', () => openSettingsModal());
+            nudge.appendChild(btn);
+            card.appendChild(nudge);
+          }
+        } else if (retryable) {
+          if (typeof runDigest === 'function') {
+            const nudge = document.createElement('div');
+            nudge.className = 'error-card-nudge';
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = 'Try again';
+            btn.addEventListener('click', () => runDigest());
+            nudge.appendChild(btn);
+            card.appendChild(nudge);
+          }
+        }
+      } catch {
+        // Action-button helpers unavailable — skip gracefully.
+      }
+
+      setDigestStatus('');
+      digestEmptySt.classList.add('is-hidden');
+      digestOutput.innerHTML = '';
+      digestOutput.appendChild(card);
+      digestOutput.classList.add('visible');
     }
 
     /**
@@ -6550,11 +6646,8 @@
 
         if (!res.ok) {
           stopDigestTimer();
-          const msg = apiErrorMessage(data, 'Failed to generate digest.');
-          setDigestStatus(msg, true);
           setTopIndicator('error');
-          digestEmptySt.classList.remove('is-hidden');
-          handleApiError(data, 'Failed to generate digest.');
+          renderDigestError(data);
           return;
         }
 

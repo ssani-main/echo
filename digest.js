@@ -324,9 +324,10 @@ export async function runClaude(prompt, opts = {}) {
           return reject(e);
         }
 
-        const e = new Error(`claude CLI exited with code ${code}. ${detail}`);
+        const e = new Error(`Claude Code exited with an error (code ${code}).`);
         e.echoCode = 'CLAUDE_FAILED';
-        e.hint = 'Check the terminal running the Echo server for details.';
+        e.hint = 'Claude Code hit an error while generating. Check the terminal running the Echo server for the full output.';
+        e.detail = detail || `claude CLI exited with code ${code}`;
         return reject(e);
       }
     });

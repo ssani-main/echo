@@ -70,6 +70,7 @@ function mapAnthropicError(err) {
   const e = new Error('Anthropic API call failed.');
   e.echoCode = 'API_FAILED';
   e.hint = 'Check the terminal running the Echo server for details.';
+  e.detail = (err && (err.message || String(err))) || '';
   console.error('Anthropic API error:', err);
   return e;
 }
