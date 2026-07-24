@@ -75,9 +75,10 @@ test('GET / serves gzip when the client accepts it, and it decompresses to the p
 
   const html = gunzipSync(res.body).toString('utf8');
   assert.match(html, /<!doctype html>/i);
-  // The injected mode flag must survive compression — it is added to the
-  // cached HTML before that HTML is gzipped, not after.
-  assert.match(html, /window\.__ECHO__=/);
+  // The page now pulls its script and CSS from real files, which is what lets
+  // the CSP refuse inline script.
+  assert.match(html, /<script src="\/app\.js">/);
+  assert.match(html, /<link rel="stylesheet" href="\/app\.css"/);
 });
 
 test('GET / advertises Vary: Accept-Encoding so caches keep the two representations apart', async () => {
@@ -121,6 +122,56 @@ test('GET / still serves the page when no Accept-Encoding is sent at all', async
   assert.equal(res.status, 200);
   assert.equal(res.headers['content-encoding'], undefined);
   assert.match(res.body.toString('utf8'), /<!doctype html>/i);
+});
+
+// ---------------------------------------------------------------------------
+// The split assets
+// ---------------------------------------------------------------------------
+
+test('app.css, app.js and the boot scripts are served, gzipped, with the right types', async () => {
+  // These are served from memory and compressed at boot, exactly like the page.
+  // If they ever fall through to express.static instead they would still work —
+  // just uncompressed — which is the kind of regression nobody notices.
+  for (const [path, type] of [
+    ['/app.css', /text\/css/],
+    ['/app.js', /javascript/],
+    ['/theme-init.js', /javascript/],
+    ['/echo-config.js', /javascript/],
+  ]) {
+    const res = await rawGet(path, { 'Accept-Encoding': 'gzip' });
+    assert.equal(res.status, 200, path);
+    assert.match(res.headers['content-type'], type, path);
+    assert.equal(res.headers['content-encoding'], 'gzip', `${path} must be compressed`);
+    assert.match(String(res.headers.vary || ''), /accept-encoding/i, path);
+  }
+});
+
+test('the page carries no inline script, which is what lets the CSP refuse it', async () => {
+  const html = gunzipSync((await rawGet('/', { 'Accept-Encoding': 'gzip' })).body).toString('utf8');
+
+  // Every <script> must have a src. An inline one would be silently blocked by
+  // the CSP at runtime — a failure that only shows up in a browser.
+  const scripts = html.match(/<script\b[^>]*>/gi) || [];
+  assert.ok(scripts.length > 0, 'the page should load scripts');
+  for (const tag of scripts) {
+    assert.match(tag, /\ssrc=/i, `inline <script> found: ${tag}`);
+  }
+  assert.doesNotMatch(html, /<style[\s>]/i, 'inline <style> should have moved to app.css');
+});
+
+test('the CSP no longer allows inline script', async () => {
+  const res = await rawGet('/');
+  const csp = res.headers['content-security-policy'];
+  assert.match(csp, /script-src 'self' https:\/\/cdn\.jsdelivr\.net/);
+  assert.doesNotMatch(csp.split('script-src')[1].split(';')[0], /unsafe-inline/,
+    "script-src must not allow inline any more");
+  // The stale Google Fonts allowances went with the Plaintext theme.
+  assert.doesNotMatch(csp, /fonts\.googleapis\.com|fonts\.gstatic\.com/);
+});
+
+test('echo-config.js reports the running mode to the page', async () => {
+  const res = await rawGet('/echo-config.js', { 'Accept-Encoding': 'identity' });
+  assert.match(res.body.toString('utf8'), /window\.__ECHO__=\{"mode":"local"\}/);
 });
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,3512 @@
+/* Echo — Plaintext theme.
+ *
+ * Extracted from the inline <style> block in index.html. Everything is
+ * tokenised in :root — edit via tokens, not literals: one token change
+ * cascades to ~70 call sites.
+ *
+ * Served from memory and pre-gzipped at boot (see server.js), so editing
+ * this file needs a server restart in dev, exactly like index.html.
+ */
+
+/* ==============================================
+   1. DESIGN TOKENS
+=============================================== */
+:root {
+  /* --- Design scale tokens (type + spacing) --- */
+  --text-3xs: 0.6rem;
+  --text-2xs: 0.68rem;
+  --text-xs: 0.74rem;
+  --text-sm: 0.8rem;
+  --text-md: 0.86rem;
+  --text-lg: 0.92rem;
+  --text-xl: 1rem;
+  /* Plaintext: hierarchy without size. The top of the scale collapses to
+     body size — headings are distinguished by weight and --title, never
+     by scale. The steps BELOW --text-md survive: secondary chrome (meta,
+     badges, timecodes) still earns being quieter. Grounded in
+     anthonyhobday.com's `h1,h2,h3 { font-size: inherit }`. */
+  --text-2xl: var(--text-md);
+  --text-3xl: var(--text-md);
+  --text-hero: var(--text-md);
+  --space-1: 0.1rem;
+  --space-2: 0.2rem;
+  --space-3: 0.3rem;
+  --space-4: 0.4rem;
+  --space-5: 0.5rem;
+  --space-6: 0.6rem;
+  --space-7: 0.75rem;
+  --space-8: 0.9rem;
+  --space-9: 1rem;
+  --space-10: 1.25rem;
+  --space-11: 1.5rem;
+  --space-12: 1.75rem;
+  --space-13: 2rem;
+  --space-14: 2.5rem;
+  --space-15: 3.25rem;
+  --space-16: 5rem;
+
+  /* ---- Signal palette · LIGHT ---- */
+  /* ---- Plaintext palette · LIGHT ----
+     Zero accent hue: --accent/--signal resolve to ink, so every
+     interactive surface inherits ink instead of cyan. --title is the
+     one step below --ink and carries heading hierarchy, since headings
+     are the same SIZE as body text (see --text-hero). --warn stays
+     chromatic on purpose: it is semantic, not decorative — an
+     invisible error is a bug, not restraint. */
+  --paper:        #F9F9F9;   /* app background */
+  --surface:      #FFFFFF;   /* raised panels / cards */
+  --surface-2:    #F1F1F1;   /* inputs, hover fills */
+  --surface-3:    #E6E6E6;   /* pressed / active fills */
+  --ink:          #424242;   /* primary text */
+  --title:        #000000;   /* headings, card titles — hierarchy via weight + this */
+  --muted:        #6D6D6D;   /* secondary text */
+  --ink-faint:    #737373;   /* tertiary text / placeholders — 4.5:1 on --paper.
+                                #949494 (hobday's value) is ~2.9:1 here and fails;
+                                his site never puts real text on it. Echo does
+                                (input placeholders), so it has to clear the floor. */
+  --rule:         #E2E2E2;   /* hairlines */
+  --rule-strong:  #C9C9C9;   /* stronger dividers / input borders */
+  --accent:       #000000;   /* ink — Plaintext has no accent hue */
+  --accent-dark:  #000000;
+  --accent-soft:  #EBEBEB;   /* soft fill — grey, not tinted */
+  --signal:       #000000;   /* waveform mark: an icon, not a brand mark */
+  --signal-2:     #000000;
+  --warn:         #D64545;   /* semantic only — errors must stay findable */
+
+  /* Extra tokens (also defined in dark block below) */
+  --on-accent:        #F9F9F9;
+  --warn-soft:        #FBEDED;
+  --warn-ring:        rgba(214, 69, 69, 0.14);
+  --shadow-indicator: rgba(16, 20, 30, 0.10);
+  --warn-amber:       #B45309;
+  --warn-amber-soft:  #FFF7ED;
+
+  /* Plaintext has no elevation: separation comes from rules, not depth. */
+  --shadow-1: none;
+  --shadow-2: none;
+  --shadow-badge: none;
+  /* Solid ink ring. A 30%-alpha ring of a black accent would drop to a
+     pale grey and fail the 3:1 focus-contrast floor. */
+  --focus:    0 0 0 2px var(--accent);
+  --ease:     cubic-bezier(.2,.7,.3,1);
+  --dur-fast: 0.12s;  /* micro transitions: hover / border / color */
+  --dur:      0.15s;  /* base UI transition */
+  --dur-slow: 0.25s;  /* larger state changes */
+
+  /* z-index scale — global overlay layers (local 1–3 stacking stays inline) */
+  --z-indicator: 8000;   /* top status indicator */
+  --z-panel:     8500;   /* elevated panel, below overlays */
+  --z-overlay:   19000;  /* modals, shortcuts, popovers */
+  --z-toast:     20000;  /* toasts, above everything */
+
+  /* One family, everywhere. A system stack: no webfont request, no
+     render-blocking <link>, no flash of fallback text. The four names
+     are kept as aliases so the ~150 existing call sites keep resolving. */
+  --font-stack: ui-monospace, 'SF Mono', SFMono-Regular, 'Cascadia Code',
+                Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  --font-sans:  var(--font-stack);
+  --font-serif: var(--font-stack);
+  --font-ui:    var(--font-stack);
+  --font-mono:  var(--font-stack);
+
+  --radius:    0px;
+  --radius-sm: 0px;
+  --radius-lg: 0px;
+  --control-h: 34px;  /* shared height for header + reader toolbar controls so they align */
+  /* Outer page wrapper — wide enough to hold the widest reading
+     column (Wide = 940px) plus breathing room. The top chrome
+     (brand header, tagline, command bar, status, nudge) is pinned
+     to --chrome-max below so it doesn't balloon with the page. */
+  --col-max:    1000px;
+  --chrome-max: 760px;
+
+  /* Find-in-transcript highlight tokens */
+  --find-hit:        #FEF3C7;
+  --find-hit-active: #FCD34D;
+
+  /* Overlay backdrop */
+  --overlay-backdrop: rgba(0, 0, 0, 0.45);
+}
+
+/* Dark-theme overrides — applied via data-theme="dark" on <html> */
+:root[data-theme="dark"] {
+  /* ---- Signal palette · DARK (first-class) ---- */
+  /* ---- Plaintext palette · DARK ---- */
+  --paper:             #131414;
+  --surface:           #191B1C;
+  --surface-2:         #1E2123;
+  --surface-3:         #262A2C;
+  --ink:               #B6C2CC;
+  --title:             #FFFFFF;
+  --muted:             #7D878F;
+  --ink-faint:         #7A828A;   /* 4.6:1 on --paper; #5C646B was ~3.1:1 */
+  --rule:              #262A2C;
+  --rule-strong:       #3A4044;
+  --accent:            #FFFFFF;
+  --accent-dark:       #E6E6E6;
+  --accent-soft:       #262A2C;
+  --signal:            #FFFFFF;
+  --signal-2:          #FFFFFF;
+  --warn:              #FF6B6B;
+  --on-accent:         #131414;
+  --warn-soft:         #2A1618;
+  --warn-ring:         rgba(255, 107, 107, 0.20);
+  --shadow-indicator:  rgba(0, 0, 0, 0.35);
+  --warn-amber:        #F59E0B;
+  --warn-amber-soft:   #1C1500;
+
+  --shadow-1: none;
+  --shadow-2: none;
+  --shadow-badge: none;
+
+  /* Find-in-transcript highlight tokens */
+  --find-hit:        #292108;
+  --find-hit-active: #78350F;
+
+  /* Overlay backdrop */
+  --overlay-backdrop: rgba(0, 0, 0, 0.65);
+}
+
+/* ==============================================
+   2. BASE RESET & BODY
+=============================================== */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  background: var(--paper);
+}
+
+/* Native form controls adopt the brand accent (checkboxes, radios, etc.)
+   so they don't render as the browser-default blue. In Plaintext --accent
+   is ink, so native controls are the one place the OS would otherwise
+   inject a hue into a product that has none. */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+}
+
+body {
+  font-family: var(--font-stack);
+  /* Base fill lives on <html> (above); body stays transparent so it
+     inherits it. (This used to let the ambient field show through —
+     that layer is gone in Plaintext, but <html> still paints the paper.) */
+  background: transparent;
+  color: var(--ink);
+  min-height: 100vh;
+  padding: var(--space-14) var(--space-11) var(--space-16);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ==============================================
+   SIGNAL SURFACE — removed for Plaintext.
+   This was the ambient field: cyan/indigo auroras over an oscilloscope
+   graticule and micro-grain, blooming while the AI digested. Plaintext
+   has no hue and no ambient decoration, so the whole layer is gone —
+   the page is now just paper.
+   `body.ai-active` is still toggled by setTopIndicator('digesting'),
+   and the top status indicator still reports that state in text.
+   Recover from git history if this direction is ever reverted.
+=============================================== */
+/* Keep the field out of printed digests. */
+body.printing-digest::before,
+body.printing-digest::after { display: none; }
+
+/* ==============================================
+   3. LAYOUT COLUMN
+=============================================== */
+.container {
+  max-width: var(--col-max);
+  margin: 0 auto;
+}
+
+/* Top chrome — brand header, tagline, command bar, status line and the
+   next-action nudge stay pinned to a fixed comfortable width regardless
+   of how wide the page wrapper or the reading column get. Centered on
+   the same axis as .container so nothing shifts left/right when the
+   Narrow/Medium/Wide reading control changes. */
+.site-header,
+.command-bar,
+#status,
+.next-action-nudge {
+  max-width: var(--chrome-max);
+  margin-inline: auto;
+}
+
+/* Reader column — content header, lens tabs and both reader panes
+   (Transcript + Digest) share --reading-measure and are centered on
+   the same axis, so the toolbars/tabs stay aligned with the text at
+   every width. The Library pane deliberately does NOT get this — it
+   uses the full width of .container so the card grid can breathe. */
+.content-header,
+.tab-bar,
+#paneTranscript,
+#paneDigest {
+  max-width: var(--reading-measure, 760px);
+  margin-inline: auto;
+}
+
+/* ==============================================
+   4. HEADER / HERO
+=============================================== */
+.site-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  margin-bottom: var(--space-13);
+}
+
+.wordmark {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+
+/* Top-right header cluster: nav destinations + theme + settings + shortcuts.
+   Kept on a single non-wrapping row so the icon buttons never break to a
+   second line; the usage chip lives on the tagline row below, out of the
+   way, so long telemetry text can't push this cluster around. */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  margin-left: auto;
+  flex-wrap: nowrap;
+}
+
+/* Tagline row: tagline on the left, usage telemetry pinned right. Wraps
+   gracefully on narrow screens (usage drops below the tagline). */
+.site-subrow {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;   /* tagline removed — keep usage telemetry in the corner */
+  gap: var(--space-7) var(--space-10);
+  flex-wrap: wrap;
+  margin-top: -0.35rem;
+}
+
+.site-subrow .site-tagline {
+  margin: 0;
+}
+
+/* Library button — a distinct, tappable destination (not a lens tab) */
+.library-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: var(--control-h);
+  padding: 0 var(--space-7);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  outline: none;
+  white-space: nowrap;
+  transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
+}
+
+.library-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.library-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.library-btn[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.library-btn-icon {
+  flex-shrink: 0;
+}
+
+.library-btn-count {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: inherit;
+  opacity: 0.85;
+}
+
+@media (max-width: 520px) {
+  .library-btn-label {
+    display: none;
+  }
+}
+
+.wordmark-text {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: var(--text-xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+/* Record dot */
+.record-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .record-dot {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* Echo brand lockup */
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-5);
+  color: var(--accent);
+}
+
+.brand-glyph {
+  flex: 0 0 auto;
+}
+
+.brand-word {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: var(--text-2xl);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  line-height: 1;
+}
+
+@media (max-width: 520px) {
+  .brand-glyph {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+.site-tagline {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.site-tagline em {
+  font-style: italic;
+}
+
+/* Content header — thumbnail + title/meta for the currently-loaded video.
+   Sits above the Transcript/Digest lens tabs; shown only while a video
+   is loaded AND the active pane is a reader lens (not the library). */
+.content-header {
+  /* Hidden by default — [hidden] attribute alone is overridden by display:flex,
+     so we set display:none here and expose via :not([hidden]) below. */
+  display: none;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-7) var(--space-7);
+  margin-bottom: var(--space-9);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.content-header:not([hidden]) {
+  display: flex;
+}
+
+.content-header-thumb {
+  flex-shrink: 0;
+  width: 112px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--radius);
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  /* Same rule as library/inbox thumbnails: YouTube art is the one colour
+     Echo does not author, so it stays desaturated until you ask for it.
+     Without this it is the only hue on an otherwise ink-only page. */
+  filter: grayscale(1) contrast(0.95);
+  transition: filter var(--dur-slow) var(--ease);
+}
+
+.content-header-thumb:hover {
+  filter: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .content-header-thumb { transition: none; }
+}
+
+.content-header-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.content-header-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-2xl);
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.content-header-meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.content-header-url {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.content-header-url:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.content-header-url:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+@media (max-width: 520px) {
+  .content-header-thumb {
+    width: 84px;
+  }
+
+  .content-header-title {
+    font-size: var(--text-xl);
+  }
+}
+
+/* ==============================================
+   5. COMMAND BAR
+=============================================== */
+.command-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-4) var(--space-8);
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+  margin-bottom: var(--space-8);
+  transition: border-color 0.18s var(--ease), box-shadow 0.18s var(--ease);
+}
+
+.command-bar:focus-within {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-2), var(--focus);
+}
+
+.command-glyph {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: var(--ink-faint);
+}
+
+.command-bar:focus-within .command-glyph {
+  color: var(--accent);
+}
+
+#urlInput {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-6) 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+}
+
+#urlInput::placeholder {
+  color: var(--ink-faint);
+  opacity: 1;
+}
+
+#urlInput:focus {
+  border: 0;
+  box-shadow: none;
+}
+
+/* ==============================================
+   5b. LANDING HERO (waveform · headline · sub)
+   Shown on the empty state; hidden once a video loads
+   (body.has-transcript is toggled by the reader JS).
+=============================================== */
+.hero-landing {
+  max-width: var(--chrome-max);
+  margin: clamp(var(--space-11), 5vh, var(--space-15)) auto var(--space-11);
+  text-align: left;
+}
+
+body.has-transcript .hero-landing {
+  display: none;
+}
+
+/* .hero-wave is left in the DOM but rendered to nothing: Plaintext has no
+   decorative motion and no gradient. The mark still exists in the header. */
+.hero-wave {
+  display: none;
+}
+
+.hero-eyebrow {
+  font-family: var(--font-stack);
+  font-size: var(--text-xs);
+  /* --muted, not --ink-faint: #949494 on #F9F9F9 is ~2.9:1 and fails the
+     4.5:1 floor for text this small. */
+  color: var(--muted);
+  margin-bottom: var(--space-10);
+}
+
+/* PLAINTEXT — no synthesized oblique.
+   The system mono stack ships no true italic on most platforms, so
+   `font-style: italic` gets faked by skewing the roman, which reads as
+   broken rather than emphatic. Chrome (empty states, status lines)
+   carries its softness with --muted alone; the italic declarations are
+   removed at each source rule below rather than overridden here, since
+   an override at equal specificity would lose to the later rule.
+   Authored emphasis inside a digest — real markdown <em> — keeps it. */
+
+/* The hero statement is body size. It earns attention through weight,
+   --title, and the space around it — not scale. antiwork.com sets its
+   hero as a plain paragraph for the same reason. */
+.hero-title {
+  font-family: var(--font-stack);
+  font-weight: 600;
+  line-height: 1.4;
+  font-size: var(--text-hero);   /* == --text-md */
+  color: var(--title);
+  margin-bottom: var(--space-8);
+}
+
+/* .grad is vestigial — the gradient headline was removed in the hallmark
+   audit. In Plaintext the emphasised half is simply the heading colour. */
+.hero-title .grad {
+  color: var(--title);
+}
+
+.hero-sub {
+  font-family: var(--font-stack);
+  font-size: var(--text-md);
+  line-height: 1.65;
+  color: var(--muted);
+  max-width: 52ch;
+  margin: 0;
+}
+
+/* ==============================================
+   6. STATUS LINE
+=============================================== */
+#status {
+  min-height: 1.4em;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--warn);
+  margin-bottom: var(--space-9);
+  letter-spacing: 0.01em;
+}
+
+#status.info {
+  color: var(--muted);
+}
+
+/* ==============================================
+   7. LENS TABS (Transcript | Digest)
+   Underlined lens switch attached to the current video —
+   visually distinct from the Library destination button in the header.
+=============================================== */
+.tab-bar {
+  /* Hidden by default — [hidden] attribute alone is overridden by display:flex,
+     so we set display:none here and expose via :not([hidden]) below (same
+     pattern used by .content-header). */
+  display: none;
+  align-items: center;
+  gap: var(--space-11);
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: var(--space-10);
+}
+
+.tab-bar:not([hidden]) {
+  display: flex;
+}
+
+.tab-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-1) var(--space-6);
+  font-family: var(--font-sans);
+  font-size: var(--text-lg);
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  outline: none;
+  transition: color var(--dur-fast);
+  /* Prevent button from shrinking text */
+  white-space: nowrap;
+}
+
+.tab-btn:hover {
+  color: var(--ink);
+}
+
+.tab-btn[aria-selected="true"] {
+  color: var(--ink);
+}
+
+/* Underline bar sitting on the tab-bar's baseline rule */
+.tab-btn::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: transparent;
+  border-radius: 2px 2px 0 0;
+}
+
+.tab-btn[aria-selected="true"]::after {
+  background: var(--accent);
+}
+
+.tab-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Ready dot on Digest tab */
+.digest-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+/* ==============================================
+   8. CONTROLS ROW
+=============================================== */
+.controls-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin-bottom: var(--space-9);
+  flex-wrap: wrap;
+}
+
+/* --- Segmented view toggle — demoted to a ghost control, visually
+   subordinate to the Transcript/Digest lens tabs above it --- */
+.view-toggle {
+  display: inline-flex;
+  align-items: stretch;
+  min-height: var(--control-h);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.view-toggle label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-6);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  opacity: 0.75;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--dur-fast), color var(--dur-fast), opacity var(--dur-fast);
+}
+
+.view-toggle label:not(:last-child) {
+  border-right: 1px solid var(--rule);
+}
+
+/* Hide actual radio circles */
+.view-toggle input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Active segment — :has() for modern browsers */
+.view-toggle label:has(input:checked) {
+  color: var(--ink);
+  opacity: 1;
+}
+
+/* Active segment — JS-added class for full browser coverage */
+.view-toggle label.is-active {
+  color: var(--ink);
+  opacity: 1;
+}
+
+/* Keyboard focus ring on the label when radio is focused */
+.view-toggle label:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* --- AI Digest button --- */
+#digestBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-h);
+  padding: 0 var(--space-9);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  outline: none;
+  transition: background var(--dur), color var(--dur);
+}
+
+#digestBtn:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+#digestBtn:focus-visible {
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+#digestBtn:disabled {
+  color: var(--muted);
+  border-color: var(--rule);
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* --- Save button — lives in the content header, reachable from every lens --- */
+.header-save-btn {
+  flex-shrink: 0;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-8);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  outline: none;
+  transition: background var(--dur), color var(--dur), border-color var(--dur), box-shadow var(--dur);
+}
+
+.header-save-btn .save-ico {
+  flex-shrink: 0;
+  transition: fill var(--dur);
+}
+
+.header-save-btn:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.header-save-btn:focus-visible {
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* Saved state — filled bookmark + solid accent so "in your library" reads at a glance */
+.header-save-btn.is-saved {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.header-save-btn.is-saved .save-ico {
+  fill: var(--on-accent);
+  stroke: var(--on-accent);
+}
+
+.header-save-btn.is-saved:hover:not(:disabled) {
+  background: var(--accent-dark);
+  border-color: var(--accent-dark);
+}
+
+.header-save-btn:disabled {
+  color: var(--muted);
+  border-color: var(--rule);
+  opacity: 0.55;
+  cursor: default;
+}
+
+@media (max-width: 520px) {
+  .header-save-btn {
+    padding: var(--space-4) var(--space-6);
+  }
+  /* Collapse to an icon-only pill on very narrow screens to protect the title */
+  .header-save-btn #saveBtnLabel {
+    display: none;
+  }
+}
+
+/* ==============================================
+   9. TRANSCRIPT OUTPUT
+=============================================== */
+#output {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: var(--space-11) var(--space-12);
+  word-break: break-word;
+  min-height: 6rem;
+  display: none;
+  margin-bottom: var(--space-11);
+}
+
+#output.visible {
+  display: block;
+  animation: fade-slide-in var(--dur-slow) ease;
+}
+
+@keyframes fade-slide-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #output.visible,
+  #digestOutput.visible {
+    animation: none;
+  }
+}
+
+/* Reimagined error card: one human-classified message, ink-on-paper (no
+   accent hue), with the raw machine log tucked behind a collapsible
+   technical-details disclosure. Shared by the transcript and digest
+   failure flows (renderTranscriptError / renderDigestError). */
+.whisper-progress {
+  border-left: 2px solid var(--rule-strong);
+  padding: var(--space-8) 0 var(--space-8) var(--space-10);
+}
+.whisper-progress .wp-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-6);
+  color: var(--title);
+  font-weight: 700;
+}
+.whisper-progress .wp-elapsed {
+  color: var(--muted);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.whisper-progress .wp-bar {
+  margin-top: var(--space-6);
+  height: 6px;
+  border: 1px solid var(--rule-strong);
+  overflow: hidden;
+}
+.whisper-progress .wp-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--title);
+  transition: width 0.3s linear;
+}
+.whisper-progress .wp-pct {
+  margin-top: var(--space-5);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.error-card {
+  border-left: 2px solid var(--rule-strong);
+  padding: var(--space-8) 0 var(--space-8) var(--space-10);
+}
+
+.error-card-head {
+  color: var(--title);
+  font-weight: 700;
+}
+
+.error-card-hint {
+  color: var(--muted);
+  margin-top: var(--space-5);
+}
+
+.error-card-detail {
+  margin-top: var(--space-9);
+}
+
+.error-card-detail summary {
+  cursor: pointer;
+  color: var(--muted);
+  user-select: none;
+}
+
+.error-card-detail pre {
+  margin-top: var(--space-6);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+
+.error-card-nudge {
+  margin-top: var(--space-9);
+  color: var(--muted);
+}
+
+.error-card-nudge button {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Empty state */
+#output .empty-state {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  color: var(--muted);
+}
+
+#output .empty-state-saved-hint {
+  margin-top: -0.5em;
+  font-size: var(--text-lg);
+}
+
+#output .empty-state-saved-hint a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+/* Next-action nudge (below the status line) */
+.next-action-nudge {
+  /* Hidden by default — [hidden] attribute alone is overridden by display:flex,
+     so we set display:none here and expose via :not([hidden]) below. */
+  display: none;
+  align-items: center;
+  gap: 0.5em;
+  font-size: var(--text-md);
+  color: var(--muted);
+  margin-top: 0.35em;
+}
+
+.next-action-nudge:not([hidden]) {
+  display: flex;
+}
+
+.next-action-nudge a {
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.next-action-nudge button {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: var(--text-lg);
+  line-height: 1;
+  padding: 0 0.2em;
+}
+
+.next-action-nudge button:hover {
+  color: var(--ink);
+}
+
+/* Readable / plain mode: flowing paragraphs in serif */
+#output p {
+  font-family: var(--font-serif);
+  font-size: calc(var(--text-xl) * var(--reading-scale, 1));
+  line-height: 1.72;
+  color: var(--ink);
+  margin-bottom: 1.1em;
+  max-width: var(--reading-measure, 760px);
+}
+
+#output p:last-child {
+  margin-bottom: 0;
+}
+
+/* ==============================================
+   10. TIMECODED MODE — GUTTER LAYOUT
+=============================================== */
+.ts-line {
+  display: flex;
+  align-items: baseline;
+  line-height: 1.65;
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid transparent; /* keeps rhythm even without visible border */
+}
+
+.ts-badge {
+  flex-shrink: 0;
+  width: 68px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--accent);
+  text-align: right;
+  padding-right: var(--space-8);
+  border-right: 1px solid var(--rule);
+  letter-spacing: 0.01em;
+  /* override any lingering inline-block display */
+  display: inline-block;
+}
+
+.ts-text {
+  flex: 1;
+  font-family: var(--font-serif);
+  font-size: calc(var(--text-xl) * var(--reading-scale, 1));
+  color: var(--ink);
+  padding-left: var(--space-8);
+  line-height: 1.65;
+}
+
+/* ==============================================
+   11. DIGEST PANE
+=============================================== */
+
+/* Empty state shown before any digest */
+.digest-empty-state {
+  font-family: var(--font-serif);
+  color: var(--muted);
+  font-size: var(--text-xl);
+  line-height: 1.65;
+  padding: var(--space-13) 0;
+}
+
+.digest-empty-state.is-hidden {
+  display: none;
+}
+
+/* Digest status line */
+#digestStatus {
+  min-height: 1.4em;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--warn);
+  margin-bottom: var(--space-7);
+  letter-spacing: 0.01em;
+}
+
+#digestStatus.info {
+  color: var(--muted);
+}
+
+/* Digest output panel */
+#digestOutput {
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: var(--space-11) var(--space-12);
+  word-break: break-word;
+}
+
+#digestOutput.visible {
+  display: block;
+  animation: fade-slide-in var(--dur-slow) ease;
+}
+
+/* Eyebrow label — injected before markdown content */
+.digest-eyebrow {
+  font-family: var(--font-sans);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: var(--space-9);
+}
+
+/* ==============================================
+   11b. AI READING TYPOGRAPHY (shared)
+   Applies to the rendered-markdown "reading surface" in the Digest
+   lens: the Summary digest. It honors --reading-scale
+   (A-/A+) and --reading-measure (Narrow/Medium/Wide) set by the
+   shared reading controls (see FEATURE A/C, applyReadingStyles()) —
+   one preference drives both the Transcript and Digest lenses.
+=============================================== */
+#digestOutput,
+.qa-answer {
+  font-family: var(--font-serif);
+  line-height: 1.7;
+}
+
+/* Margin collapsing so the rendered block doesn't start/end with a gap */
+#digestOutput > *:first-child,
+.qa-answer > *:first-child {
+  margin-top: 0;
+}
+
+#digestOutput > *:last-child,
+.qa-answer > *:last-child {
+  margin-bottom: 0;
+}
+
+/* Digest headings are the SAME SIZE as the prose they sit above
+   (--text-xl, matching #digestOutput p below). Three levels are still
+   distinguishable without any scale step:
+     h1 — weight 700
+     h2 — weight 700 + a rule beneath it
+     h3 — weight 600 + a `##` marker
+   Each still scales with --reading-scale, so A-/A+ moves the whole
+   document together and the flatness survives at every zoom level. */
+#digestOutput h1, .qa-answer h1 {
+  font-family: var(--font-stack);
+  font-size: calc(var(--text-xl) * var(--reading-scale, 1));
+  font-weight: 700;
+  color: var(--title);
+  line-height: 1.4;
+  max-width: var(--reading-measure, 760px);
+  margin: var(--space-12) 0 var(--space-6);
+}
+
+#digestOutput h2, .qa-answer h2 {
+  font-family: var(--font-stack);
+  font-size: calc(var(--text-xl) * var(--reading-scale, 1));
+  font-weight: 700;
+  color: var(--title);
+  line-height: 1.4;
+  max-width: var(--reading-measure, 760px);
+  margin: var(--space-11) 0 var(--space-5);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--rule);
+}
+
+#digestOutput h3, .qa-answer h3 {
+  font-family: var(--font-stack);
+  font-size: calc(var(--text-xl) * var(--reading-scale, 1));
+  font-weight: 600;
+  color: var(--title);
+  line-height: 1.4;
+  max-width: var(--reading-measure, 760px);
+  margin: var(--space-10) 0 var(--space-4);
+}
+
+/* Decorative marker only — h3 already carries its level via weight.
+   aria-hidden is not available on ::before, but generated content is
+   not exposed by modern screen readers, so the heading text is unaffected. */
+#digestOutput h3::before, .qa-answer h3::before {
+  content: '## ';
+  color: var(--ink-faint);
+  font-weight: 400;
+}
+
+#digestOutput p, .qa-answer p {
+  font-family: var(--font-stack);
+  font-size: calc(var(--text-xl) * var(--reading-scale, 1));
+  line-height: 1.7;
+  color: var(--ink);
+  max-width: var(--reading-measure, 760px);
+  margin: 0 0 var(--space-9);
+}
+
+#digestOutput ul, .qa-answer ul,
+#digestOutput ol, .qa-answer ol {
+  max-width: var(--reading-measure, 760px);
+  padding-left: var(--space-11);
+  margin: 0 0 var(--space-9);
+}
+
+#digestOutput ul ul, .qa-answer ul ul,
+#digestOutput ul ol, .qa-answer ul ol,
+#digestOutput ol ul, .qa-answer ol ul,
+#digestOutput ol ol, .qa-answer ol ol {
+  max-width: none;
+  margin: var(--space-4) 0 var(--space-4);
+}
+
+#digestOutput li, .qa-answer li {
+  font-family: var(--font-serif);
+  font-size: calc(var(--text-xl) * var(--reading-scale, 1));
+  line-height: 1.65;
+  color: var(--ink);
+  margin-bottom: var(--space-4);
+}
+
+#digestOutput li:last-child, .qa-answer li:last-child {
+  margin-bottom: 0;
+}
+
+#digestOutput strong, .qa-answer strong { font-weight: 600; }
+#digestOutput em, .qa-answer em { font-style: italic; }
+
+#digestOutput a, .qa-answer a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+#digestOutput a:hover, .qa-answer a:hover,
+#digestOutput a:focus-visible, .qa-answer a:focus-visible {
+  text-decoration: underline;
+}
+
+#digestOutput blockquote, .qa-answer blockquote {
+  max-width: var(--reading-measure, 760px);
+  margin: 0 0 var(--space-9);
+  padding: var(--space-5) var(--space-9);
+  border-left: 3px solid var(--accent);
+  background: var(--paper);
+  color: var(--muted);
+  /* No italic: the ink bar + --muted already say "quoted", and a whole
+     block of faked oblique mono is hard work to read. */
+}
+
+#digestOutput blockquote p, .qa-answer blockquote p {
+  max-width: none;
+  margin-bottom: 0;
+}
+
+#digestOutput code, .qa-answer code {
+  font-family: var(--font-mono);
+  font-size: calc(0.87em * var(--reading-scale, 1));
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.08em 0.35em;
+}
+
+#digestOutput pre, .qa-answer pre {
+  max-width: var(--reading-measure, 760px);
+  font-family: var(--font-mono);
+  font-size: calc(var(--text-md) * var(--reading-scale, 1));
+  line-height: 1.55;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: var(--space-8) var(--space-9);
+  overflow-x: auto;
+  margin: 0 0 var(--space-9);
+}
+
+#digestOutput pre code, .qa-answer pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+#digestOutput hr, .qa-answer hr {
+  max-width: var(--reading-measure, 760px);
+  border: none;
+  border-top: 1px solid var(--rule);
+  margin: var(--space-11) 0;
+}
+
+/* Per-digest + session usage stats */
+.usage-stats {
+  display: none;
+  margin-top: var(--space-8);
+  padding-top: var(--space-7);
+  border-top: 1px solid var(--rule);
+}
+
+.usage-stats.visible {
+  display: block;
+}
+
+.usage-line {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  line-height: 1.7;
+  letter-spacing: 0.01em;
+}
+
+.usage-line .mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+/* ==============================================
+   12. TOP FIXED INDICATOR
+=============================================== */
+#topIndicator {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-indicator);
+  display: none;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-9);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  box-shadow: 0 2px 16px var(--shadow-indicator);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+  /* Smooth appear/disappear */
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+#topIndicator.visible {
+  display: flex;
+  opacity: 1;
+}
+
+#topIndicator.done {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+#topIndicator.error {
+  color: var(--warn);
+}
+
+/* Pulsing dot inside the indicator (digesting state) */
+.indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .indicator-dot {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* On small screens push indicator to bottom so it doesn't block the URL bar */
+@media (max-width: 520px) {
+  #topIndicator {
+    top: auto;
+    bottom: 1.25rem;
+    font-size: var(--text-xs);
+    padding: var(--space-4) var(--space-8);
+  }
+}
+
+/* ==============================================
+   13. LIBRARY PANE — thumbnail grid ("a collection you browse")
+=============================================== */
+.saved-empty-state {
+  grid-column: 1 / -1;
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  color: var(--muted);
+  padding: var(--space-13) 0;
+}
+
+/* #savedOutput itself is the grid container */
+#savedOutput {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(236px, 1fr));
+  gap: var(--space-10);
+}
+
+.saved-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+
+/* No lift, no shadow: the border alone reports hover. */
+.saved-card:hover {
+  border-color: var(--accent);
+}
+
+.saved-card:focus-visible {
+  border-color: var(--accent);
+  box-shadow: var(--focus);
+}
+
+/* Thumbnail — full card width, sits above the card body */
+.saved-card-thumb-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--paper);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+/* Library card thumbnail — layered over the fallback panel, so a failed
+   load (onerror="this.remove()") or a missing URL reveals the fallback. */
+.saved-card-thumb {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Thumbnails are the one colour Echo does not control. In a zero-hue
+     product they would be the only colour on screen, so they sit
+     desaturated and return to full colour on hover/focus — the image is
+     content, the chrome around it stays hueless. Grounded in
+     joshpuckett.me (grayscale → colour on hover) and zserge.com
+     (images desaturated in dark mode). */
+  filter: grayscale(1) contrast(0.95);
+  transition: filter var(--dur-slow) var(--ease);
+}
+
+.saved-card:hover .saved-card-thumb,
+.saved-card:focus-visible .saved-card-thumb {
+  filter: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .saved-card-thumb { transition: none; }
+}
+
+/* Graceful no-thumbnail panel — a soft branded gradient + play glyph
+   instead of a blank grey box. */
+.saved-card-thumb-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  opacity: 0.55;
+  background: var(--surface-2);
+}
+
+/* Digest badge — sits on the thumbnail like a duration chip */
+.saved-thumb-badge {
+  position: absolute;
+  left: 0.5rem;
+  bottom: 0.5rem;
+  z-index: 3;
+  font-family: var(--font-mono);
+  font-size: var(--text-3xs);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--paper) 76%, transparent);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  border-radius: 5px;
+  padding: var(--space-1) var(--space-4);
+  box-shadow: var(--shadow-badge);
+}
+
+/* Content column below the thumbnail */
+.saved-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-7) var(--space-8) var(--space-7);
+}
+
+.saved-card-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.saved-card-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.saved-card-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.saved-meta-item {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--ink-faint);
+  letter-spacing: 0.01em;
+}
+
+.saved-meta-sep {
+  font-size: var(--text-2xs);
+  color: var(--rule-strong);
+  line-height: 1;
+}
+
+/* Card actions — quiet at rest, revealed on hover/focus (always shown on touch) */
+.saved-delete-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-5);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  outline: none;
+  white-space: nowrap;
+  transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
+}
+
+.saved-delete-btn:hover {
+  color: var(--warn);
+  border-color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.saved-delete-btn:focus-visible {
+  color: var(--warn);
+  border-color: var(--warn);
+  box-shadow: 0 0 0 3px var(--warn-ring);
+}
+
+/* On hover-capable devices, keep secondary actions calm until the card is
+   hovered or focused — this is what removes the "wall of buttons" feel. */
+@media (hover: hover) {
+  .saved-card-actions {
+    opacity: 0;
+    transition: opacity var(--dur);
+  }
+  .saved-card:hover .saved-card-actions,
+  .saved-card:focus-within .saved-card-actions {
+    opacity: 1;
+  }
+}
+
+/* ==============================================
+   14. THEME TOGGLE BUTTON
+=============================================== */
+.theme-toggle {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  cursor: pointer;
+  outline: none;
+}
+
+.theme-toggle:hover {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ==============================================
+   15. THEME TRANSITIONS
+   Applied only when motion is acceptable.
+   Elements with their own transition declarations
+   (buttons, inputs) keep theirs; this rule
+   provides smooth theme-switching for everything
+   that does NOT already declare a transition.
+=============================================== */
+@media (prefers-reduced-motion: no-preference) {
+  html,
+  body,
+  #output,
+  #digestOutput,
+  #topIndicator,
+  .content-header,
+  .tab-bar,
+  .saved-card,
+  .library-btn,
+  .usage-stats,
+  .theme-toggle {
+    transition: background-color var(--dur) ease, color var(--dur) ease, border-color var(--dur) ease,
+                box-shadow var(--dur) ease;
+  }
+}
+
+/* ==============================================
+   16. RESPONSIVE
+=============================================== */
+@media (max-width: 520px) {
+  body {
+    padding: var(--space-12) var(--space-9) var(--space-15);
+  }
+
+  .command-bar {
+    flex-direction: column;
+  }
+
+  #output,
+  #digestOutput {
+    padding: var(--space-9) var(--space-9);
+  }
+
+  .ts-badge {
+    width: 52px;
+    padding-right: var(--space-6);
+  }
+
+  .ts-text {
+    padding-left: var(--space-6);
+  }
+
+  #savedOutput {
+    grid-template-columns: 1fr;
+  }
+
+  .saved-card-body {
+    padding: var(--space-7) var(--space-7) var(--space-7);
+  }
+}
+
+/* Very narrow screens: tighten tab padding */
+@media (max-width: 360px) {
+  .tab-btn {
+    padding: var(--space-4) var(--space-6);
+    font-size: var(--text-xs);
+  }
+}
+
+/* ==============================================
+   17. MINI BUTTONS & ACTION ROW
+=============================================== */
+.mini-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-h);
+  padding: 0 var(--space-7);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  outline: none;
+  transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
+}
+
+.mini-btn:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.mini-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.mini-btn:disabled {
+  color: var(--muted);
+  border-color: var(--rule);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+  flex-wrap: wrap;
+}
+
+/* ==============================================
+   18. FIND BAR
+=============================================== */
+.find-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-7);
+  flex-wrap: wrap;
+}
+
+/* Group: input + counter + Prev/Next stay together as one flex unit */
+.find-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.find-bar-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.find-bar-icon {
+  position: absolute;
+  left: 0.55rem;
+  color: var(--muted);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+
+#findInput {
+  min-height: var(--control-h);
+  padding: 0 var(--space-7) 0 var(--space-12);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  outline: none;
+  width: 100%;       /* fills the input-wrap, which itself is flex: 1 */
+  min-width: 0;
+  transition: border-color var(--dur), box-shadow var(--dur);
+}
+
+#findInput::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+#findInput:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* Remove default browser "x" clear button in search inputs */
+#findInput::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+.find-counter {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  min-width: 4rem;
+  white-space: nowrap;
+}
+
+/* ==============================================
+   18b. HIDE TRANSCRIPT CONTROLS UNTIL LOADED
+   `.has-transcript` is toggled on <body> from
+   updateNowReading() — the single place that tracks
+   whether a video is currently loaded. AI digest / Save
+   stay visible (disabled) so the empty state still shows
+   what the app can do; everything else that only makes
+   sense once text is on screen is hidden until then.
+=============================================== */
+body:not(.has-transcript) .controls-row .view-toggle,
+body:not(.has-transcript) .controls-row .reading-controls,
+body:not(.has-transcript) #langPickerWrap,
+body:not(.has-transcript) #transcriptActionRow,
+body:not(.has-transcript) #findBar {
+  display: none;
+}
+
+/* ==============================================
+   19. TIMECODE LINKS
+=============================================== */
+.ts-badge.ts-link {
+  text-decoration: none;
+  /* inherits color: var(--accent) from .ts-badge */
+}
+
+.ts-badge.ts-link:hover {
+  text-decoration: underline;
+}
+
+.ts-badge.ts-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ==============================================
+   20. FIND HIGHLIGHTS
+=============================================== */
+mark.find-hit {
+  background: var(--find-hit);
+  color: var(--ink);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+mark.find-hit.active {
+  background: var(--find-hit-active);
+  color: var(--ink);
+  outline: 2px solid var(--find-hit-active);
+  outline-offset: 1px;
+}
+
+/* Visually hidden but accessible */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ==============================================
+   22. DIGEST OPTIONS ROW
+=============================================== */
+.digest-opts {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  margin-bottom: var(--space-9);
+  flex-wrap: wrap;
+}
+
+.digest-opt-label {
+  font-family: var(--font-sans);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Reads out what the selected fidelity step does. Takes the whole row so it
+   sits under the dial rather than beside it — flex-basis:100% is the wrap
+   point in .digest-opts's flex-wrap layout. */
+/* Secondary to the paste field: this is the other way in, not an equal one. */
+.local-file-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.local-file-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-family: var(--font-stack);
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.local-file-btn:hover { color: var(--title); }
+.local-file-btn:focus-visible { outline: 2px solid var(--title); outline-offset: 2px; }
+
+.local-file-note {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.digest-fidelity-note {
+  flex-basis: 100%;
+  margin: calc(var(--space-3) * -1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* Mini segmented toggle — mirrors .view-toggle at a smaller scale */
+.digest-seg {
+  display: inline-flex;
+  align-items: stretch;
+  min-height: var(--control-h);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.digest-seg label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-6);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+
+.digest-seg label:not(:last-child) {
+  border-right: 1px solid var(--rule);
+}
+
+.digest-seg input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.digest-seg label:has(input:checked),
+.digest-seg label.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.digest-seg label:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+#digestLangInput {
+  min-height: var(--control-h);
+  padding: 0 var(--space-6);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  outline: none;
+  width: 105px;
+  transition: border-color var(--dur), box-shadow var(--dur);
+}
+
+#digestLangInput::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+#digestLangInput:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ==============================================
+   28. SAVED TOOLBAR (search + sort + export)
+=============================================== */
+.saved-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  margin-bottom: var(--space-6);
+  flex-wrap: wrap;
+}
+
+.saved-search-wrap {
+  flex: 1;
+  min-width: 130px;
+}
+
+#savedSearchInput {
+  width: 100%;
+  padding: var(--space-4) var(--space-7);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  outline: none;
+  transition: border-color var(--dur), box-shadow var(--dur);
+}
+
+#savedSearchInput::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+#savedSearchInput:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+#savedSearchInput::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+#savedSortSelect {
+  padding: var(--space-4) var(--space-6);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--dur), box-shadow var(--dur);
+  max-width: 150px;
+}
+
+#savedSortSelect:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.saved-result-count {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--ink-faint);
+  margin-bottom: var(--space-4);
+  min-height: 1.1em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.saved-status-msg {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--muted);
+  margin-bottom: var(--space-4);
+  min-height: 1.1em;
+}
+
+.saved-status-msg.error {
+  color: var(--warn);
+}
+
+/* [hidden] guard: .mini-btn sets `display` via a class in some contexts,
+   which overrides the UA `[hidden]{display:none}` rule. Restore the
+   expected hide behavior. */
+.mini-btn[hidden] {
+  display: none !important;
+}
+
+/* ==============================================
+   28b. SEARCH SNIPPET + SEMANTIC MODE TAG
+=============================================== */
+
+/* Short excerpt shown under a search-result card title */
+.saved-snippet {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  line-height: 1.45;
+  margin: var(--space-2) 0 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ==============================================
+   30. TAG CHIPS + TAG EDITOR
+=============================================== */
+.saved-tags-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-4);
+}
+
+/* Visual wrapper for the two-button tag chip */
+.saved-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  background: var(--accent-soft);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+/* Left part — clicking filters the list */
+.saved-tag-filter {
+  padding: var(--space-1) var(--space-4) var(--space-1) var(--space-5);
+  font-family: var(--font-sans);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: var(--accent);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  outline: none;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.saved-tag-filter:hover {
+  text-decoration: underline;
+}
+
+.saved-tag-filter:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Right part — × removes the tag */
+.saved-tag-remove {
+  padding: var(--space-1) var(--space-4) var(--space-1) var(--space-2);
+  font-size: var(--text-2xs);
+  line-height: 1.4;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  outline: none;
+  transition: color 0.1s;
+}
+
+.saved-tag-remove:hover {
+  color: var(--warn);
+}
+
+.saved-tag-remove:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Dashed + tag affordance */
+.saved-tag-add-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-4);
+  font-family: var(--font-sans);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  border: 1px dashed var(--rule);
+  border-radius: 999px;
+  cursor: pointer;
+  outline: none;
+  white-space: nowrap;
+  transition: color var(--dur-fast), border-color var(--dur-fast);
+}
+
+.saved-tag-add-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.saved-tag-add-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Inline text input that replaces the + button */
+.saved-tag-input {
+  padding: var(--space-1) var(--space-4);
+  font-family: var(--font-sans);
+  font-size: var(--text-2xs);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  outline: none;
+  width: 88px;
+  transition: box-shadow var(--dur-fast);
+}
+
+.saved-tag-input:focus {
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* ==============================================
+   31. CARD ACTIONS ROW
+=============================================== */
+.saved-card-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.saved-export-btn,
+.saved-obsidian-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-6);
+  font-family: var(--font-sans);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  outline: none;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
+}
+
+.saved-export-btn:hover,
+.saved-obsidian-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.saved-export-btn:focus-visible,
+.saved-obsidian-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ==============================================
+   33. READING CONTROLS (font-size + measure)
+=============================================== */
+.reading-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+.reading-scale-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  outline: none;
+  transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
+  white-space: nowrap;
+  letter-spacing: -0.02em;
+}
+
+.reading-scale-btn:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.reading-scale-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.reading-scale-btn:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+
+.reading-measure-seg {
+  display: inline-flex;
+  align-items: stretch;
+  min-height: var(--control-h);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.reading-measure-seg label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-6);
+  font-family: var(--font-sans);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--dur-fast), color var(--dur-fast);
+  white-space: nowrap;
+}
+
+.reading-measure-seg label:not(:last-child) {
+  border-right: 1px solid var(--rule);
+}
+
+.reading-measure-seg input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.reading-measure-seg label:has(input:checked),
+.reading-measure-seg label.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.reading-measure-seg label:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Digest lens toolbar — houses the shared reading controls above the
+   AI sub-panels. Kept slim so it doesn't compete with the sub-nav. */
+.digest-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-8);
+}
+
+.reading-controls-compact {
+  gap: var(--space-2);
+}
+
+.reading-controls-compact .reading-scale-btn {
+  width: 25px;
+  height: 25px;
+  font-size: var(--text-sm);
+}
+
+.reading-controls-compact .reading-measure-seg label {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-2xs);
+}
+
+/* ==============================================
+   35. SHARED POPOVER BASE (used by the enrich toolbar)
+=============================================== */
+.hl-popover {
+  /* Hidden by default — [hidden] attribute alone is overridden by display:flex,
+     so we set display:none here and expose via :not([hidden]) below. */
+  display: none;
+  position: fixed;
+  z-index: var(--z-panel); /* below overlay (19000), above indicator (8000) */
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 20px var(--shadow-indicator);
+  padding: var(--space-5) var(--space-6);
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 160px;
+  max-width: 260px;
+}
+
+/* Show popover when the hidden attribute is absent */
+.hl-popover:not([hidden]) {
+  display: flex;
+}
+
+.hl-popover-actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ==============================================
+   35b. DIGEST SELECTION ENRICH (toolbar + inline cards)
+=============================================== */
+.enrich-toolbar {
+  min-width: unset;
+  max-width: 360px;
+  padding: var(--space-4) var(--space-5);
+}
+
+.enrich-toolbar .mini-btn {
+  font-size: var(--text-xs);
+  padding: var(--space-3) var(--space-5);
+}
+
+/* Result area rendered in place inside the toolbar popover (Verify/Explain/
+   Background). Bounded so a long result stays scrollable rather than growing
+   the popover past a usable size; positionEnrichToolbar() re-anchors the
+   popover above/below the selection whenever this area's height changes. */
+.enrich-toolbar-result {
+  max-height: 320px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-top: var(--space-4);
+  margin-top: var(--space-2);
+  border-top: 1px solid var(--rule);
+}
+
+.enrich-toolbar-result[hidden] {
+  display: none;
+}
+
+.enrich-toolbar-result .enrich-card-text {
+  font-size: var(--text-sm);
+}
+
+.enrich-card {
+  position: relative;
+  margin: var(--space-7) 0;
+  padding: var(--space-7) var(--space-8) var(--space-7) var(--space-9);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  border-left: 3px solid var(--accent);
+}
+
+.enrich-card[data-state="error"] {
+  border-left-color: var(--warn);
+}
+
+.enrich-card-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-5);
+  margin-bottom: var(--space-5);
+}
+
+.enrich-card-label {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  flex: none;
+}
+
+.enrich-card-echo {
+  font-family: var(--font-serif);
+  font-size: var(--text-sm);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.enrich-card-dismiss {
+  flex: none;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  padding: var(--space-1) var(--space-3);
+  line-height: 1;
+  border-radius: 4px;
+}
+
+.enrich-card-dismiss:hover {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.enrich-card-dismiss:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.enrich-card-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.enrich-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--rule);
+  border-top-color: var(--accent);
+  animation: enrich-spin 0.7s linear infinite;
+  flex: none;
+}
+
+@keyframes enrich-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enrich-spinner {
+    animation: none;
+    border-top-color: var(--rule);
+  }
+}
+
+.enrich-card-status {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.enrich-card-text {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  line-height: 1.6;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+.enrich-card-error {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--warn);
+  margin-bottom: var(--space-5);
+}
+
+.enrich-verdict {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--text-3xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: var(--space-2) var(--space-5);
+  border-radius: 999px;
+  margin-bottom: var(--space-5);
+}
+
+.enrich-verdict-supported {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.enrich-verdict-disputed {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.enrich-verdict-unverifiable {
+  background: var(--rule);
+  color: var(--muted);
+}
+
+.enrich-sources {
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--rule);
+}
+
+.enrich-sources-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-3xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+  margin-bottom: var(--space-3);
+}
+
+.enrich-sources-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.enrich-sources-list li {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.enrich-sources-list a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.enrich-sources-list a:hover,
+.enrich-sources-list a:focus-visible {
+  text-decoration: underline;
+}
+
+/* ==============================================
+   36. LOADING SKELETON
+=============================================== */
+@keyframes skeleton-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+.skeleton-block {
+  padding: var(--space-2) 0;
+}
+
+/* The shimmer stays: it is load feedback, not decoration, and it is
+   already hueless (rule -> surface -> rule). */
+.skeleton-line {
+  height: 0.9em;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--rule)    25%,
+    var(--surface) 50%,
+    var(--rule)    75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  margin-bottom: 0.85em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-line {
+    animation: none;
+    background: var(--rule);
+  }
+}
+
+/* ==============================================
+   37. LANGUAGE PICKER
+=============================================== */
+.lang-picker-wrap {
+  /* Hidden by default — [hidden] attribute alone is overridden by display:flex,
+     so we set display:none here and expose via :not([hidden]) below. */
+  display: none;
+  align-items: center;
+  gap: var(--space-5);
+  margin-bottom: var(--space-6);
+  flex-wrap: wrap;
+}
+
+.lang-picker-wrap:not([hidden]) {
+  display: flex;
+}
+
+.lang-picker-label {
+  font-family: var(--font-sans);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.lang-picker-select {
+  padding: var(--space-3) var(--space-6);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--dur), box-shadow var(--dur);
+  max-width: 280px;
+}
+
+.lang-picker-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.lang-picker-status {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.lang-picker-status.error {
+  color: var(--warn);
+  font-style: normal;
+}
+
+/* ==============================================
+   39. KEYBOARD SHORTCUTS OVERLAY
+=============================================== */
+.shortcuts-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  cursor: pointer;
+  outline: none;
+  margin-left: var(--space-4);
+  transition: color var(--dur-fast), border-color var(--dur-fast);
+}
+
+.shortcuts-toggle:hover {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+.shortcuts-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+#shortcutsOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#shortcutsOverlay[hidden] {
+  display: none;
+}
+
+.shortcuts-backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--overlay-backdrop);
+}
+
+.shortcuts-modal {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 40px var(--shadow-indicator);
+  padding: var(--space-11) var(--space-12);
+  max-width: 400px;
+  width: calc(100% - 2rem);
+  z-index: 1;
+  max-height: calc(100vh - 4rem);
+  overflow-y: auto;
+}
+
+.shortcuts-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-9);
+}
+
+.shortcuts-modal-title {
+  font-family: var(--font-sans);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--ink);
+}
+
+.shortcuts-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  outline: none;
+  transition: color 0.1s, border-color 0.1s;
+}
+
+.shortcuts-close-btn:hover {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+.shortcuts-close-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.shortcuts-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.shortcuts-table td {
+  padding: var(--space-4) 0;
+  vertical-align: middle;
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  color: var(--ink);
+  line-height: 1.5;
+  border-bottom: 1px solid var(--rule);
+}
+
+.shortcuts-table tr:last-child td {
+  border-bottom: none;
+}
+
+.shortcuts-table td:first-child {
+  width: 36%;
+  padding-right: var(--space-9);
+  white-space: nowrap;
+}
+
+kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-1) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  color: var(--ink);
+  box-shadow: 0 1px 0 var(--rule);
+  margin: 0 var(--space-1);
+}
+
+/* ==============================================
+   39b. SETTINGS MODAL (web mode BYOK) — reuses
+   .shortcuts-backdrop / .shortcuts-modal / .mini-btn
+   for visual consistency with the shortcuts overlay.
+=============================================== */
+.settings-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  cursor: pointer;
+  outline: none;
+  transition: color var(--dur-fast), border-color var(--dur-fast);
+}
+
+.settings-toggle:hover {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+.settings-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+#settingsOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#settingsOverlay[hidden] {
+  display: none;
+}
+
+#apiKeyInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-4) var(--space-6);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  outline: none;
+  margin: var(--space-4) 0 var(--space-7);
+  transition: border-color var(--dur), box-shadow var(--dur);
+}
+
+#apiKeyInput:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.settings-note {
+  font-family: var(--font-serif);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--muted);
+  margin: 0 0 var(--space-9);
+}
+
+/* Account block in Settings. Reuses the existing settings vocabulary
+   rather than introducing a second button style. */
+.settings-btn {
+  padding: var(--space-4) var(--space-6);
+  border: 1px solid var(--title);
+  border-radius: var(--radius-sm);
+  background: var(--title);
+  color: var(--paper);
+  font-family: var(--font-stack);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-btn.secondary {
+  background: transparent;
+  color: var(--title);
+}
+
+.settings-btn:focus-visible { outline: 2px solid var(--title); outline-offset: 2px; }
+
+.account-actions {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-9);
+}
+
+.settings-rule {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: var(--space-9) 0;
+}
+
+.settings-toggle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 18px;
+  cursor: pointer;
+}
+.settings-toggle-row input[type="checkbox"] {
+  margin-top: 3px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.settings-toggle-text { display: flex; flex-direction: column; gap: 2px; }
+.settings-toggle-title { font-weight: 600; font-size: var(--text-lg); }
+.settings-toggle-row .settings-note { margin: 0; }
+
+.settings-actions {
+  display: flex;
+  gap: var(--space-5);
+  justify-content: flex-end;
+}
+
+.settings-block {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+.settings-block .settings-toggle-title {
+  display: block;
+  margin-bottom: 8px;
+}
+.settings-block input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-4) var(--space-6);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  outline: none;
+  margin: var(--space-4) 0 var(--space-7);
+  transition: border-color var(--dur), box-shadow var(--dur);
+}
+.settings-block input[type="text"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* Whisper transcription settings — selects reuse the same visual
+   treatment as .settings-block input[type="text"] (Plaintext: no new
+   chrome language, just the existing input skin on a <select>). */
+#whisperSettings select {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-4) var(--space-6);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  outline: none;
+  margin: var(--space-4) 0 var(--space-7);
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+#whisperSettings select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+#whisperModelStateText {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.whisper-model-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  margin-top: var(--space-5);
+}
+.whisper-progress {
+  margin-top: var(--space-5);
+}
+.whisper-progress[hidden] {
+  display: none;
+}
+.whisper-progress-track {
+  height: 4px;
+  background: var(--rule);
+  overflow: hidden;
+}
+.whisper-progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--ink);
+  transition: width 0.2s ease;
+}
+
+/* Source badge — shown after a transcript loads, marking whether it came
+   from YouTube captions or an on-device Whisper transcription. */
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  padding: 1px var(--space-5);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.source-badge[hidden] {
+  display: none;
+}
+
+/* ==============================================
+   40. TOAST / BANNER SYSTEM
+=============================================== */
+#toastContainer {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.25rem;
+  z-index: var(--z-toast);   /* above overlay (19000) */
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  max-width: min(380px, calc(100vw - 2.5rem));
+  pointer-events: none;    /* pass clicks through to page */
+}
+
+@media (max-width: 520px) {
+  #toastContainer {
+    left: 1rem;
+    right: 1rem;
+    bottom: 5rem;   /* clear the mobile topIndicator which sits at 1.25rem */
+    max-width: none;
+  }
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-6);
+  padding: var(--space-6) var(--space-7) var(--space-6) var(--space-8);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 20px var(--shadow-indicator);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--ink);
+  animation: toast-in 0.2s ease;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+}
+
+.toast.error   { border-left: 3px solid var(--warn); }
+.toast.warning { border-left: 3px solid var(--warn-amber); }
+.toast.success { border-left: 3px solid var(--accent); }
+.toast.info    { border-left: 3px solid var(--muted); }
+
+.toast-body { flex: 1; min-width: 0; }
+
+.toast-message {
+  font-weight: 500;
+  word-break: break-word;
+}
+
+.toast.error   .toast-message { color: var(--warn); }
+.toast.warning .toast-message { color: var(--warn-amber); }
+.toast.success .toast-message { color: var(--accent); }
+.toast.info    .toast-message { color: var(--muted); }
+
+.toast-hint {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-top: var(--space-2);
+  word-break: break-word;
+}
+
+.toast-dismiss {
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: -0.05rem;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  outline: none;
+  transition: color 0.1s;
+}
+
+.toast-dismiss:hover { color: var(--ink); }
+
+.toast-dismiss:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ==============================================
+   DIGEST PROGRESS — live elapsed timer + large-transcript hint
+   (used by startDigestTimer()/stopDigestTimer() in runDigest)
+=============================================== */
+.digest-progress-msg {
+  margin-right: 0.5em;
+}
+
+.digest-progress-msg.is-large::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 0.45em;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse-dot 1.6s ease-in-out infinite;
+  vertical-align: middle;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .digest-progress-msg.is-large::before {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+.digest-progress-elapsed {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* ==============================================
+   PRINT — Digest export (scoped via body.printing-digest so
+   normal Ctrl+P printing of the app is unaffected)
+=============================================== */
+#digestPrintArea {
+  display: none;
+}
+
+@media print {
+  /* Hide everything fixed-position/outside the container, then hide every
+     top-level container child except the Digest pane, then hide every
+     child of the Digest pane / Summary panel except the print target
+     itself. Written with :not() (rather than an explicit list of things
+     to hide) so newly-added siblings are hidden by default too. */
+  body.printing-digest #topIndicator,
+  body.printing-digest #toastContainer {
+    display: none !important;
+  }
+
+  body.printing-digest .container > *:not(#paneDigest) {
+    display: none !important;
+  }
+
+  body.printing-digest #paneDigest > *:not(#aiPanelSummary) {
+    display: none !important;
+  }
+
+  body.printing-digest #aiPanelSummary > *:not(#digestPrintArea) {
+    display: none !important;
+  }
+
+  body.printing-digest #digestPrintArea {
+    display: block !important;
+    padding: 0;
+    margin: 0;
+  }
+
+  body.printing-digest #digestPrintArea .digest-print-title {
+    font-family: var(--font-sans);
+    font-size: var(--text-3xl);
+    font-weight: 700;
+    margin-bottom: var(--space-2);
+  }
+
+  body.printing-digest #digestPrintArea .digest-print-source {
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    color: #555;
+    margin-bottom: var(--space-9);
+    word-break: break-all;
+  }
+}
+
+/* ==============================================
+   41. FIRST-RUN ONBOARDING CARD (empty-state welcome
+   + web-mode BYOK proactive prompt). Uses a standard
+   surface/rule/radius card look and .mini-btn for actions.
+=============================================== */
+.onboard-card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  padding: var(--space-9) var(--space-14) var(--space-9) var(--space-9);
+  margin-bottom: var(--space-9);
+}
+
+.onboard-card-title {
+  font-family: var(--font-sans);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0 0 var(--space-4);
+}
+
+.onboard-card-text {
+  font-family: var(--font-serif);
+  font-size: var(--text-md);
+  line-height: 1.55;
+  color: var(--muted);
+  margin: 0;
+}
+
+.onboard-dismiss {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: var(--text-md);
+  padding: var(--space-2);
+  line-height: 1;
+  outline: none;
+}
+
+.onboard-dismiss:hover { color: var(--ink); }
+
+.onboard-dismiss:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.onboard-key-note {
+  margin-top: var(--space-7);
+  padding: var(--space-7) var(--space-8) var(--space-7) var(--space-7);
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+}
+
+.onboard-key-note .onboard-card-text {
+  color: var(--ink);
+}
+
+.onboard-key-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-6) var(--space-9);
+  margin-top: var(--space-6);
+}
+
+.onboard-key-link {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.onboard-key-link:hover { color: var(--accent-dark); }
+
+/* ==============================================
+   42. SETTINGS — inline key-validation status
+   (Task 3: BYOK Save button validates before storing)
+=============================================== */
+.settings-key-status {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  min-height: 1.1em;
+  margin: -0.4rem 0 var(--space-6);
+  color: var(--muted);
+}
+
+.settings-key-status.success { color: var(--accent); }
+.settings-key-status.error   { color: var(--warn); }
+
+/* ==============================================
+   43. SITE FOOTER (legal / trust links)
+=============================================== */
+.site-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-5);
+  margin-top: var(--space-14);
+  padding: var(--space-9) 0 var(--space-5);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.site-footer-sep { opacity: 0.6; }
+
+.site-footer-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--muted);
+  text-decoration: underline;
+  cursor: pointer;
+  outline: none;
+}
+
+.site-footer-link:hover { color: var(--ink); }
+
+.site-footer-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* LEGAL OVERLAY — reuses .shortcuts-backdrop / .shortcuts-modal */
+#legalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#legalOverlay[hidden] { display: none; }
+
+.legal-modal-body {
+  font-family: var(--font-serif);
+  font-size: var(--text-md);
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.legal-modal-body p { margin: 0 0 var(--space-8); }
+.legal-modal-body p:last-child { margin-bottom: 0; }

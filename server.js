@@ -110,17 +110,19 @@ app.use(express.json({ limit: '5mb' }));
 // ---------------------------------------------------------------------------
 // Security headers
 // ---------------------------------------------------------------------------
-// The frontend is a single inline public/index.html with inline <script>/
-// <style> blocks (no build step / no nonces), so the CSP below intentionally
-// allows 'unsafe-inline' for script-src and style-src — a known limitation
-// of the inline monolith. It still blocks framing, MIME-sniffing, and
+// The page's script and CSS now live in real files (app.js / app.css /
+// theme-init.js / echo-config.js), so script-src no longer needs
+// 'unsafe-inline' — the single biggest CSP weakness the inline monolith had.
+// style-src still does: a handful of style="" attributes are set from markup
+// and from innerHTML, and removing those is a separate change. It also blocks
+// framing, MIME-sniffing, and
 // restricts network/asset origins to what the app actually uses: self, plus
 // the JSZip CDN for the library ZIP export. The Google Fonts allowances that
 // used to be here went stale when the Plaintext theme dropped webfonts — the
 // app loads no external font, so nothing may.
 const CSP =
   "default-src 'self'; " +
-  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
+  "script-src 'self' https://cdn.jsdelivr.net; " +
   "style-src 'self' 'unsafe-inline'; " +
   "font-src 'self'; " +
   "img-src 'self' data: https://i.ytimg.com https://img.youtube.com; " +
@@ -144,14 +146,16 @@ app.use((_req, res, next) => {
 // memory, rather than re-reading + re-injecting on every request. Trade-off:
 // editing public/index.html during local development requires a server
 // restart to pick up changes (it did not before this change).
-function buildInjectedHtml(rawHtml, mode) {
-  const injected = { mode };
-  const script = `<script>window.__ECHO__=${JSON.stringify(injected)}</script>\n</head>`;
-  return rawHtml.replace('</head>', script);
+// The page's mode flag used to be injected as an inline <script> into the HTML.
+// It is served as a real file instead, because that was the last inline script
+// on the page — and with it gone, the CSP above can refuse inline script
+// outright rather than allowing it for everything.
+function buildConfigScript(mode) {
+  return `window.__ECHO__=${JSON.stringify({ mode })};\n`;
 }
 
 const INDEX_HTML_PATH = join(__dirname, 'public', 'index.html');
-const CACHED_INDEX_HTML = buildInjectedHtml(readFileSync(INDEX_HTML_PATH, 'utf8'), ECHO_MODE);
+const CACHED_INDEX_HTML = readFileSync(INDEX_HTML_PATH, 'utf8');
 
 // The page is a ~316 KB inline monolith that gzips to ~75 KB, and it is already
 // byte-identical on every request (see the boot-time cache above) — so compress
@@ -178,16 +182,39 @@ function acceptsGzip(req) {
   return match[1] === undefined || parseFloat(match[1]) > 0;
 }
 
-app.get('/', (req, res) => {
-  res.set('Content-Type', 'text/html; charset=utf-8');
-  // Caches must key on the encoding — the same URL now has two representations.
-  res.set('Vary', 'Accept-Encoding');
-  if (acceptsGzip(req)) {
-    res.set('Content-Encoding', 'gzip');
-    return res.send(CACHED_INDEX_GZIP);
-  }
-  return res.send(CACHED_INDEX_HTML);
-});
+/**
+ * Serve a boot-time-cached, boot-time-gzipped asset.
+ *
+ * index.html, app.css and app.js are all read once and compressed once, for the
+ * same reason: they are byte-identical on every request, so per-response gzip
+ * would burn CPU to produce the same bytes. The trade-off is the one index.html
+ * always had — editing any of them in dev needs a server restart.
+ *
+ * Registered BEFORE express.static so these win over the on-disk copies, which
+ * would otherwise be served uncompressed.
+ */
+function serveCached(path, contentType, text, gzipped) {
+  app.get(path, (req, res) => {
+    res.set('Content-Type', contentType);
+    res.set('Vary', 'Accept-Encoding');
+    if (acceptsGzip(req)) {
+      res.set('Content-Encoding', 'gzip');
+      return res.send(gzipped);
+    }
+    return res.send(text);
+  });
+}
+
+const APP_CSS = readFileSync(join(__dirname, 'public', 'app.css'), 'utf8');
+const APP_JS = readFileSync(join(__dirname, 'public', 'app.js'), 'utf8');
+const THEME_INIT_JS = readFileSync(join(__dirname, 'public', 'theme-init.js'), 'utf8');
+const CONFIG_JS = buildConfigScript(ECHO_MODE);
+
+serveCached('/', 'text/html; charset=utf-8', CACHED_INDEX_HTML, CACHED_INDEX_GZIP);
+serveCached('/app.css', 'text/css; charset=utf-8', APP_CSS, gzipSync(Buffer.from(APP_CSS, 'utf8'), { level: 9 }));
+serveCached('/app.js', 'text/javascript; charset=utf-8', APP_JS, gzipSync(Buffer.from(APP_JS, 'utf8'), { level: 9 }));
+serveCached('/theme-init.js', 'text/javascript; charset=utf-8', THEME_INIT_JS, gzipSync(Buffer.from(THEME_INIT_JS, 'utf8'), { level: 9 }));
+serveCached('/echo-config.js', 'text/javascript; charset=utf-8', CONFIG_JS, gzipSync(Buffer.from(CONFIG_JS, 'utf8'), { level: 9 }));
 
 // ---------------------------------------------------------------------------
 // Response compression (API JSON + markdown export)
@@ -1475,4 +1502,4 @@ if (isDirectRun) {
   });
 }
 
-export { app, rateLimitHit, buildInjectedHtml, localMediaId, ECHO_MODE, isWeb, isDesktop, ECHO_ERROR_STATUS };
+export { app, rateLimitHit, buildConfigScript, localMediaId, ECHO_MODE, isWeb, isDesktop, ECHO_ERROR_STATUS };

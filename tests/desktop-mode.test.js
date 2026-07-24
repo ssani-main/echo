@@ -102,7 +102,7 @@ test('boots a desktop-mode server instance (ECHO_MODE=desktop) in a child proces
 });
 
 // ---------------------------------------------------------------------------
-// buildInjectedHtml (pure helper) — import server.js in-process, separately,
+// buildConfigScript (pure helper) — import server.js in-process, separately,
 // only to reach the pure function; see web-mode.test.js for the same pattern.
 // Guarded by its own throwaway DB so it doesn't collide with the child
 // process instance above or with other test files' module-cached imports.
@@ -110,14 +110,16 @@ test('boots a desktop-mode server instance (ECHO_MODE=desktop) in a child proces
 
 const HELPER_DB = join(tmpdir(), `echo-test-desktop-helpers-${process.pid}-${Date.now()}.db`);
 process.env.ECHO_DB_PATH = HELPER_DB;
-const { buildInjectedHtml } = await import('../server.js');
+const { buildConfigScript } = await import('../server.js');
 
 const SAMPLE_HTML = '<!DOCTYPE html>\n<html><head><title>t</title></head><body></body></html>';
 
-test('buildInjectedHtml: desktop mode injects mode:"desktop"', () => {
-  const html = buildInjectedHtml(SAMPLE_HTML, 'desktop');
-  assert.match(html, /window\.__ECHO__=/);
-  assert.match(html, /"mode":"desktop"/);
+test('buildConfigScript: desktop mode reports mode:"desktop"', () => {
+  // The mode flag is served as a real file rather than injected inline, which
+  // is what lets the CSP refuse inline script outright.
+  const js = buildConfigScript('desktop');
+  const parsed = JSON.parse(js.replace('window.__ECHO__=', '').replace(/;\s*$/, ''));
+  assert.equal(parsed.mode, 'desktop');
 });
 
 // ---------------------------------------------------------------------------

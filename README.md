@@ -233,7 +233,10 @@ echo/
 │   └── library.db    # SQLite database of saved videos, transcripts, digests, tags
 ├── vendor/whisper/   # prebuilt whisper-cli binaries (linux-x64, win32-x64)
 ├── public/
-│   └── index.html    # the whole UI — one self-contained file, no build step; loads JSZip from CDN for library export
+│   ├── index.html    # markup only (~680 lines)
+│   ├── app.css       # the Plaintext theme, fully tokenised
+│   ├── app.js        # the whole client — a classic script, no build step
+│   └── theme-init.js # sets the theme token before first paint
 ├── package.json
 └── README.md
 ```

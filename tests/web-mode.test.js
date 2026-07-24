@@ -9,7 +9,7 @@ import { rmSync } from 'node:fs';
 const DB = join(tmpdir(), `echo-test-web-mode-${process.pid}-${Date.now()}.db`);
 process.env.ECHO_DB_PATH = DB;
 
-const { rateLimitHit, buildInjectedHtml, ECHO_MODE, isWeb, ECHO_ERROR_STATUS } = await import('../server.js');
+const { rateLimitHit, buildConfigScript, ECHO_MODE, isWeb, ECHO_ERROR_STATUS } = await import('../server.js');
 
 function cleanupDb() {
   for (const suffix of ['', '-wal', '-shm']) {
@@ -77,30 +77,22 @@ test('rateLimitHit: tracks separate keys independently', () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildInjectedHtml — pure HTML-injection builder (Step 1)
+// buildConfigScript — the mode flag, served as a file rather than inlined
 // ---------------------------------------------------------------------------
 
 const SAMPLE_HTML = '<!DOCTYPE html>\n<html><head><title>t</title></head><body></body></html>';
 
-test('buildInjectedHtml: web mode injects mode:"web"', () => {
-  const html = buildInjectedHtml(SAMPLE_HTML, 'web');
-  assert.match(html, /window\.__ECHO__=/);
-  assert.match(html, /"mode":"web"/);
+test('buildConfigScript: reports the mode it is given', () => {
+  for (const mode of ['web', 'local', 'desktop']) {
+    const js = buildConfigScript(mode);
+    const parsed = JSON.parse(js.replace('window.__ECHO__=', '').replace(/;\s*$/, ''));
+    assert.equal(parsed.mode, mode);
+  }
 });
 
-test('buildInjectedHtml: local mode injects mode:"local"', () => {
-  const html = buildInjectedHtml(SAMPLE_HTML, 'local');
-  assert.match(html, /"mode":"local"/);
-});
-
-test('buildInjectedHtml: injected script is placed immediately before </head> and other markup is untouched', () => {
-  const html = buildInjectedHtml(SAMPLE_HTML, 'local');
-  assert.ok(html.includes('<title>t</title>'));
-  assert.ok(html.includes('<body></body></html>'));
-  const scriptIdx = html.indexOf('window.__ECHO__');
-  const headCloseIdx = html.indexOf('</head>');
-  assert.ok(scriptIdx > 0 && headCloseIdx > 0);
-  assert.ok(scriptIdx < headCloseIdx, 'injected script must appear before </head>');
+test('buildConfigScript: JSON-encodes the mode rather than concatenating it', () => {
+  // It is served as JavaScript, so anything unescaped here would be executable.
+  assert.ok(buildConfigScript('web').startsWith('window.__ECHO__={"mode":"web"}'));
 });
 
 // ---------------------------------------------------------------------------
