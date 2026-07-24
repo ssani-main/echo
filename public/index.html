@@ -4597,6 +4597,9 @@
     =============================================== */
     const EchoSync = (() => {
       const CURSOR_KEY = 'echo-sync-cursor';
+      // Bound on how many pages one sync will walk: 20 x 500 = 10k entries,
+      // far past any real library, and it stops a server bug from spinning here.
+      const MAX_PULL_PAGES = 20;
       const TOMBSTONE_KEY = 'echo-sync-deletions';
 
       let enabled = false;      // the server has accounts configured
@@ -4644,23 +4647,34 @@
           }
 
           // --- Pull: everything any other device changed ---
-          const pullUrl = cursor ? `/api/sync/pull?since=${encodeURIComponent(cursor)}` : '/api/sync/pull';
-          const pullRes = await fetch(pullUrl);
-          if (!pullRes.ok) throw new Error((await pullRes.json().catch(() => ({}))).error?.message || 'Sync pull failed');
-          const { entries = [], serverTime } = await pullRes.json();
-
+          // The server pages its response. Keep asking until it says there is
+          // nothing left, or a first sync of a large library would stop after
+          // one page and the cursor would skip the rest for good.
           let applied = 0;
-          for (const remote of entries) {
-            const local = await idbGetEntry(remote.videoId);
-            // Same rule as the server: strictly newer wins, so a pull cannot
-            // clobber an edit made here while the request was in flight.
-            if (local && String(local.updatedAt || '') >= String(remote.updatedAt || '')) continue;
-            if (remote.deleted) { await idbDeleteEntryRow(remote.videoId); applied++; continue; }
-            await idbPutEntry(remote);
-            applied++;
-          }
+          let next = cursor;
+          for (let page = 0; page < MAX_PULL_PAGES; page++) {
+            const pullUrl = next ? `/api/sync/pull?since=${encodeURIComponent(next)}` : '/api/sync/pull';
+            const pullRes = await fetch(pullUrl);
+            if (!pullRes.ok) throw new Error((await pullRes.json().catch(() => ({}))).error?.message || 'Sync pull failed');
+            const { entries = [], serverTime, hasMore } = await pullRes.json();
 
-          if (serverTime) localStorage.setItem(CURSOR_KEY, serverTime);
+            for (const remote of entries) {
+              const local = await idbGetEntry(remote.videoId);
+              // Same rule as the server: strictly newer wins, so a pull cannot
+              // clobber an edit made here while the request was in flight.
+              if (local && String(local.updatedAt || '') >= String(remote.updatedAt || '')) continue;
+              if (remote.deleted) { await idbDeleteEntryRow(remote.videoId); applied++; continue; }
+              await idbPutEntry(remote);
+              applied++;
+            }
+
+            if (serverTime) { localStorage.setItem(CURSOR_KEY, serverTime); }
+            // Stop when the server is done, or if the cursor stopped moving —
+            // without that guard a page whose rows all share one timestamp
+            // would loop forever.
+            if (!hasMore || !serverTime || serverTime === next) break;
+            next = serverTime;
+          }
           if (applied > 0) {
             // Something arrived from another device — refresh what is on screen.
             try { await loadLibrary(); } catch { /* library view may not be mounted */ }

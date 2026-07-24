@@ -156,6 +156,43 @@ test('a delete can be undone by a newer save', () => {
   assert.equal(pullEntries(user.id).entries[0].deleted, false);
 });
 
+// --- Paging ----------------------------------------------------------------
+
+test('a truncated page reports hasMore and a cursor that does not skip the rest', () => {
+  // The bug this guards: pullEntries used to return serverTime = now even when
+  // it had truncated the page. The client stores that as its cursor and asks
+  // for everything AFTER it, so on a first sync of a large library every entry
+  // past the first page was skipped — silently, and permanently.
+  const user = upsertUser({ sub: 'paging-1' });
+  const entries = [];
+  for (let i = 0; i < 600; i++) {
+    const ts = new Date(Date.UTC(2026, 0, 1) + i * 1000).toISOString();
+    entries.push({ videoId: `pg${String(i).padStart(9, '0')}`, title: `V${i}`, updatedAt: ts, savedAt: ts });
+  }
+  pushEntries(user.id, entries);
+
+  const first = pullEntries(user.id);
+  assert.equal(first.entries.length, 500);
+  assert.equal(first.hasMore, true);
+
+  // Following the cursor must reach everything that was held back.
+  const second = pullEntries(user.id, first.serverTime);
+  assert.equal(second.entries.length, 100, 'the remainder must still be reachable');
+  assert.equal(second.hasMore, false);
+
+  const seen = new Set([...first.entries, ...second.entries].map((e) => e.videoId));
+  assert.equal(seen.size, 600, 'every entry must arrive across the pages');
+});
+
+test('a page that is not truncated reports hasMore false and a fresh cursor', () => {
+  const user = upsertUser({ sub: 'paging-2' });
+  pushEntries(user.id, [entry('pgsmall0001', '2026-07-01T00:00:00.000Z')]);
+  const { hasMore, serverTime } = pullEntries(user.id);
+  assert.equal(hasMore, false);
+  // Now, not the last row's timestamp — so later writes are not re-delivered.
+  assert.ok(serverTime > '2026-07-01T00:00:00.000Z');
+});
+
 // --- Isolation -------------------------------------------------------------
 
 test('one account never sees another account\'s library', () => {

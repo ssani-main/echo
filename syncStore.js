@@ -117,7 +117,16 @@ export function pullEntries(userId, since, limit = 500) {
       : { videoId: r.videoId, updatedAt: r.updatedAt, deleted: true };
   });
 
-  return { entries, serverTime: new Date().toISOString() };
+  // The cursor must NOT jump to "now" when the page was truncated: the client
+  // stores it and asks for everything after it next time, so advancing past
+  // rows we never sent loses them permanently and silently. When there is more
+  // to come, the cursor is the last row we actually delivered.
+  const hasMore = rows.length === limit;
+  const serverTime = hasMore && rows.length > 0
+    ? rows[rows.length - 1].updatedAt
+    : new Date().toISOString();
+
+  return { entries, serverTime, hasMore };
 }
 
 /**
