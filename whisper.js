@@ -198,31 +198,108 @@ function runStreaming(cmd, args, { env, signal, timeoutMs, onStderr, lowerPriori
   });
 }
 
-async function runWhisperPipeline(videoId, opts) {
+/**
+ * Resolve the binary + model, or throw the specific reason it could not be.
+ * Shared by both entry points so a YouTube job and a local-file job fail
+ * identically when Whisper isn't set up.
+ */
+function requireWhisper(opts) {
   const resolved = resolveWhisper(opts);
-  if (!resolved) {
-    const binPath = opts.whisperPath || process.env.ECHO_WHISPER || vendoredBin();
-    if (!binPath || !existsSync(binPath)) {
-      const e = new Error('whisper-cli binary not found.');
-      e.echoCode = 'WHISPER_MISSING';
-      e.hint = 'Set ECHO_WHISPER to the whisper-cli binary path.';
-      throw e;
-    }
-    const e = new Error('Whisper model file not found.');
-    e.echoCode = 'WHISPER_MODEL_MISSING';
-    e.hint = 'Set ECHO_WHISPER_MODEL to a ggml model file (e.g. ggml-base-q5_1.bin).';
+  if (resolved) return resolved;
+
+  const binPath = opts.whisperPath || process.env.ECHO_WHISPER || vendoredBin();
+  if (!binPath || !existsSync(binPath)) {
+    const e = new Error('Whisper transcription is not available on this platform.');
+    e.echoCode = 'WHISPER_MISSING';
+    e.hint = 'Echo ships whisper-cli for Linux and Windows on x64. On other platforms, '
+      + 'point ECHO_WHISPER at a whisper-cli binary to enable it.';
     throw e;
   }
-  const { binPath, modelPath } = resolved;
+  // Points at the Settings UI, not the env var: since P2 there IS a model
+  // picker with an on-demand download, and a user who just picked a file has
+  // no reason to learn about ECHO_WHISPER_MODEL to get past this.
+  const e = new Error('No Whisper model downloaded yet.');
+  e.echoCode = 'WHISPER_MODEL_MISSING';
+  e.hint = 'Open Settings → Transcription and download a model (Base is about 60 MB). '
+    + 'Or set ECHO_WHISPER_MODEL to a ggml model file you already have.';
+  throw e;
+}
+
+/** Threads to give whisper-cli. See WHISPER.md for why this is 75% and not all. */
+function whisperThreads(opts) {
+  return opts.threads
+    || Number(process.env.ECHO_WHISPER_THREADS)
+    || Math.max(1, Math.round(os.cpus().length * 0.75));
+}
+
+/**
+ * Transcribe a prepared 16 kHz mono s16le WAV. This is the half of the
+ * pipeline that has nothing to do with where the audio came from — both the
+ * YouTube path and the local-file path converge here, so they cannot drift in
+ * flags, timeout policy, or error mapping.
+ *
+ * @param {string} wavPath
+ * @param {{ binPath: string, modelPath: string, dir: string, durationSec?: number }} ctx
+ * @param {object} opts
+ * @returns {Promise<Array<{text:string, offset:number}>>}
+ */
+async function transcribeWav(wavPath, ctx, opts) {
+  const { binPath, modelPath, dir, durationSec = 0 } = ctx;
+  const whisperLang = opts.whisperLang || 'auto';
+
+  // On Linux the .so libs live beside the binary, so LD_LIBRARY_PATH must
+  // include its dir (harmless on Windows/macOS).
+  const outPrefix = path.join(dir, 'out');
+  const env = {
+    ...process.env,
+    LD_LIBRARY_PATH: [path.dirname(binPath), process.env.LD_LIBRARY_PATH].filter(Boolean).join(':'),
+  };
+
+  // Work is legitimately minutes-long; derive a generous timeout from duration.
+  const derivedMs = Number.isFinite(durationSec) && durationSec > 0
+    ? Math.max(30 * 60_000, Math.ceil(durationSec * 1500) + 60_000)
+    : 60 * 60_000;
+  const timeoutMs = opts.timeoutMs || Number(process.env.ECHO_WHISPER_TIMEOUT_MS) || derivedMs;
+
+  reportProgress(opts, 'transcribe', 0);
+  let lastTr = -1;
+  await runStreaming(binPath, buildWhisperArgs({
+    modelPath,
+    wavPath,
+    whisperLang,
+    threads: whisperThreads(opts),
+    outPrefix,
+    vadModelPath: resolveVadModel(opts),
+  }), {
+    env,
+    signal: opts.signal,
+    timeoutMs,
+    lowerPriority: true,
+    onStderr: (chunk) => {
+      const ms = chunk.match(/progress\s*=\s*(\d+)%/g);
+      if (!ms) return;
+      const pct = Math.min(99, parseInt(/(\d+)%/.exec(ms[ms.length - 1])[1], 10));
+      if (pct > lastTr) { lastTr = pct; reportProgress(opts, 'transcribe', pct); }
+    },
+  });
+  reportProgress(opts, 'transcribe', 100);
+
+  const raw = await fs.readFile(`${outPrefix}.json`, 'utf8');
+  const segments = mapWhisperJson(JSON.parse(raw));
+  if (segments.length === 0) {
+    const e = new Error('Whisper produced an empty transcript.');
+    e.echoCode = 'WHISPER_FAILED';
+    e.hint = 'The audio may be silent or unintelligible.';
+    throw e;
+  }
+  return segments;
+}
+
+async function runWhisperPipeline(videoId, opts) {
+  const { binPath, modelPath } = requireWhisper(opts);
   const ytdlp = opts.ytDlpPath || process.env.ECHO_YTDLP || 'yt-dlp';
   const ffmpeg = opts.ffmpegPath || process.env.ECHO_FFMPEG || null;
   const maxMinutes = opts.maxMinutes || DEFAULT_MAX_MINUTES;
-  // Default to ~75% of logical cores so the machine stays responsive; overridable
-  // via ECHO_WHISPER_THREADS. Using every core pinned the CPU during long runs.
-  const threads = opts.threads
-    || Number(process.env.ECHO_WHISPER_THREADS)
-    || Math.max(1, Math.round(os.cpus().length * 0.75));
-  const whisperLang = opts.whisperLang || 'auto';
   const signal = opts.signal;
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
@@ -274,45 +351,87 @@ async function runWhisperPipeline(videoId, opts) {
     });
     reportProgress(opts, 'download', 100);
 
-    // 3. Transcribe -> <prefix>.json. On Linux the .so libs live beside the binary,
-    //    so LD_LIBRARY_PATH must include its dir (harmless on Windows/macOS).
-    const outPrefix = path.join(dir, 'out');
-    const binDir = path.dirname(binPath);
-    const env = {
-      ...process.env,
-      LD_LIBRARY_PATH: [binDir, process.env.LD_LIBRARY_PATH].filter(Boolean).join(':'),
-    };
-    // Work is legitimately minutes-long; derive a generous timeout from duration.
-    const derivedMs = Number.isFinite(durationSec) && durationSec > 0
-      ? Math.max(30 * 60_000, Math.ceil(durationSec * 1500) + 60_000)
-      : 60 * 60_000;
-    const timeoutMs = opts.timeoutMs || Number(process.env.ECHO_WHISPER_TIMEOUT_MS) || derivedMs;
-    reportProgress(opts, 'transcribe', 0);
-    let lastTr = -1;
-    const vadModelPath = resolveVadModel(opts);
-    await runStreaming(binPath, buildWhisperArgs({
-      modelPath, wavPath, whisperLang, threads, outPrefix, vadModelPath,
-    }), {
-      env, signal, timeoutMs, lowerPriority: true,
-      onStderr: (chunk) => {
-        const ms = chunk.match(/progress\s*=\s*(\d+)%/g);
-        if (!ms) return;
-        const pct = Math.min(99, parseInt(/(\d+)%/.exec(ms[ms.length - 1])[1], 10));
-        if (pct > lastTr) { lastTr = pct; reportProgress(opts, 'transcribe', pct); }
-      },
-    });
-    reportProgress(opts, 'transcribe', 100);
+    // 3-4. Transcribe + map — shared with the local-file path.
+    return await transcribeWav(wavPath, { binPath, modelPath, dir, durationSec }, opts);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
 
-    // 4. Map JSON -> Echo shape.
-    const raw = await fs.readFile(`${outPrefix}.json`, 'utf8');
-    const segments = mapWhisperJson(JSON.parse(raw));
-    if (segments.length === 0) {
-      const e = new Error('Whisper produced an empty transcript.');
-      e.echoCode = 'WHISPER_FAILED';
-      e.hint = 'The audio may be silent or unintelligible.';
+// Audio/video containers ffmpeg will happily decode. Used only to give a
+// friendlier up-front error than a decoder failure three steps later.
+export const LOCAL_MEDIA_EXTENSIONS = new Set([
+  '.mp3', '.m4a', '.aac', '.wav', '.flac', '.ogg', '.oga', '.opus', '.wma',
+  '.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi', '.mpeg', '.mpg', '.ts',
+]);
+
+/**
+ * Transcribe a media file already on disk — a podcast download, a lecture
+ * recording, a meeting capture. Same Whisper stage as the YouTube path; only
+ * the "get me a 16 kHz mono WAV" half differs, and here that is one ffmpeg
+ * call instead of yt-dlp.
+ *
+ * Local/desktop only, like everything else Whisper-shaped: the server never
+ * exposes this in web mode.
+ *
+ * @param {string} filePath - absolute path to the source media
+ * @param {object} [opts] - same shape as transcribeViaWhisper's opts
+ * @returns {Promise<Array<{text:string, offset:number}>>} segments, stamped
+ *   with a non-enumerable `source` of 'whisper' (see mapWhisperJson)
+ */
+export async function transcribeFile(filePath, opts = {}) {
+  const { binPath, modelPath } = requireWhisper(opts);
+  const ffmpeg = opts.ffmpegPath || process.env.ECHO_FFMPEG || 'ffmpeg';
+  const maxMinutes = opts.maxMinutes || DEFAULT_MAX_MINUTES;
+
+  if (!existsSync(filePath)) {
+    const e = new Error(`File not found: ${filePath}`);
+    e.echoCode = 'WHISPER_FAILED';
+    e.hint = 'The uploaded file could not be read.';
+    throw e;
+  }
+
+  // Duration guard, mirroring the yt-dlp probe on the other path. ffprobe ships
+  // with ffmpeg; if it is missing or the file is odd, fall through and let the
+  // derived timeout do the bounding rather than refusing to try.
+  let durationSec = 0;
+  try {
+    const ffprobe = opts.ffprobePath || process.env.ECHO_FFPROBE || 'ffprobe';
+    const { stdout } = await execFileAsync(ffprobe, [
+      '-v', 'error',
+      '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1',
+      filePath,
+    ], { timeout: 30000, signal: opts.signal });
+    durationSec = parseFloat(String(stdout).trim());
+    if (Number.isFinite(durationSec) && durationSec > maxMinutes * 60) {
+      const e = new Error(`Audio is too long (${Math.round(durationSec / 60)} min) for transcription; limit is ${maxMinutes} min.`);
+      e.echoCode = 'WHISPER_AUDIO_TOO_LONG';
+      e.hint = `Whisper transcription is limited to audio under ${maxMinutes} minutes.`;
       throw e;
     }
-    return segments;
+  } catch (err) {
+    if (err.echoCode === 'WHISPER_AUDIO_TOO_LONG') throw err;
+    // ffprobe absent or unhappy — not fatal, the conversion below will report
+    // a real decode failure if the file is genuinely unusable.
+  }
+
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'echo-whisper-file-'));
+  try {
+    // Convert to exactly what whisper.cpp requires: 16 kHz mono s16le PCM.
+    // -vn drops any video stream, so a .mp4 lecture costs no more than its audio.
+    const wavPath = path.join(dir, 'audio.wav');
+    reportProgress(opts, 'convert', 0);
+    await runStreaming(ffmpeg, [
+      '-nostdin', '-y',
+      '-i', filePath,
+      '-vn',
+      '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le',
+      wavPath,
+    ], { signal: opts.signal, timeoutMs: 15 * 60_000 });
+    reportProgress(opts, 'convert', 100);
+
+    return await transcribeWav(wavPath, { binPath, modelPath, dir, durationSec }, opts);
   } finally {
     await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
   }

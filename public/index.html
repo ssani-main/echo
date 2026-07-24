@@ -1986,6 +1986,35 @@
     /* Reads out what the selected fidelity step does. Takes the whole row so it
        sits under the dial rather than beside it — flex-basis:100% is the wrap
        point in .digest-opts's flex-wrap layout. */
+    /* Secondary to the paste field: this is the other way in, not an equal one. */
+    .local-file-row {
+      display: flex;
+      align-items: baseline;
+      gap: var(--space-4);
+      margin-top: var(--space-4);
+      flex-wrap: wrap;
+    }
+
+    .local-file-btn {
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--muted);
+      font-family: var(--font-stack);
+      font-size: var(--text-sm);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      cursor: pointer;
+    }
+
+    .local-file-btn:hover { color: var(--title); }
+    .local-file-btn:focus-visible { outline: 2px solid var(--title); outline-offset: 2px; }
+
+    .local-file-note {
+      font-size: var(--text-sm);
+      color: var(--muted);
+    }
+
     .digest-fidelity-note {
       flex-basis: 100%;
       margin: calc(var(--space-3) * -1) 0 0;
@@ -3555,6 +3584,16 @@
         autocomplete="off"
         spellcheck="false"
       />
+    </div>
+    <!-- Local media: the same Whisper stage the YouTube path uses, pointed at a
+         file. Local/desktop only — the route is blockInWeb, so the row is
+         hidden in hosted mode rather than offering something that 503s. -->
+    <div class="local-file-row" id="localFileRow" hidden>
+      <input type="file" id="localFileInput" accept="audio/*,video/*" hidden />
+      <button type="button" id="localFileBtn" class="local-file-btn">
+        or open an audio / video file
+      </button>
+      <span class="local-file-note" id="localFileNote"></span>
     </div>
     <script>
       /* Build the hero waveform bars with a deterministic organic stagger. */
@@ -6198,6 +6237,179 @@
     /* ==============================================
        FETCH TRANSCRIPT
     =============================================== */
+    /**
+     * Apply a loaded transcript response to the UI. Shared by the YouTube path
+     * (POST /api/transcript) and the local-file path (POST /api/transcript/file),
+     * which return the same envelope — so everything downstream of "we have
+     * segments" behaves identically no matter where the audio came from.
+     *
+     * @param {object} data - the transcript response envelope
+     */
+    function applyTranscriptResponse(data) {
+      lastSegments    = data.segments;
+      currentSegments = data.segments;
+      const transcriptSource = data.transcriptSource || 'captions';
+      currentMeta     = {
+        videoId: data.videoId, url: data.url, title: data.title,
+        channel: data.channel || null, channelUrl: data.channelUrl || null,
+        transcriptSource, whisperModel: transcriptSource === 'whisper' ? getWhisperModel() : null,
+      };
+      currentDigest   = null;
+      currentSuggestedTags = [];
+      // The server reports which caption track was actually loaded (not
+      // just the language that was requested) — the picker uses this to
+      // pre-select the right option instead of falling back to whatever
+      // sorts first alphabetically. See loadLanguageTracks() below.
+      currentLangCode = data.langCode || null;
+      updateNowReading();
+      syncDigestExportRow();
+
+      {
+        const lastSeg      = data.segments[data.segments.length - 1];
+        const durationStr  = lastSeg && typeof lastSeg.offset === 'number'
+          ? formatDurationHuman(lastSeg.offset)
+          : '';
+        setStatus(
+          `Transcript loaded — ${data.segments.length} segments` +
+          (durationStr ? ` · ${durationStr}` : '')
+        );
+      }
+      renderSegments(lastSegments);
+      maybeShowNextActionNudge();
+      markOnboarded(); // a successful fetch means the user is past first-run
+      saveSession();
+
+      // Async: if this video is already saved, enable the export button
+      (function enableExportIfSaved(videoId) {
+        Library.getEntry(videoId)
+          .then(r => r.ok ? r.json() : null)
+          .then(entry => {
+            if (entry && currentMeta && currentMeta.videoId === videoId) {
+              entryExportBtn.disabled = false;
+            }
+          })
+          .catch(() => {});
+      })(data.videoId);
+
+      digestBtn.disabled              = false;
+      saveBtn.disabled                = false;
+      syncSaveButton(); // reflect whether this video is already in the library
+      transcriptCopyBtn.disabled      = false;
+      transcriptDownloadBtn.disabled  = false;
+      syncDigestRegenBtn(); // update label + enable state based on transcript & digest state
+
+      // Async (non-blocking): load caption language tracks for the picker.
+      // Skipped for a local file — there is no YouTube video to list tracks
+      // for, and /api/languages would reject the synthetic id anyway.
+      if (!data.localFile) loadLanguageTracks(data.videoId);
+
+      // Auto-generate the AI digest if enabled (Echo's default behavior).
+      // In web mode, silently skip when no API key is set to avoid popping
+      // the settings modal right after the transcript loads.
+      if (getAutoDigest() && (ECHO.mode !== 'web' || getApiKey())) {
+        Promise.resolve(runDigest()).catch(err => console.error('[echo] auto-digest error:', err));
+      }
+    }
+
+    /* ==============================================
+       LOCAL MEDIA — transcribe a file the user picks
+       Same Whisper stage, same response envelope, same UI afterwards; only the
+       source of the audio differs. Local/desktop only (the route is blockInWeb),
+       and gated further on Whisper actually being usable — offering a file
+       picker that can only fail is worse than not offering one.
+    =============================================== */
+    async function fetchLocalFile(file) {
+      if (!file) return;
+      if (isFetching) return;
+      isFetching = true;
+
+      const noteEl = document.getElementById('localFileNote');
+      const setNote = (text) => { if (noteEl) noteEl.textContent = text; };
+
+      // Same reset the URL path does, so a file load doesn't inherit the
+      // previous video's digest, language picker, or export state.
+      currentDigest = null;
+      digestOutput.innerHTML = '';
+      digestOutput.classList.remove('visible');
+      usageStatsEl.innerHTML = '';
+      digestDot.style.display = 'none';
+      setTopIndicator('idle');
+      switchTab('transcript');
+      currentLangCode = null;
+      outputEl.classList.remove('visible');
+      outputEl.innerHTML = '';
+
+      const jobId = (window.crypto && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : String(Date.now()) + '-' + Math.random().toString(16).slice(2);
+      const stopProgress = startWhisperProgress(jobId);
+
+      setNote(`${file.name} · ${(file.size / (1024 * 1024)).toFixed(1)} MB`);
+      setStatus('Transcribing… (this runs on your machine and can take a few minutes)');
+
+      try {
+        const params = new URLSearchParams({ name: file.name, jobId });
+        const model = getWhisperModel();
+        if (model) params.set('whisperModel', model);
+
+        // The File goes up as the raw body — no multipart, no upload library.
+        const res = await fetch(`/api/transcript/file?${params.toString()}`, {
+          method: 'POST',
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          body: file,
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          renderTranscriptError(data);
+          setNote('');
+          return;
+        }
+
+        applyTranscriptResponse(data);
+      } catch (err) {
+        console.error('[echo] local file transcription error:', err);
+        setStatus('Could not transcribe that file.', true);
+        showToast('error', 'Transcription failed: ' + err.message);
+        outputEl.classList.remove('visible');
+        outputEl.innerHTML = '';
+        setNote('');
+      } finally {
+        if (stopProgress) stopProgress();
+        isFetching = false;
+      }
+    }
+
+    (function initLocalFile() {
+      const row = document.getElementById('localFileRow');
+      const btn = document.getElementById('localFileBtn');
+      const input = document.getElementById('localFileInput');
+      if (!row || !btn || !input) return;
+
+      // Web mode has no Whisper at all — the route 503s there.
+      if (ECHO.mode === 'web') return;
+
+      btn.addEventListener('click', () => input.click());
+      input.addEventListener('change', () => {
+        const file = input.files && input.files[0];
+        // Reset so picking the SAME file twice still fires a change event.
+        input.value = '';
+        fetchLocalFile(file);
+      });
+
+      // Only reveal the row once Whisper can actually run: the binary is
+      // present AND a model is downloaded. Otherwise the picker is a trap that
+      // ends in "download a model first".
+      fetch('/api/whisper/status')
+        .then(r => (r.ok ? r.json() : null))
+        .then(status => {
+          if (!status || !status.binaryPresent) return;
+          const ready = Array.isArray(status.models) && status.models.some(m => m.present);
+          if (ready) row.hidden = false;
+        })
+        .catch(() => { /* status unavailable — leave the row hidden */ });
+    })();
+
     async function fetchTranscript() {
       const url = urlInput.value.trim();
       if (!url) { setStatus('Please enter a YouTube URL or video ID.', true); return; }
@@ -6280,67 +6492,7 @@
           return;
         }
 
-        lastSegments    = data.segments;
-        currentSegments = data.segments;
-        const transcriptSource = data.transcriptSource || 'captions';
-        currentMeta     = {
-          videoId: data.videoId, url: data.url, title: data.title,
-          channel: data.channel || null, channelUrl: data.channelUrl || null,
-          transcriptSource, whisperModel: transcriptSource === 'whisper' ? getWhisperModel() : null,
-        };
-        currentDigest   = null;
-        currentSuggestedTags = [];
-        // The server reports which caption track was actually loaded (not
-        // just the language that was requested) — the picker uses this to
-        // pre-select the right option instead of falling back to whatever
-        // sorts first alphabetically. See loadLanguageTracks() below.
-        currentLangCode = data.langCode || null;
-        updateNowReading();
-        syncDigestExportRow();
-
-        {
-          const lastSeg      = data.segments[data.segments.length - 1];
-          const durationStr  = lastSeg && typeof lastSeg.offset === 'number'
-            ? formatDurationHuman(lastSeg.offset)
-            : '';
-          setStatus(
-            `Transcript loaded — ${data.segments.length} segments` +
-            (durationStr ? ` · ${durationStr}` : '')
-          );
-        }
-        renderSegments(lastSegments);
-        maybeShowNextActionNudge();
-        markOnboarded(); // a successful fetch means the user is past first-run
-        saveSession();
-
-        // Async: if this video is already saved, enable the export button
-        (function enableExportIfSaved(videoId) {
-          Library.getEntry(videoId)
-            .then(r => r.ok ? r.json() : null)
-            .then(entry => {
-              if (entry && currentMeta && currentMeta.videoId === videoId) {
-                entryExportBtn.disabled = false;
-              }
-            })
-            .catch(() => {});
-        })(data.videoId);
-
-        digestBtn.disabled              = false;
-        saveBtn.disabled                = false;
-        syncSaveButton(); // reflect whether this video is already in the library
-        transcriptCopyBtn.disabled      = false;
-        transcriptDownloadBtn.disabled  = false;
-        syncDigestRegenBtn(); // update label + enable state based on transcript & digest state
-
-        // Async (non-blocking): load caption language tracks for the picker
-        loadLanguageTracks(data.videoId);
-
-        // Auto-generate the AI digest if enabled (Echo's default behavior).
-        // In web mode, silently skip when no API key is set to avoid popping
-        // the settings modal right after the transcript loads.
-        if (getAutoDigest() && (ECHO.mode !== 'web' || getApiKey())) {
-          Promise.resolve(runDigest()).catch(err => console.error('[echo] auto-digest error:', err));
-        }
+        applyTranscriptResponse(data);
       } catch (err) {
         console.error('[echo] fetchTranscript network error:', err);
         setStatus('Network error — could not reach the server.', true);

@@ -2,6 +2,9 @@ import express from 'express';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { readFileSync } from 'fs';
+import { writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { gzip, gzipSync } from 'node:zlib';
 import { promisify } from 'node:util';
 import {
@@ -11,7 +14,7 @@ import {
   listCaptionTracks,
 } from './transcript.js';
 import { WHISPER_MODELS, DEFAULT_WHISPER_MODEL, modelCacheDir, downloadState, startModelDownload } from './whisperModel.js';
-import { resolveWhisperBinary } from './whisper.js';
+import { resolveWhisperBinary, transcribeFile, LOCAL_MEDIA_EXTENSIONS } from './whisper.js';
 import {
   listEntries,
   getEntry,
@@ -706,6 +709,125 @@ app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Local media transcription (local/desktop only)
+// ---------------------------------------------------------------------------
+// The same Whisper stage the YouTube path uses, pointed at a file the user
+// supplies: a podcast download, a lecture recording, a meeting capture. This is
+// the one route that isn't about YouTube at all.
+//
+// The body is the raw file bytes rather than multipart/form-data, which is why
+// there is no upload dependency here: the browser can `fetch(url, {body: file})`
+// a File object directly, and express.raw() hands us a Buffer. The filename
+// rides in a query param because a raw body has nowhere else to put it.
+
+// Cap on an uploaded file. Generous — an hour of lecture video is easily 500 MB
+// — but bounded, since this writes to the machine's temp dir.
+const ECHO_MAX_UPLOAD_BYTES = numFromEnv('ECHO_MAX_UPLOAD_BYTES', 2_000_000_000, { min: 1 });
+
+/**
+ * Synthetic, stable id for a local file so it can live in the same library as
+ * YouTube entries without a schema change. Derived from name + size + content
+ * length so re-uploading the same file updates its entry instead of duplicating
+ * it. Shaped to satisfy vault.js's `^[A-Za-z0-9_-]{1,20}$` filename guard.
+ *
+ * @param {string} name
+ * @param {Buffer} buf
+ * @returns {string}
+ */
+function localMediaId(name, buf) {
+  const hash = createHash('sha256')
+    .update(String(name || ''))
+    .update(String(buf.length))
+    // Hash a bounded slice, not the whole file: a 500 MB hash costs seconds and
+    // buys nothing here — name + size + head + tail is plenty to tell two
+    // uploads apart.
+    .update(buf.subarray(0, 1 << 20))
+    .update(buf.subarray(Math.max(0, buf.length - (1 << 20))))
+    .digest('hex');
+  return `file_${hash.slice(0, 14)}`;
+}
+
+app.post(
+  '/api/transcript/file',
+  blockInWeb,
+  express.raw({ type: '*/*', limit: ECHO_MAX_UPLOAD_BYTES }),
+  async (req, res) => {
+    const rawName = typeof req.query.name === 'string' ? req.query.name : '';
+    // Only ever used as a display title and as hash input — never as a path.
+    const displayName = rawName.replace(/[\r\n]+/g, ' ').trim().slice(0, 300) || 'Untitled recording';
+    const ext = (displayName.match(/\.[A-Za-z0-9]+$/) || [''])[0].toLowerCase();
+
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      return sendError(res, 'INTERNAL', 'No file was uploaded.', 'Choose an audio or video file.', 400);
+    }
+    if (ext && !LOCAL_MEDIA_EXTENSIONS.has(ext)) {
+      return sendError(
+        res,
+        'INTERNAL',
+        `Unsupported file type: ${ext}`,
+        'Echo reads audio and video files — mp3, m4a, wav, flac, ogg, mp4, mov, mkv, webm and similar.',
+        400
+      );
+    }
+
+    const ac = new AbortController();
+    let clientGone = false;
+    res.on('close', () => {
+      if (!res.writableEnded) { clientGone = true; ac.abort(); }
+    });
+
+    const jobId = (typeof req.query.jobId === 'string' && req.query.jobId) ? req.query.jobId : null;
+    const onProgress = jobId
+      ? ({ phase, pct }) => setJobProgress(jobId, { phase, pct, status: 'running' })
+      : undefined;
+
+    const t0 = Date.now();
+    const videoId = localMediaId(displayName, req.body);
+    // Written to the OS temp dir under a generated name, never under anything
+    // derived from the upload's own filename.
+    const tmpPath = join(tmpdir(), `echo-upload-${videoId}${ext}`);
+
+    try {
+      await writeFile(tmpPath, req.body);
+      const segments = await transcribeFile(tmpPath, {
+        modelName: typeof req.query.whisperModel === 'string' ? req.query.whisperModel : undefined,
+        signal: ac.signal,
+        onProgress,
+      });
+
+      const chars = segments.reduce((sum, s) => sum + String(s.text || '').length, 0);
+      logEvent('transcript-file', { videoId, chars, bytes: req.body.length, ok: true, ms: Date.now() - t0 });
+      finishJob(jobId, 'done');
+
+      // Same envelope the YouTube path returns, so the frontend renders it with
+      // the same code. `url` is empty: there is nowhere to link back to.
+      return res.json({
+        videoId,
+        url: '',
+        title: displayName.replace(/\.[A-Za-z0-9]+$/, ''),
+        channel: null,
+        channelUrl: null,
+        segments,
+        langCode: segments.langUsed || null,
+        transcriptSource: 'whisper',
+        localFile: true,
+      });
+    } catch (err) {
+      if (clientGone) {
+        logEvent('transcript-file', { videoId, ok: false, err: 'client_aborted', ms: Date.now() - t0 });
+        finishJob(jobId, 'error');
+        return;
+      }
+      logEvent('transcript-file', { videoId, ok: false, err: errLabel(err), ms: Date.now() - t0 });
+      finishJob(jobId, 'error');
+      return sendCaughtError(res, err);
+    } finally {
+      await rm(tmpPath, { force: true }).catch(() => {});
+    }
+  }
+);
+
 // --- Whisper model management (local/desktop only) ---
 app.get('/api/whisper/status', blockInWeb, (req, res) => {
   const binaryPresent = !!resolveWhisperBinary();
@@ -1133,4 +1255,4 @@ if (isDirectRun) {
   });
 }
 
-export { app, rateLimitHit, buildInjectedHtml, ECHO_MODE, isWeb, isDesktop, ECHO_ERROR_STATUS };
+export { app, rateLimitHit, buildInjectedHtml, localMediaId, ECHO_MODE, isWeb, isDesktop, ECHO_ERROR_STATUS };
