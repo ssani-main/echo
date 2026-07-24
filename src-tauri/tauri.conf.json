@@ -56,6 +56,8 @@
       "../markdown.js": "markdown.js",
       "../vault.js": "vault.js",
       "../sanitize.js": "sanitize.js",
+      "../auth.js": "auth.js",
+      "../syncStore.js": "syncStore.js",
       "../usagelog.js": "usagelog.js",
       "../package.json": "package.json",
       "../public": "public",

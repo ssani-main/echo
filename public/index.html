@@ -3038,6 +3038,40 @@
       margin: 0 0 var(--space-9);
     }
 
+    /* Account block in Settings. Reuses the existing settings vocabulary
+       rather than introducing a second button style. */
+    .settings-btn {
+      padding: var(--space-4) var(--space-6);
+      border: 1px solid var(--title);
+      border-radius: var(--radius-sm);
+      background: var(--title);
+      color: var(--paper);
+      font-family: var(--font-stack);
+      font-size: var(--text-sm);
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .settings-btn.secondary {
+      background: transparent;
+      color: var(--title);
+    }
+
+    .settings-btn:focus-visible { outline: 2px solid var(--title); outline-offset: 2px; }
+
+    .account-actions {
+      display: flex;
+      gap: var(--space-4);
+      flex-wrap: wrap;
+      margin-bottom: var(--space-9);
+    }
+
+    .settings-rule {
+      border: 0;
+      border-top: 1px solid var(--rule);
+      margin: var(--space-9) 0;
+    }
+
     .settings-toggle-row {
       display: flex;
       align-items: flex-start;
@@ -3988,6 +4022,31 @@
         <span class="shortcuts-modal-title">Settings</span>
         <button class="shortcuts-close-btn" id="settingsClose" aria-label="Close settings">✕</button>
       </div>
+      <!-- ACCOUNT — hidden unless the server has accounts configured. Sign-in
+           exists for one reason: a library that follows you between devices.
+           It has nothing to do with the API key below, which stays in this
+           browser either way. -->
+      <div id="accountSection" hidden>
+        <span class="digest-opt-label">Account</span>
+        <div id="accountSignedOut">
+          <p class="settings-note">
+            Sign in to keep your saved videos in step across your devices. Your
+            library is stored in this browser; signing in adds a synced copy.
+          </p>
+          <button type="button" id="signInBtn" class="settings-btn">Sign in with Google</button>
+        </div>
+        <div id="accountSignedIn" hidden>
+          <p class="settings-note">
+            Signed in as <strong id="accountEmail"></strong> · <span id="syncStatus">library syncing</span>
+          </p>
+          <div class="account-actions">
+            <button type="button" id="syncNowBtn" class="settings-btn">Sync now</button>
+            <button type="button" id="signOutBtn" class="settings-btn secondary">Sign out</button>
+          </div>
+        </div>
+        <hr class="settings-rule" />
+      </div>
+
       <div id="apiKeySection">
         <label class="digest-opt-label" for="apiKeyInput">Anthropic API key</label>
         <input
@@ -4522,6 +4581,142 @@
       return idbErr('An unexpected error occurred.', 500);
     }
 
+    /* ==============================================
+       LIBRARY SYNC (web mode, signed in)
+       The browser's IndexedDB stays the source of truth for reading — the app
+       never waits on the network to show a library. Sync is a background
+       reconciliation on top: push what changed here, pull what changed
+       elsewhere, last write wins by updatedAt.
+
+       Deliberately NOT a CRDT. The conflict this has to survive is one person
+       on two devices, where the later edit is the one they meant. Collaborators
+       would need more; there are none.
+
+       The Anthropic API key is not part of any of this and never leaves this
+       browser — signing in changes where your LIBRARY lives, not your key.
+    =============================================== */
+    const EchoSync = (() => {
+      const CURSOR_KEY = 'echo-sync-cursor';
+      const TOMBSTONE_KEY = 'echo-sync-deletions';
+
+      let enabled = false;      // the server has accounts configured
+      let signedIn = false;
+      let syncing = false;
+      let pending = null;       // coalescing timer
+
+      const readJson = (key, fallback) => {
+        try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
+        catch { return fallback; }
+      };
+      const writeJson = (key, value) => {
+        try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* private mode */ }
+      };
+
+      /** Deleting removes the row, so the intent has to be remembered separately. */
+      function recordDeletion(videoId) {
+        const list = readJson(TOMBSTONE_KEY, []);
+        list.push({ videoId, updatedAt: new Date().toISOString(), deleted: true });
+        writeJson(TOMBSTONE_KEY, list.slice(-500));
+      }
+
+      async function syncNow({ silent = true } = {}) {
+        if (!signedIn || syncing) return { skipped: true };
+        syncing = true;
+        try {
+          const cursor = localStorage.getItem(CURSOR_KEY) || '';
+
+          // --- Push: everything this device changed since the last sync ---
+          const all = await idbGetAllEntries();
+          const changed = all.filter((e) => !cursor || String(e.updatedAt || '') > cursor);
+          const tombstones = readJson(TOMBSTONE_KEY, []);
+          const outgoing = [...changed, ...tombstones];
+
+          if (outgoing.length > 0) {
+            const res = await fetch('/api/sync/push', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ entries: outgoing }),
+            });
+            if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error?.message || 'Sync push failed');
+            // Only clear tombstones once the server has them, or a failed push
+            // would silently drop the deletion for good.
+            writeJson(TOMBSTONE_KEY, []);
+          }
+
+          // --- Pull: everything any other device changed ---
+          const pullUrl = cursor ? `/api/sync/pull?since=${encodeURIComponent(cursor)}` : '/api/sync/pull';
+          const pullRes = await fetch(pullUrl);
+          if (!pullRes.ok) throw new Error((await pullRes.json().catch(() => ({}))).error?.message || 'Sync pull failed');
+          const { entries = [], serverTime } = await pullRes.json();
+
+          let applied = 0;
+          for (const remote of entries) {
+            const local = await idbGetEntry(remote.videoId);
+            // Same rule as the server: strictly newer wins, so a pull cannot
+            // clobber an edit made here while the request was in flight.
+            if (local && String(local.updatedAt || '') >= String(remote.updatedAt || '')) continue;
+            if (remote.deleted) { await idbDeleteEntryRow(remote.videoId); applied++; continue; }
+            await idbPutEntry(remote);
+            applied++;
+          }
+
+          if (serverTime) localStorage.setItem(CURSOR_KEY, serverTime);
+          if (applied > 0) {
+            // Something arrived from another device — refresh what is on screen.
+            try { await loadLibrary(); } catch { /* library view may not be mounted */ }
+          }
+          if (!silent) showToast('success', applied > 0 ? `Synced — ${applied} update${applied === 1 ? '' : 's'}` : 'Library is up to date');
+          return { applied };
+        } catch (err) {
+          console.error('[echo] sync failed:', err);
+          if (!silent) showToast('error', `Sync failed: ${err.message}`);
+          return { error: err };
+        } finally {
+          syncing = false;
+        }
+      }
+
+      /** Coalesce bursts (saving a video touches the library twice). */
+      function schedule() {
+        if (!signedIn) return;
+        clearTimeout(pending);
+        pending = setTimeout(() => syncNow({ silent: true }), 1500);
+      }
+
+      /** Ask the server who we are; returns the account state. */
+      async function refresh() {
+        if (ECHO.mode !== 'web') return { enabled: false, user: null };
+        try {
+          const res = await fetch('/api/auth/me');
+          const body = await res.json();
+          enabled = !!body.enabled;
+          signedIn = !!(body.user && body.user.email);
+          return body;
+        } catch {
+          enabled = false; signedIn = false;
+          return { enabled: false, user: null };
+        }
+      }
+
+      /** Signing out must not leave another account's library in this browser. */
+      function clearLocalSyncState() {
+        try {
+          localStorage.removeItem(CURSOR_KEY);
+          localStorage.removeItem(TOMBSTONE_KEY);
+        } catch { /* private mode */ }
+      }
+
+      return {
+        recordDeletion,
+        schedule,
+        syncNow,
+        refresh,
+        clearLocalSyncState,
+        get signedIn() { return signedIn; },
+        get enabled() { return enabled; },
+      };
+    })();
+
     const IndexedDbLibrary = {
       /** -> meta[], 200 */
       async listEntries() {
@@ -4586,6 +4781,7 @@
           }
 
           await idbPutEntry(entry);
+          EchoSync.schedule();
           return idbJson(idbToMeta(entry), 200);
         } catch (err) { return idbCaughtError(err); }
       },
@@ -4596,6 +4792,11 @@
           const existing = await idbGetEntry(videoId);
           if (!existing) return idbErr('Not found.', 404);
           await idbDeleteEntryRow(videoId);
+          // Record a tombstone before the row is gone. Without one, sync has no
+          // way to know this was deleted rather than never seen, and the next
+          // device to push would resurrect it everywhere.
+          EchoSync.recordDeletion(videoId);
+          EchoSync.schedule();
           return idbJson({ ok: true }, 200);
         } catch (err) { return idbCaughtError(err); }
       },
@@ -4607,6 +4808,7 @@
           if (!existing) return idbErr('Not found.', 404);
           const entry = { ...existing, tags: idbSanitizeTags(tags), updatedAt: new Date().toISOString() };
           await idbPutEntry(entry);
+          EchoSync.schedule();
           return idbJson(entry, 200);
         } catch (err) { return idbCaughtError(err); }
       },
@@ -8583,6 +8785,69 @@
      *    Invalid/network error → do NOT store, show inline error, keep modal open.
      *  - Web mode with an empty field: treat Save as a clear (no validation needed).
      */
+    /* ==============================================
+       ACCOUNT — Google sign-in for library sync (web mode)
+       Only appears when the server has accounts configured; a deployment
+       without them shows nothing and behaves exactly as before.
+    =============================================== */
+    async function renderAccountState() {
+      const section = document.getElementById('accountSection');
+      if (!section || ECHO.mode !== 'web') return;
+
+      const state = await EchoSync.refresh();
+      if (!state.enabled) { section.hidden = true; return; }
+      section.hidden = false;
+
+      const signedIn = !!(state.user && state.user.email);
+      document.getElementById('accountSignedOut').hidden = signedIn;
+      document.getElementById('accountSignedIn').hidden = !signedIn;
+      if (signedIn) document.getElementById('accountEmail').textContent = state.user.email;
+      return state;
+    }
+
+    document.getElementById('signInBtn')?.addEventListener('click', () => {
+      // Full navigation, not fetch: this is an OAuth redirect to Google.
+      window.location.href = '/api/auth/google';
+    });
+
+    document.getElementById('signOutBtn')?.addEventListener('click', async () => {
+      await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+      // Drop the sync cursor too, so signing into a different account on this
+      // browser starts from a clean slate rather than inheriting a cursor that
+      // would skip that account's history.
+      EchoSync.clearLocalSyncState();
+      await renderAccountState();
+      showToast('info', 'Signed out. Your library stays in this browser.');
+    });
+
+    document.getElementById('syncNowBtn')?.addEventListener('click', async () => {
+      const btn = document.getElementById('syncNowBtn');
+      btn.disabled = true;
+      const statusEl = document.getElementById('syncStatus');
+      if (statusEl) statusEl.textContent = 'syncing…';
+      await EchoSync.syncNow({ silent: false });
+      if (statusEl) statusEl.textContent = 'library syncing';
+      btn.disabled = false;
+    });
+
+    // On load: work out the account state, sync if signed in, and report the
+    // outcome of a sign-in redirect we have just come back from.
+    (async function initAccount() {
+      if (ECHO.mode !== 'web') return;
+      const state = await renderAccountState();
+
+      const params = new URLSearchParams(location.search);
+      const signin = params.get('signin');
+      if (signin) {
+        // Clean the flag out of the URL so a refresh does not re-toast.
+        history.replaceState({}, document.title, location.pathname);
+        if (signin === 'ok') showToast('success', 'Signed in — your library will sync across your devices.');
+        else showToast('error', "Sign-in didn't complete. Please try again.");
+      }
+
+      if (state && state.user) EchoSync.syncNow({ silent: true });
+    })();
+
     settingsSaveKeyBtnEl?.addEventListener('click', async () => {
       const v = apiKeyInputEl?.value || '';
 

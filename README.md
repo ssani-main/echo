@@ -184,6 +184,12 @@ docker run -e PORT=3000 -e ECHO_MODE=web -p 3000:3000 echo
 | `ECHO_WHISPER_DEFAULT_MODEL` | `base` | Whisper model used when none is selected (`base` or `small`) |
 | `ECHO_WHISPER_THREADS` | _(75% of cores)_ | Threads for whisper.cpp — lower it to keep the machine responsive |
 | `ECHO_WHISPER_MAX_MINUTES` | `180` | Reject Whisper transcription of audio longer than this |
+| `ECHO_GOOGLE_CLIENT_ID` | _(unset)_ | Google OAuth client ID. Set this, the secret and the session secret to enable accounts + library sync (web mode). Unset = no accounts, no database |
+| `ECHO_GOOGLE_CLIENT_SECRET` | _(unset)_ | Google OAuth client secret |
+| `ECHO_SESSION_SECRET` | _(unset)_ | Signs session cookies. Changing it signs everyone out |
+| `ECHO_PUBLIC_URL` | _(request origin)_ | Public origin, used to build the OAuth redirect URI |
+| `ECHO_SYNC_DB_PATH` | `/data/echo-sync.db` | SQLite file for accounts + synced libraries — the only server-side state |
+| `ECHO_MAX_SYNC_BYTES` | `100000000` | Per-account synced-library size cap |
 | `ECHO_WHISPER_VAD_MODEL` | _(unset)_ | Path to a Silero VAD model. Setting it makes Whisper skip non-speech (faster on audio with pauses); unset = today's behaviour. Opt-in — see [`WHISPER.md`](./WHISPER.md) |
 
 See [`.env.example`](./.env.example) for the common variables with detailed documentation for each; the Whisper knobs above are documented in [`WHISPER.md`](./WHISPER.md). **Node version requirement:** ≥ 22.5 (for `node:sqlite` support).

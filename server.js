@@ -30,6 +30,14 @@ import {
   enrich,
   suggestTags,
 } from './digest.js';
+import {
+  signToken, verifyToken, parseCookies, serializeCookie, randomToken, pkceChallenge,
+  buildGoogleAuthUrl, decodeIdToken, validateIdTokenPayload, exchangeCode,
+  SESSION_COOKIE, OAUTH_COOKIE, SESSION_TTL_MS, OAUTH_TTL_MS,
+} from './auth.js';
+import {
+  openSyncDb, upsertUser, getUser, pullEntries, pushEntries, userBytes, deleteUser,
+} from './syncStore.js';
 import { logEvent, errLabel } from './usagelog.js';
 import { validateApiKey } from './providers.js';
 
@@ -1028,6 +1036,186 @@ app.post('/api/validate-key', webLimit(20, 60_000), async (req, res) => {
   try {
     const result = await validateApiKey(apiKey);
     return res.json(result);
+  } catch (err) {
+    return sendCaughtError(res, err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Accounts + library sync (web mode only, and only when configured)
+// ---------------------------------------------------------------------------
+// Sign in with Google so a library follows you between devices. Everything here
+// is off unless all three env vars below are set, so a deployment that does not
+// want accounts gets exactly today's behaviour and never creates a database.
+//
+// What is NOT here, on purpose: no password storage, no sessions table, no
+// refresh tokens, and no API keys. Signing in does not change where an
+// Anthropic key lives — it stays in the browser and rides per-request in
+// X-Echo-Api-Key, so the promise that the server never sees a key survives
+// accounts intact.
+
+const GOOGLE_CLIENT_ID = process.env.ECHO_GOOGLE_CLIENT_ID || '';
+const GOOGLE_CLIENT_SECRET = process.env.ECHO_GOOGLE_CLIENT_SECRET || '';
+const SESSION_SECRET = process.env.ECHO_SESSION_SECRET || '';
+const SYNC_DB_PATH = process.env.ECHO_SYNC_DB_PATH || '/data/echo-sync.db';
+
+// Public origin, needed to build the OAuth redirect_uri Google will match
+// against its allow-list. Falls back to the request's own origin.
+const PUBLIC_URL = (process.env.ECHO_PUBLIC_URL || '').replace(/\/+$/, '');
+
+const AUTH_ENABLED = Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && SESSION_SECRET);
+
+// Per-user storage ceiling. A synced library is transcripts, which are text but
+// not small; this keeps one account from filling the volume.
+const ECHO_MAX_SYNC_BYTES = numFromEnv('ECHO_MAX_SYNC_BYTES', 100_000_000, { min: 1 });
+
+if (AUTH_ENABLED) openSyncDb(SYNC_DB_PATH);
+
+function redirectUri(req) {
+  const origin = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+  return `${origin}/api/auth/callback`;
+}
+
+/** Blocks a route unless accounts are configured. */
+function requireAuthConfigured(req, res, next) {
+  if (!AUTH_ENABLED) {
+    return sendError(
+      res,
+      'WEB_MODE_UNSUPPORTED',
+      'Accounts are not enabled on this instance.',
+      'Your library is stored in this browser. Set ECHO_GOOGLE_CLIENT_ID, ECHO_GOOGLE_CLIENT_SECRET and ECHO_SESSION_SECRET to enable sign-in.'
+    );
+  }
+  next();
+}
+
+/** The signed-in user id, or null. */
+function sessionUserId(req) {
+  if (!AUTH_ENABLED) return null;
+  const token = parseCookies(req.get('cookie'))[SESSION_COOKIE];
+  const payload = verifyToken(token, SESSION_SECRET);
+  return payload && payload.uid ? String(payload.uid) : null;
+}
+
+/** Guards the sync routes: 401 rather than silently syncing nothing. */
+function requireSession(req, res, next) {
+  const uid = sessionUserId(req);
+  if (!uid) {
+    return sendError(res, 'API_NOT_AUTHED', 'Sign in to sync your library.', 'Sign in with Google to use sync.', 401);
+  }
+  req.echoUserId = uid;
+  next();
+}
+
+app.get('/api/auth/google', requireAuthConfigured, (req, res) => {
+  const state = randomToken();
+  const verifier = randomToken();
+
+  // state + PKCE verifier ride in a short-lived signed cookie rather than in
+  // server memory, so sign-in survives a restart and needs no shared store if
+  // the deployment ever runs more than one machine.
+  const tx = signToken({ state, verifier, exp: Date.now() + OAUTH_TTL_MS }, SESSION_SECRET);
+  res.set('Set-Cookie', serializeCookie(OAUTH_COOKIE, tx, { maxAgeMs: OAUTH_TTL_MS, secure: isWeb }));
+
+  return res.redirect(buildGoogleAuthUrl({
+    clientId: GOOGLE_CLIENT_ID,
+    redirectUri: redirectUri(req),
+    state,
+    codeChallenge: pkceChallenge(verifier),
+  }));
+});
+
+app.get('/api/auth/callback', requireAuthConfigured, async (req, res) => {
+  const fail = (why) => {
+    console.error(`[echo] sign-in failed: ${why}`);
+    // Back to the app with a flag rather than a bare error page — the UI can
+    // say "sign-in didn't complete" in its own voice.
+    res.set('Set-Cookie', serializeCookie(OAUTH_COOKIE, '', { maxAgeMs: 0, secure: isWeb }));
+    return res.redirect('/?signin=failed');
+  };
+
+  const tx = verifyToken(parseCookies(req.get('cookie'))[OAUTH_COOKIE], SESSION_SECRET);
+  if (!tx) return fail('missing or expired transaction cookie');
+  // CSRF: the state we handed Google must be the state coming back.
+  if (!req.query.state || req.query.state !== tx.state) return fail('state mismatch');
+  if (!req.query.code) return fail(`no code (${req.query.error || 'unknown'})`);
+
+  try {
+    const tokens = await exchangeCode({
+      code: String(req.query.code),
+      clientId: GOOGLE_CLIENT_ID,
+      clientSecret: GOOGLE_CLIENT_SECRET,
+      redirectUri: redirectUri(req),
+      codeVerifier: tx.verifier,
+    });
+
+    const payload = decodeIdToken(tokens.id_token);
+    const check = validateIdTokenPayload(payload, GOOGLE_CLIENT_ID);
+    if (!check.ok) return fail(`id token rejected (${check.reason})`);
+
+    const user = upsertUser({ sub: check.sub, email: check.email });
+    const session = signToken({ uid: user.id, exp: Date.now() + SESSION_TTL_MS }, SESSION_SECRET);
+
+    res.set('Set-Cookie', [
+      serializeCookie(SESSION_COOKIE, session, { maxAgeMs: SESSION_TTL_MS, secure: isWeb }),
+      serializeCookie(OAUTH_COOKIE, '', { maxAgeMs: 0, secure: isWeb }),
+    ]);
+    logEvent('signin', { ok: true });
+    return res.redirect('/?signin=ok');
+  } catch (err) {
+    return fail(err.message);
+  }
+});
+
+app.get('/api/auth/me', (req, res) => {
+  if (!AUTH_ENABLED) return res.json({ enabled: false, user: null });
+  const uid = sessionUserId(req);
+  if (!uid) return res.json({ enabled: true, user: null });
+  const user = getUser(uid);
+  return res.json({ enabled: true, user: user ? { email: user.email } : null });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  res.set('Set-Cookie', serializeCookie(SESSION_COOKIE, '', { maxAgeMs: 0, secure: isWeb }));
+  return res.json({ ok: true });
+});
+
+app.delete('/api/auth/account', requireAuthConfigured, requireSession, (req, res) => {
+  // Deleting the account deletes the synced library with it (ON DELETE
+  // CASCADE). The browser's own copy is untouched — this removes what the
+  // server holds, which is the only thing the user is asking about.
+  deleteUser(req.echoUserId);
+  res.set('Set-Cookie', serializeCookie(SESSION_COOKIE, '', { maxAgeMs: 0, secure: isWeb }));
+  return res.json({ ok: true });
+});
+
+app.get('/api/sync/pull', requireAuthConfigured, requireSession, webLimit(60, 60_000), (req, res) => {
+  try {
+    const since = typeof req.query.since === 'string' && req.query.since ? req.query.since : undefined;
+    return res.json(pullEntries(req.echoUserId, since));
+  } catch (err) {
+    return sendCaughtError(res, err);
+  }
+});
+
+app.post('/api/sync/push', requireAuthConfigured, requireSession, webLimit(60, 60_000), (req, res) => {
+  const entries = req.body && req.body.entries;
+  if (!Array.isArray(entries)) {
+    return sendError(res, 'INTERNAL', 'entries must be an array.', '', 400);
+  }
+  try {
+    if (userBytes(req.echoUserId) > ECHO_MAX_SYNC_BYTES) {
+      return sendError(
+        res,
+        'TRANSCRIPT_UNAVAILABLE',
+        'Your synced library has reached this instance\'s storage limit.',
+        'Delete some saved videos, or export and remove older ones.',
+        413
+      );
+    }
+    const result = pushEntries(req.echoUserId, entries);
+    logEvent('sync-push', { applied: result.applied, skipped: result.skipped, ok: true });
+    return res.json({ ...result, serverTime: new Date().toISOString() });
   } catch (err) {
     return sendCaughtError(res, err);
   }

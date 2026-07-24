@@ -84,13 +84,49 @@ nobody's using it, at the cost of a few seconds' latency on the first
 request after idle). Set `min_machines_running = 1` in `fly.toml` if you'd
 rather pay for an always-warm machine and avoid that cold start.
 
-### No volume, no database
+### No volume, no database — unless you turn on accounts
 
-Web mode keeps nothing on the server: the library lives in each visitor's
-IndexedDB, the server-side library routes (`/api/saved*`, `/api/search`,
-`/api/vault/sync`) return 503, and API keys arrive per-request and are never
-written down. So `fly.toml` has no `[mounts]` block and needs none — don't add
-a volume or set `ECHO_DB_PATH` for a hosted deployment.
+By default web mode keeps nothing on the server: the library lives in each
+visitor's IndexedDB, the server-side library routes (`/api/saved*`,
+`/api/search`, `/api/vault/sync`) return 503, and API keys arrive per-request
+and are never written down. So `fly.toml` has no `[mounts]` block and needs
+none — don't add a volume or set `ECHO_DB_PATH`.
+
+**Accounts + library sync** is the one feature that changes this, and it is
+opt-in. Set all three of `ECHO_GOOGLE_CLIENT_ID`, `ECHO_GOOGLE_CLIENT_SECRET`
+and `ECHO_SESSION_SECRET` and Echo will offer "Sign in with Google" so a
+library follows someone between devices. That needs somewhere to keep it:
+
+```bash
+# 1. An OAuth client at https://console.cloud.google.com/apis/credentials
+#    (Web application). Authorised redirect URI:
+#       https://<your-app>.fly.dev/api/auth/callback
+
+# 2. A volume for the one SQLite file
+fly volumes create echo_data --size 1
+
+# 3. In fly.toml, add:
+#    [mounts]
+#      source = "echo_data"
+#      destination = "/data"
+#    and under [env]:
+#      ECHO_PUBLIC_URL = "https://<your-app>.fly.dev"
+#      ECHO_SYNC_DB_PATH = "/data/echo-sync.db"
+
+# 4. The secrets
+fly secrets set ECHO_GOOGLE_CLIENT_ID=... ECHO_GOOGLE_CLIENT_SECRET=... \
+  ECHO_SESSION_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))")
+```
+
+What that database holds is deliberately small: one row per account mapping
+Google's `sub` to an id, and one row per saved video. **No passwords** (Google
+is the only provider), **no sessions table** (sessions are signed cookies), and
+**no API keys** — signing in does not change where an Anthropic key lives. It
+stays in the browser and rides per-request in `X-Echo-Api-Key`, so the promise
+above survives accounts intact.
+
+Leave the three vars unset and none of this exists: no sign-in UI, no database
+file, no volume.
 
 (An earlier build offered server-persisted public digest shares behind
 `ECHO_SHARES`, which is what the volume was for. That feature was removed in
