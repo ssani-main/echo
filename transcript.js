@@ -5,59 +5,22 @@ import { readFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import os from 'os';
 import { resolveWhisper, transcribeViaWhisper, mapWhisperError } from './whisper.js';
+import { createRequire } from 'node:module';
+
+// common/ is CommonJS (the only dialect all four consumers can reach), so it
+// is loaded through createRequire rather than imported directly.
+const require = createRequire(import.meta.url);
+const { extractVideoId } = require('./common/text.js');
 
 const execFileAsync = promisify(execFile);
 
 const YTDLP_JS_RUNTIME = process.env.ECHO_YTDLP_JS_RUNTIME ?? 'node';
 const YTDLP_JS_RUNTIME_ARGS = YTDLP_JS_RUNTIME ? ['--js-runtimes', YTDLP_JS_RUNTIME] : [];
 
-/**
- * Extract an 11-character YouTube video ID from various URL forms,
- * or return the input itself if it already looks like a bare ID.
- * Returns null if nothing valid is found.
- */
-export function extractVideoId(rawUrl) {
-  if (!rawUrl || typeof rawUrl !== 'string') return null;
-  const url = rawUrl.trim();
-
-  // Patterns to try against the full URL string
-  const patterns = [
-    // youtube.com/watch?v=ID  (optional extra params)
-    /[?&]v=([A-Za-z0-9_-]{11})(?:[&\s]|$)/,
-    // youtu.be/ID
-    /youtu\.be\/([A-Za-z0-9_-]{11})(?:[?&\s/]|$)/,
-    // youtube.com/shorts/ID
-    /youtube\.com\/shorts\/([A-Za-z0-9_-]{11})(?:[?&\s/]|$)/,
-    // youtube.com/embed/ID
-    /youtube\.com\/embed\/([A-Za-z0-9_-]{11})(?:[?&\s/]|$)/,
-  ];
-
-  for (const re of patterns) {
-    const m = url.match(re);
-    if (m) return m[1];
-  }
-
-  // Bare 11-char video ID (only valid YouTube ID characters)
-  if (/^[A-Za-z0-9_-]{11}$/.test(url)) return url;
-
-  return null;
-}
-
-/**
- * Extract the playlist ID (the `list=` query param) from a YouTube URL.
- * Returns the playlist ID string, or null if not present.
- */
-export function extractPlaylistId(url) {
-  if (!url || typeof url !== 'string') return null;
-  try {
-    const u = new URL(url.trim());
-    return u.searchParams.get('list') || null;
-  } catch {
-    // Fallback regex for non-standard URL strings
-    const m = url.match(/[?&]list=([A-Za-z0-9_-]+)/);
-    return m ? m[1] : null;
-  }
-}
+// extractVideoId lives in common/text.js: the extension and the Obsidian
+// plugin need the identical function and cannot import server code, so one
+// definition with a parity test beats four copies that drift.
+export { extractVideoId };
 
 /**
  * Decode common HTML entities that appear in transcript text.
@@ -293,15 +256,6 @@ export async function fetchWithRetry(fetcher, videoId, lang, retryDelaysMs = DEF
     }
   }
   throw lastErr;
-}
-
-/**
- * Look up the title of a YouTube video via the oEmbed API (no API key required).
- * Returns the title string, or null on any error (never throws).
- */
-export async function getVideoTitle(videoId) {
-  const meta = await getVideoMeta(videoId);
-  return meta.title;
 }
 
 /**
@@ -599,83 +553,5 @@ export async function fetchTranscript(videoId, opts = {}) {
     e.hint = hint;
     e.detail = detail;
     throw e;
-  }
-}
-
-/**
- * Fetch metadata for a YouTube playlist (or a single video).
- * Uses yt-dlp --flat-playlist so no per-video network requests are made.
- * Returns { playlistTitle, videos: [{ videoId, title }] }.
- *
- * Accepts any of:
- *   - A playlist URL:  https://www.youtube.com/playlist?list=PL...
- *   - A watch URL with list param: https://www.youtube.com/watch?v=...&list=PL...
- *   - A bare playlist ID (will be converted to a playlist URL)
- *
- * Caps the returned video list at 200 entries.
- * On any failure returns { playlistTitle: null, videos: [] } — never throws.
- */
-// Hostnames allowed for the URL handed to yt-dlp. Guards against passing
-// arbitrary/attacker-controlled URLs (SSRF-ish) through to a spawned process.
-const ALLOWED_PLAYLIST_HOSTS = new Set([
-  'youtube.com',
-  'www.youtube.com',
-  'm.youtube.com',
-  'music.youtube.com',
-  'youtu.be',
-]);
-
-export async function extractPlaylist(url) {
-  if (!url || typeof url !== 'string') return { playlistTitle: null, videos: [] };
-
-  // If the caller passes a bare playlist ID, wrap it in a playlist URL.
-  let targetUrl = url.trim();
-  if (!/^https?:\/\//i.test(targetUrl) && !targetUrl.includes('youtube')) {
-    targetUrl = `https://www.youtube.com/playlist?list=${targetUrl}`;
-  }
-
-  // Validate that the final URL handed to yt-dlp actually points at YouTube.
-  let parsed;
-  try {
-    parsed = new URL(targetUrl);
-  } catch {
-    throw new Error('Playlist URL is not a valid URL.');
-  }
-  if (!ALLOWED_PLAYLIST_HOSTS.has(parsed.hostname.toLowerCase())) {
-    throw new Error('Playlist URL must be a YouTube URL.');
-  }
-
-  const MAX_VIDEOS = 200;
-
-  try {
-    const { stdout } = await execFileAsync('yt-dlp', [
-      ...YTDLP_JS_RUNTIME_ARGS,
-      '--flat-playlist',
-      '-J',
-      targetUrl,
-    ], { timeout: 60000 });
-
-    const info = JSON.parse(stdout);
-
-    // Single-video result (yt-dlp returns _type:"video" for non-playlist URLs)
-    if (info._type !== 'playlist') {
-      return {
-        playlistTitle: null,
-        videos: info.id ? [{ videoId: info.id, title: info.title || '' }] : [],
-      };
-    }
-
-    const entries = Array.isArray(info.entries) ? info.entries : [];
-    const videos = entries
-      .slice(0, MAX_VIDEOS)
-      .filter((e) => e && e.id)
-      .map((e) => ({ videoId: e.id, title: e.title || '' }));
-
-    return {
-      playlistTitle: info.title || null,
-      videos,
-    };
-  } catch {
-    return { playlistTitle: null, videos: [] };
   }
 }

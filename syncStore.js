@@ -37,7 +37,12 @@ export function openSyncDb(path) {
       id          TEXT PRIMARY KEY,
       google_sub  TEXT NOT NULL UNIQUE,
       email       TEXT,
-      createdAt   TEXT NOT NULL
+      createdAt   TEXT NOT NULL,
+      -- Bumping this invalidates every session already issued for the account.
+      -- It is the one column that buys back what stateless cookies give up:
+      -- without it a leaked cookie stays valid for its full 30 days and there
+      -- is nothing anyone can do about it. One integer, not a sessions table.
+      tokenVersion INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS entries (
@@ -51,6 +56,18 @@ export function openSyncDb(path) {
 
     CREATE INDEX IF NOT EXISTS entries_by_updated ON entries(userId, updatedAt);
   `);
+
+  // Idempotent migration for databases created before tokenVersion existed.
+  // Mirrors store.js's PRAGMA-check + duplicate-column tolerance.
+  const cols = db.prepare('PRAGMA table_info(users)').all();
+  if (!cols.some((c) => c.name === 'tokenVersion')) {
+    try {
+      db.exec('ALTER TABLE users ADD COLUMN tokenVersion INTEGER NOT NULL DEFAULT 0');
+    } catch (err) {
+      if (!/duplicate column/i.test(err?.message || '')) throw err;
+    }
+  }
+
   return db;
 }
 
@@ -70,24 +87,36 @@ export function closeSyncDb() {
  * @returns {{ id: string, email: string }}
  */
 export function upsertUser({ sub, email }) {
-  const existing = db.prepare('SELECT id, email FROM users WHERE google_sub = ?').get(sub);
+  const existing = db.prepare('SELECT id, email, tokenVersion FROM users WHERE google_sub = ?').get(sub);
   if (existing) {
     // Keep the displayed address current if they changed it at Google.
     if (email && email !== existing.email) {
       db.prepare('UPDATE users SET email = ? WHERE id = ?').run(email, existing.id);
     }
-    return { id: existing.id, email: email || existing.email || '' };
+    return { id: existing.id, email: email || existing.email || '', tokenVersion: existing.tokenVersion || 0 };
   }
   const id = randomUUID();
   db.prepare('INSERT INTO users (id, google_sub, email, createdAt) VALUES (?, ?, ?, ?)')
     .run(id, sub, email || null, new Date().toISOString());
-  return { id, email: email || '' };
+  return { id, email: email || '', tokenVersion: 0 };
 }
 
 /** @returns {{id: string, email: string}|null} */
 export function getUser(userId) {
-  const row = db.prepare('SELECT id, email FROM users WHERE id = ?').get(userId);
-  return row ? { id: row.id, email: row.email || '' } : null;
+  const row = db.prepare('SELECT id, email, tokenVersion FROM users WHERE id = ?').get(userId);
+  return row ? { id: row.id, email: row.email || '', tokenVersion: row.tokenVersion || 0 } : null;
+}
+
+/**
+ * Invalidate every session issued for this account — "sign out everywhere".
+ *
+ * @param {string} userId
+ * @returns {number} the new token version
+ */
+export function bumpTokenVersion(userId) {
+  db.prepare('UPDATE users SET tokenVersion = tokenVersion + 1 WHERE id = ?').run(userId);
+  const row = db.prepare('SELECT tokenVersion FROM users WHERE id = ?').get(userId);
+  return row ? row.tokenVersion : 0;
 }
 
 /**

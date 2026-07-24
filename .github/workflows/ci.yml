@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # node:sqlite needs >=22.5 (package.json engines). 22.x tracks the
+          # same major the Dockerfile pins, so CI and production agree.
+          node-version: '22'
+          cache: npm
+
+      # `npm ci` needs the lockfile to be in step with package.json — which is
+      # itself worth catching, so this is not `npm install`.
+      - run: npm ci
+
+      - run: npm test
+
+  # The suite never spawns the real `claude` CLI or loads the page under CSP
+  # (see CLAUDE.md, "tests miss runtime"), so this job checks the things a unit
+  # test structurally cannot: that every backend module actually parses, and
+  # that the server boots and serves in each of the three modes.
+  boot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      - name: Every backend module parses
+        run: |
+          for f in *.js; do node --check "$f" || exit 1; done
+
+      - name: Server boots and serves in local, desktop and web mode
+        run: |
+          set -e
+          for mode in local desktop web; do
+            ECHO_MODE=$mode ECHO_DB_PATH="/tmp/ci-$mode.db" PORT=8099 node server.js &
+            pid=$!
+            for i in $(seq 1 30); do
+              sleep 0.5
+              if curl -sf http://127.0.0.1:8099/api/health > /tmp/health.json; then break; fi
+            done
+            cat /tmp/health.json
+            grep -q "\"mode\":\"$mode\"" /tmp/health.json || { echo "mode $mode did not report itself"; kill $pid; exit 1; }
+            kill $pid
+            wait $pid 2>/dev/null || true
+          done

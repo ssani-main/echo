@@ -4,75 +4,19 @@
  */
 
 import { safeHttpUrl } from './sanitize.js';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { extractSummary } = require('./common/text.js');
 
 /** Escape double-quotes inside a YAML-quoted scalar. */
 function escapeYamlString(str) {
   return String(str || '').replace(/"/g, '\\"');
 }
 
-/**
- * Pull a short, human-friendly summary out of a digest — prefers a TL;DR
- * section, falls back to the first non-heading paragraph. Pure/deterministic.
- *
- * @param {string} digest
- * @param {number} [maxLen]
- * @returns {string}
- */
-export function extractSummary(digest, maxLen = 240) {
-  const text = String(digest || '').trim();
-  if (!text) return '';
-
-  const lines = text.split('\n');
-  const tldrRe = /^#{1,6}\s*tl;?dr/i;
-  const headingRe = /^#{1,6}\s/;
-
-  let collected = [];
-  const tldrIdx = lines.findIndex((l) => tldrRe.test(l.trim()));
-  if (tldrIdx !== -1) {
-    // Skip the blank line(s) between the heading and its paragraph before
-    // collecting. Breaking on the first blank meant a digest written as
-    // "## TL;DR\n\nThe point." — i.e. ordinary Markdown, and what the model
-    // actually emits — yielded an empty summary, so most vault notes shipped
-    // with no `summary:` frontmatter and the dashboard index lost its blurbs.
-    let i = tldrIdx + 1;
-    while (i < lines.length && !lines[i].trim()) i++;
-    for (; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line.trim()) break;
-      if (headingRe.test(line.trim())) break;
-      collected.push(line);
-    }
-  } else {
-    // Fallback: first non-empty, non-heading paragraph.
-    let started = false;
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!started) {
-        if (!trimmed) continue;
-        if (headingRe.test(trimmed)) continue;
-        started = true;
-        collected.push(line);
-      } else {
-        if (!trimmed) break;
-        if (headingRe.test(trimmed)) break;
-        collected.push(line);
-      }
-    }
-  }
-
-  let summary = collected
-    .join(' ')
-    .replace(/[*_`>#]/g, '')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (summary.length > maxLen) {
-    summary = summary.slice(0, maxLen - 1).trimEnd() + '…';
-  }
-
-  return summary;
-}
+// extractSummary lives in common/text.js — see the note there about the bug
+// that three independent copies of this function shared.
+export { extractSummary };
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',

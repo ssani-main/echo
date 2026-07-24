@@ -223,6 +223,7 @@ echo/
 ├── whisperModel.js   # Whisper model registry + on-demand download/cache
 ├── digest.js         # digest generation (incl. map-reduce), Explain/Background enrich, auto-tagging
 ├── providers.js      # AI provider seam: local `claude` CLI vs Anthropic API (BYOK)
+├── common/text.js    # shared with the page, the extension AND the plugin — one definition
 ├── auth.js           # Google sign-in + stateless signed-cookie sessions (hosted, optional)
 ├── syncStore.js      # accounts + synced libraries — the only server-side state
 ├── store.js          # SQLite library (local/desktop); web mode uses IndexedDB in the browser

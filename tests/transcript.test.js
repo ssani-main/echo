@@ -2,13 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   extractVideoId,
-  extractPlaylistId,
   isMillisecondOffsets,
   fetchWithRetry,
   isPermanentFetchError,
   fetchViaPackage,
   fetchTranscript,
-  extractPlaylist,
   MEMBERS_ONLY_PATTERNS,
 } from '../transcript.js';
 
@@ -64,31 +62,7 @@ test('extractVideoId: invalid input returns null', () => {
 });
 
 // ---------------------------------------------------------------------------
-// extractPlaylistId
 // ---------------------------------------------------------------------------
-
-test('extractPlaylistId: pulls the list= param from a playlist URL', () => {
-  assert.equal(
-    extractPlaylistId('https://www.youtube.com/playlist?list=PLabcdefghij'),
-    'PLabcdefghij'
-  );
-});
-
-test('extractPlaylistId: pulls the list= param from a watch URL with playlist', () => {
-  assert.equal(
-    extractPlaylistId('https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLabcdefghij'),
-    'PLabcdefghij'
-  );
-});
-
-test('extractPlaylistId: returns null when no list param is present', () => {
-  assert.equal(extractPlaylistId('https://www.youtube.com/watch?v=dQw4w9WgXcQ'), null);
-});
-
-test('extractPlaylistId: invalid input returns null', () => {
-  assert.equal(extractPlaylistId(''), null);
-  assert.equal(extractPlaylistId(null), null);
-});
 
 // ---------------------------------------------------------------------------
 // isMillisecondOffsets (offset-unit heuristic)
@@ -399,35 +373,6 @@ test('fetchTranscript: a genuine spawn ENOENT (yt-dlp binary absent) still repor
 // extractPlaylist: allowed-host validation (rejects before any yt-dlp spawn,
 // so these are network-free)
 // ---------------------------------------------------------------------------
-
-test('extractPlaylist: rejects a non-YouTube host', async () => {
-  await assert.rejects(
-    () => extractPlaylist('https://evil.example.com/playlist?list=PLabcdefghij'),
-    /must be a YouTube URL/
-  );
-});
-
-test('extractPlaylist: rejects a YouTube-lookalike host', async () => {
-  await assert.rejects(
-    () => extractPlaylist('https://youtube.com.evil.example.com/playlist?list=PLabcdefghij'),
-    /must be a YouTube URL/
-  );
-});
-
-test('extractPlaylist: rejects an unparsable URL', async () => {
-  // Starts with "https://" and contains "youtube" so it is NOT re-wrapped
-  // into a synthetic playlist URL — it goes straight to URL parsing, which
-  // fails because of the invalid port.
-  await assert.rejects(
-    () => extractPlaylist('https://youtube.com:notaport/playlist?list=x'),
-    /not a valid URL/
-  );
-});
-
-test('extractPlaylist: null/empty input resolves to an empty result without throwing', async () => {
-  assert.deepEqual(await extractPlaylist(null), { playlistTitle: null, videos: [] });
-  assert.deepEqual(await extractPlaylist(''), { playlistTitle: null, videos: [] });
-});
 
 // ---------------------------------------------------------------------------
 // MEMBERS_ONLY_PATTERNS — the classification hinge for the inbox "Membership"

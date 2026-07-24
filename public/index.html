@@ -4042,6 +4042,7 @@
           <div class="account-actions">
             <button type="button" id="syncNowBtn" class="settings-btn">Sync now</button>
             <button type="button" id="signOutBtn" class="settings-btn secondary">Sign out</button>
+            <button type="button" id="signOutAllBtn" class="settings-btn secondary">Sign out everywhere</button>
           </div>
         </div>
         <hr class="settings-rule" />
@@ -4651,6 +4652,7 @@
           // nothing left, or a first sync of a large library would stop after
           // one page and the cursor would skip the rest for good.
           let applied = 0;
+          let overwritten = 0;
           let next = cursor;
           for (let page = 0; page < MAX_PULL_PAGES; page++) {
             const pullUrl = next ? `/api/sync/pull?since=${encodeURIComponent(next)}` : '/api/sync/pull';
@@ -4663,6 +4665,11 @@
               // Same rule as the server: strictly newer wins, so a pull cannot
               // clobber an edit made here while the request was in flight.
               if (local && String(local.updatedAt || '') >= String(remote.updatedAt || '')) continue;
+              // Last-write-wins is right for one person on two devices, but it
+              // is silent: an edit made here can vanish under a newer one from
+              // elsewhere with no trace. Count those so the user is told rather
+              // than left wondering why their tags changed.
+              if (local) overwritten++;
               if (remote.deleted) { await idbDeleteEntryRow(remote.videoId); applied++; continue; }
               await idbPutEntry(remote);
               applied++;
@@ -4679,8 +4686,15 @@
             // Something arrived from another device — refresh what is on screen.
             try { await loadLibrary(); } catch { /* library view may not be mounted */ }
           }
-          if (!silent) showToast('success', applied > 0 ? `Synced — ${applied} update${applied === 1 ? '' : 's'}` : 'Library is up to date');
-          return { applied };
+          // An overwrite is worth reporting even on a background sync: it is the
+          // one outcome where something the user did here was replaced.
+          if (overwritten > 0) {
+            showToast('info',
+              `${overwritten} saved video${overwritten === 1 ? '' : 's'} updated from another device.`);
+          } else if (!silent) {
+            showToast('success', applied > 0 ? `Synced — ${applied} update${applied === 1 ? '' : 's'}` : 'Library is up to date');
+          }
+          return { applied, overwritten };
         } catch (err) {
           console.error('[echo] sync failed:', err);
           if (!silent) showToast('error', `Sync failed: ${err.message}`);
@@ -8832,6 +8846,16 @@
       EchoSync.clearLocalSyncState();
       await renderAccountState();
       showToast('info', 'Signed out. Your library stays in this browser.');
+    });
+
+    document.getElementById('signOutAllBtn')?.addEventListener('click', async () => {
+      // Ends every session for the account, on every device — the escape hatch
+      // for a cookie left on a machine you no longer have.
+      if (!confirm('Sign out of Echo on every device?')) return;
+      await fetch('/api/auth/signout-everywhere', { method: 'POST' }).catch(() => {});
+      EchoSync.clearLocalSyncState();
+      await renderAccountState();
+      showToast('info', 'Signed out everywhere. Your library stays in this browser.');
     });
 
     document.getElementById('syncNowBtn')?.addEventListener('click', async () => {

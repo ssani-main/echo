@@ -1,25 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { estimateTokens, chunkText, chunkSegments, mergeUsage, buildSpawnTarget } from '../digest.js';
+import { chunkText, mergeUsage, buildSpawnTarget } from '../digest.js';
 
-// ---------------------------------------------------------------------------
-// estimateTokens
-// ---------------------------------------------------------------------------
-
-test('estimateTokens: returns 0 for an empty string', () => {
-  assert.equal(estimateTokens(''), 0);
-});
-
-test('estimateTokens: returns a positive integer proportional to length', () => {
-  const short = estimateTokens('abcd'); // 4 chars -> 1 token
-  const long = estimateTokens('abcd'.repeat(1000)); // 4000 chars -> 1000 tokens
-  assert.ok(Number.isInteger(short));
-  assert.ok(short > 0);
-  assert.ok(Number.isInteger(long));
-  assert.ok(long > short);
-  // Roughly proportional: longer text ~1000x the tokens of the short text
-  assert.ok(long >= short * 900);
-});
+// --------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // chunkText
@@ -51,42 +34,7 @@ test('chunkText: very long multi-line text splits into multiple chunks, each wit
   assert.equal(rejoined, original);
 });
 
-// ---------------------------------------------------------------------------
-// chunkSegments
-// ---------------------------------------------------------------------------
-
-test('chunkSegments: splits a large segments array into multiple ordered chunks under budget', () => {
-  const budget = 500;
-  const segments = Array.from({ length: 200 }, (_, i) => ({
-    text: `segment number ${i} with some filler text to bulk it up`,
-    offset: i * 5,
-  }));
-
-  const chunks = chunkSegments(segments, budget);
-
-  assert.ok(Array.isArray(chunks));
-  assert.ok(chunks.length > 1, 'expected multiple chunks');
-  for (const chunk of chunks) {
-    assert.ok(Array.isArray(chunk));
-    const chars = chunk.reduce((sum, seg) => sum + `[${Math.round(seg.offset)}] ${seg.text}\n`.length, 0);
-    assert.ok(chars <= budget || chunk.length === 1, `chunk exceeds budget unexpectedly: ${chars}`);
-  }
-
-  // Order preserved: flatten chunks and compare to the original sequence.
-  const flat = chunks.flat();
-  assert.equal(flat.length, segments.length);
-  for (let i = 0; i < segments.length; i++) {
-    assert.equal(flat[i].text, segments[i].text);
-    assert.equal(flat[i].offset, segments[i].offset);
-  }
-});
-
-test('chunkSegments: small array fits in a single chunk', () => {
-  const segments = [{ text: 'hello', offset: 0 }, { text: 'world', offset: 1 }];
-  const chunks = chunkSegments(segments);
-  assert.equal(chunks.length, 1);
-  assert.deepEqual(chunks[0], segments);
-});
+// --------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // mergeUsage

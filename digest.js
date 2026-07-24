@@ -352,46 +352,6 @@ async function callProvider(prompt, opts = {}) {
 // ---------------------------------------------------------------------------
 
 /**
- * Cheap O(1) token estimator: ~4 chars per token (GPT/Claude rule of thumb).
- *
- * @param {string} text
- * @returns {number} estimated token count
- */
-export function estimateTokens(text) {
-  return Math.ceil(text.length / CHARS_PER_TOKEN);
-}
-
-/**
- * Split a segments array into ordered chunks, each whose timecoded text fits
- * within budgetChars. Segment offsets are preserved exactly — they are global
- * seconds-from-start, so timecoded tools stay accurate across chunk boundaries.
- *
- * @param {Array<{ text: string, offset: number }>} segments
- * @param {number} [budgetChars]
- * @returns {Array<Array<{ text: string, offset: number }>>}
- */
-export function chunkSegments(segments, budgetChars = CHUNK_CONTENT_CHARS) {
-  const chunks = [];
-  let current = [];
-  let currentChars = 0;
-
-  for (const seg of segments) {
-    // Mirror how a timecoded "[seconds] text" prompt line would be formatted.
-    const lineLen = `[${Math.round(seg.offset)}] ${seg.text}\n`.length;
-    if (currentChars + lineLen > budgetChars && current.length > 0) {
-      chunks.push(current);
-      current = [seg];
-      currentChars = lineLen;
-    } else {
-      current.push(seg);
-      currentChars += lineLen;
-    }
-  }
-  if (current.length > 0) chunks.push(current);
-  return chunks;
-}
-
-/**
  * Split plain transcript text into ordered chunks at newline boundaries,
  * each fitting within budgetChars. Used for text-only tools (digest).
  *
@@ -420,14 +380,6 @@ export function chunkText(text, budgetChars = CHUNK_CONTENT_CHARS) {
   return chunks;
 }
 
-/**
- * Score a text chunk's relevance to a question using simple token-overlap.
- * Returns a number in [0, 1]. Used by the ASK retrieval-lite approach.
- *
- * @param {string} chunkContent
- * @param {string} question
- * @returns {number}
- */
 /**
  * Builds an "answer in <language>" instruction. Defaults to English when
  * `language` is absent, blank, or already "english" (case-insensitive) —

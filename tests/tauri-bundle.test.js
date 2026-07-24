@@ -40,7 +40,14 @@ const bundledKeys = new Set(Object.keys(tauriConf.bundle.resources));
 // ins ('node:fs') and npm packages ('express') which don't start with './'.
 // ---------------------------------------------------------------------------
 
-const LOCAL_IMPORT_RE = /(?:from\s+|import\s*\()(['"])(\.\/[^'"]+\.js)\1/g;
+// Matches `from './x.js'`, `import('./x.js')` AND `require('./x.js')`.
+// require() had to be added when common/text.js arrived: it is CommonJS (the
+// only dialect the server, the page, the extension and the Obsidian plugin can
+// all reach), so the server loads it through createRequire — which a
+// static-import-only regex does not see. A module the walk cannot see is a
+// module that silently never reaches the desktop bundle, which is precisely
+// the failure this file exists to prevent.
+const LOCAL_IMPORT_RE = /(?:from\s+|import\s*\(|require\s*\()(['"])(\.\/[^'"]+\.js)\1/g;
 
 /**
  * Walks all local relative imports reachable from entryPath.

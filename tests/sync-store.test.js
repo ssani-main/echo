@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { rmSync } from 'node:fs';
 import {
   openSyncDb, closeSyncDb, upsertUser, getUser,
-  pullEntries, pushEntries, userBytes, deleteUser,
+  pullEntries, pushEntries, userBytes, deleteUser, bumpTokenVersion,
 } from '../syncStore.js';
 
 // ---------------------------------------------------------------------------
@@ -216,6 +216,41 @@ test('two accounts can hold the same videoId independently', () => {
 
   assert.equal(pullEntries(a.id).entries[0].title, 'A copy');
   assert.equal(pullEntries(b.id).entries[0].title, 'B copy');
+});
+
+// --- Session revocation ----------------------------------------------------
+
+test('a new account starts at token version 0', () => {
+  const user = upsertUser({ sub: 'tv-1' });
+  assert.equal(user.tokenVersion, 0);
+  assert.equal(getUser(user.id).tokenVersion, 0);
+});
+
+test('bumping the token version invalidates sessions issued before it', () => {
+  // This is the whole point of the column: a stateless cookie cannot otherwise
+  // be revoked before it expires, so a leaked one would stay valid for 30 days.
+  const user = upsertUser({ sub: 'tv-2' });
+  const next = bumpTokenVersion(user.id);
+  assert.equal(next, 1);
+  assert.equal(getUser(user.id).tokenVersion, 1);
+  // A session minted at version 0 no longer matches, which is what the server
+  // compares on every request.
+  assert.notEqual(0, getUser(user.id).tokenVersion);
+});
+
+test('signing in again after a bump picks up the new version', () => {
+  const user = upsertUser({ sub: 'tv-3' });
+  bumpTokenVersion(user.id);
+  const again = upsertUser({ sub: 'tv-3' });
+  assert.equal(again.tokenVersion, 1, 'a fresh sign-in must mint a session that works');
+});
+
+test('one account\'s revocation does not touch another\'s', () => {
+  const a = upsertUser({ sub: 'tv-a' });
+  const b = upsertUser({ sub: 'tv-b' });
+  bumpTokenVersion(a.id);
+  assert.equal(getUser(a.id).tokenVersion, 1);
+  assert.equal(getUser(b.id).tokenVersion, 0);
 });
 
 // --- Storage hygiene -------------------------------------------------------

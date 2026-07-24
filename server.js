@@ -37,6 +37,7 @@ import {
 } from './auth.js';
 import {
   openSyncDb, upsertUser, getUser, pullEntries, pushEntries, userBytes, deleteUser,
+  bumpTokenVersion,
 } from './syncStore.js';
 import { logEvent, errLabel } from './usagelog.js';
 import { validateApiKey } from './providers.js';
@@ -113,13 +114,15 @@ app.use(express.json({ limit: '5mb' }));
 // <style> blocks (no build step / no nonces), so the CSP below intentionally
 // allows 'unsafe-inline' for script-src and style-src — a known limitation
 // of the inline monolith. It still blocks framing, MIME-sniffing, and
-// restricts network/asset origins to what the app actually uses (self, the
-// JSZip CDN, and Google Fonts).
+// restricts network/asset origins to what the app actually uses: self, plus
+// the JSZip CDN for the library ZIP export. The Google Fonts allowances that
+// used to be here went stale when the Plaintext theme dropped webfonts — the
+// app loads no external font, so nothing may.
 const CSP =
   "default-src 'self'; " +
   "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-  "font-src 'self' https://fonts.gstatic.com; " +
+  "style-src 'self' 'unsafe-inline'; " +
+  "font-src 'self'; " +
   "img-src 'self' data: https://i.ytimg.com https://img.youtube.com; " +
   "connect-src 'self'; " +
   "object-src 'none'; " +
@@ -278,6 +281,11 @@ const ECHO_ERROR_STATUS = {
   WHISPER_MODEL_UNKNOWN:         400,
   WHISPER_MODEL_DOWNLOAD_FAILED: 502,
   WHISPER_MODEL_VERIFY_FAILED:   502,
+  // The model returned something unparseable. 502 because the failure is
+  // upstream, not in the request — and being in this map at all is what stops
+  // it falling through to a generic "unexpected server error".
+  MODEL_BAD_JSON:         502,
+  AUTH_FAILED:            502,
 };
 
 /**
@@ -1089,12 +1097,24 @@ function requireAuthConfigured(req, res, next) {
   next();
 }
 
-/** The signed-in user id, or null. */
+/**
+ * The signed-in user id, or null.
+ *
+ * The signature proves the cookie is ours and unexpired; `tv` then proves it
+ * has not been revoked. Without that second check a stateless session cannot
+ * be ended early — which is the whole cost of having no sessions table, and
+ * one integer buys it back.
+ */
 function sessionUserId(req) {
   if (!AUTH_ENABLED) return null;
   const token = parseCookies(req.get('cookie'))[SESSION_COOKIE];
   const payload = verifyToken(token, SESSION_SECRET);
-  return payload && payload.uid ? String(payload.uid) : null;
+  if (!payload || !payload.uid) return null;
+
+  const user = getUser(String(payload.uid));
+  if (!user) return null;
+  if ((payload.tv || 0) !== (user.tokenVersion || 0)) return null;
+  return user.id;
 }
 
 /** Guards the sync routes: 401 rather than silently syncing nothing. */
@@ -1154,7 +1174,11 @@ app.get('/api/auth/callback', requireAuthConfigured, async (req, res) => {
     if (!check.ok) return fail(`id token rejected (${check.reason})`);
 
     const user = upsertUser({ sub: check.sub, email: check.email });
-    const session = signToken({ uid: user.id, exp: Date.now() + SESSION_TTL_MS }, SESSION_SECRET);
+    const session = signToken({
+      uid: user.id,
+      tv: user.tokenVersion || 0,
+      exp: Date.now() + SESSION_TTL_MS,
+    }, SESSION_SECRET);
 
     res.set('Set-Cookie', [
       serializeCookie(SESSION_COOKIE, session, { maxAgeMs: SESSION_TTL_MS, secure: isWeb }),
@@ -1177,6 +1201,14 @@ app.get('/api/auth/me', (req, res) => {
 
 app.post('/api/auth/logout', (req, res) => {
   res.set('Set-Cookie', serializeCookie(SESSION_COOKIE, '', { maxAgeMs: 0, secure: isWeb }));
+  return res.json({ ok: true });
+});
+
+app.post('/api/auth/signout-everywhere', requireAuthConfigured, requireSession, (req, res) => {
+  // Every session for this account, on every device, stops working now.
+  bumpTokenVersion(req.echoUserId);
+  res.set('Set-Cookie', serializeCookie(SESSION_COOKIE, '', { maxAgeMs: 0, secure: isWeb }));
+  logEvent('signout-all', { ok: true });
   return res.json({ ok: true });
 });
 

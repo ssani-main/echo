@@ -29,7 +29,7 @@ process.env.ECHO_PUBLIC_URL = 'https://echo.test';
 
 const { app } = await import('../server.js');
 const { signToken, SESSION_COOKIE, SESSION_TTL_MS } = await import('../auth.js');
-const { upsertUser } = await import('../syncStore.js');
+const { upsertUser, bumpTokenVersion, getUser } = await import('../syncStore.js');
 
 const server = app.listen(0);
 const base = `http://127.0.0.1:${server.address().port}`;
@@ -44,8 +44,9 @@ test.after(async () => {
 });
 
 /** A session cookie for a user id, as the callback would have set. */
-function sessionCookie(userId) {
-  const token = signToken({ uid: userId, exp: Date.now() + SESSION_TTL_MS }, SECRET);
+function sessionCookie(userId, tokenVersion) {
+  const tv = tokenVersion === undefined ? (getUser(userId)?.tokenVersion || 0) : tokenVersion;
+  const token = signToken({ uid: userId, tv, exp: Date.now() + SESSION_TTL_MS }, SECRET);
   return `${SESSION_COOKIE}=${encodeURIComponent(token)}`;
 }
 
@@ -136,6 +137,36 @@ test('sync refuses an anonymous caller', async () => {
     assert.equal(res.status, 401, `${method} ${path}`);
     assert.equal((await res.json()).error.code, 'API_NOT_AUTHED');
   }
+});
+
+test('sign-out-everywhere invalidates a session already in use elsewhere', async () => {
+  // The scenario: a cookie is on a device you no longer have. Stateless
+  // sessions cannot be revoked by expiry alone, so this is the escape hatch.
+  const user = upsertUser({ sub: 'revoke-me', email: 'revoke@example.com' });
+  const cookie = sessionCookie(user.id);
+
+  const before = await fetch(`${base}/api/auth/me`, { headers: { cookie } });
+  assert.equal((await before.json()).user.email, 'revoke@example.com');
+
+  const out = await fetch(`${base}/api/auth/signout-everywhere`, { method: 'POST', headers: { cookie } });
+  assert.equal(out.status, 200);
+
+  // The SAME cookie must now be worthless.
+  const after = await fetch(`${base}/api/auth/me`, { headers: { cookie } });
+  assert.equal((await after.json()).user, null, 'the old cookie must stop working');
+
+  // And it must not be usable for sync either.
+  const sync = await fetch(`${base}/api/sync/pull`, { headers: { cookie } });
+  assert.equal(sync.status, 401);
+});
+
+test('a session minted at the current version still works after someone else revokes', async () => {
+  const victim = upsertUser({ sub: 'revoke-other' });
+  const bystander = upsertUser({ sub: 'revoke-bystander', email: 'by@example.com' });
+  bumpTokenVersion(victim.id);
+
+  const res = await fetch(`${base}/api/auth/me`, { headers: { cookie: sessionCookie(bystander.id) } });
+  assert.equal((await res.json()).user.email, 'by@example.com');
 });
 
 test('push then pull round-trips a library for a signed-in user', async () => {
