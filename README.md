@@ -50,6 +50,9 @@ You've been there: you find a great video, but you'd rather *read* it than sit t
 | 🤖 | **AI Digest** | Switch to the Digest lens for an AI-generated read: **Digest** (synthesized, reorganized by idea), **Article** (full-fidelity rewrite, nothing dropped), or **Bullets** — plus an output-language picker. Very long transcripts fall back to map-reduce automatically |
 | 🔎 | **Selection-driven enrich** | Select any passage in the Digest to show an ephemeral floating popover with **Explain** and **Background** — both answered from the transcript context plus Claude's own knowledge. Results render inside the popover; dismiss on click-outside, Esc, or new selection—nothing persists |
 | 🎙️ | **Whisper transcription** | No captions? Local speech-to-text via whisper.cpp fills the gap (**Fallback**), or transcribes everything for accuracy (**High-accuracy**). Off by default; configured in Settings with a `base`/`small` model picker and on-demand download. Local/desktop only, needs `ffmpeg` on `PATH` |
+| 🎧 | **Local audio & video** | Not just YouTube — open a podcast download, a lecture recording or a meeting capture and Echo transcribes it with Whisper, then digests it like anything else. Local/desktop, needs `ffmpeg` |
+| 🧩 | **Browser extension** | A **Read in Echo** button on YouTube watch pages, a toolbar button, and a right-click item for links. See [`extension/`](extension/) |
+| 🪨 | **Obsidian plugin** | Paste a link inside Obsidian and get a note — transcript, digest, frontmatter — filed in your vault. See [`obsidian-plugin/`](obsidian-plugin/) |
 | 📑 | **Reader & Library** | Transcript and Digest are lens tabs—two views of the current video. Saved videos open from a **Library** button in the header (with count) |
 | 🟢 | **Live status indicator** | Fixed pill shows "AI is digesting…" → "Digest ready ✓" as it processes; click to jump to the Digest pane |
 | 💾 | **Library & tagging** | Save videos; search by keyword (SQLite FTS5), sort (Recently saved / Title A–Z), tag with auto-suggestions; export whole library as ZIP of Markdown files or JSON backup; sync to Obsidian vault |
@@ -177,6 +180,35 @@ docker run -e PORT=3000 -e ECHO_MODE=web -p 3000:3000 echo
 
 ---
 
+## 🧩 Companions
+
+Both talk to a running Echo over HTTP. Neither holds an API key or does any AI
+of its own — that all stays in Echo, so there is one implementation of the part
+that matters.
+
+### Browser extension (Chrome, Edge, Brave)
+
+Adds **Read in Echo** to YouTube watch pages, plus a toolbar button and a
+right-click item for any YouTube link. Load it unpacked from
+[`extension/`](extension/) — `chrome://extensions` → Developer mode → **Load
+unpacked**. Point it at your Echo in its options if it is not on
+`http://localhost:8000`.
+
+### Obsidian plugin
+
+Two commands — read a URL, or read the YouTube link in your selection — and a
+note lands in your vault with the transcript, the digest, and frontmatter
+(`title`, `url`, `videoId`, `channel`, `tags`, `summary`). Copy
+`manifest.json`, `main.js` and `styles.css` from
+[`obsidian-plugin/`](obsidian-plugin/) into
+`<vault>/.obsidian/plugins/echo-reader/`.
+
+Note format and filename match `/api/vault/sync` exactly, so a vault fed by both
+the plugin and folder-sync gets one consistent set of notes rather than two.
+
+⚠️ The plugin has not yet been run inside Obsidian by its author — the logic is
+covered by tests, the app integration is not. See its README.
+
 ## ⚙️ Environment variables
 
 | Variable | Default | Purpose |
@@ -206,7 +238,7 @@ See [`.env.example`](./.env.example) for the common variables with detailed docu
 
 ## 🕹️ How to use
 
-1. **Paste** a YouTube URL, optionally pick a caption language, and hit **Get transcript** — it lands in the **Transcript** tab.
+1. **Paste** a YouTube URL, optionally pick a caption language, and hit **Get transcript** — it lands in the **Transcript** tab. Or use **or open an audio / video file** to read something that was never on YouTube (local/desktop, with Whisper set up).
 2. **Read** — toggle between Readable and Timecoded views. Adjust font size (A−/A+) and column width (Narrow/Medium/Wide). Use `/` to search and Prev/Next to navigate.
 3. **Digest** — switch to the **Digest** lens and Echo generates the digest directly. A fixed status pill shows "AI is digesting…" and "Digest ready ✓" when done _(takes ~10–30s while Claude reads the transcript)._ Once generated, highlight any passage in the Digest to Explain or get Background — results render in an ephemeral floating popover.
 4. **Copy or download** the transcript or digest as Markdown using the download button.
@@ -232,6 +264,9 @@ echo/
 ├── data/             # (gitignored, local/desktop only) persistent video library
 │   └── library.db    # SQLite database of saved videos, transcripts, digests, tags
 ├── vendor/whisper/   # prebuilt whisper-cli binaries (linux-x64, win32-x64)
+├── extension/        # Chrome extension (MV3) — Read in Echo from YouTube
+├── obsidian-plugin/  # Obsidian plugin — a vault note per video
+├── tools/            # dev-only: AI-writing eval, digest-fidelity eval, vendoring helper
 ├── public/
 │   ├── index.html    # markup only (~680 lines)
 │   ├── app.css       # the Plaintext theme, fully tokenised
@@ -249,6 +284,7 @@ echo/
 | `GET` | `/api/health` | _(none)_ | `{ status: 'ok', mode }` |
 | `POST` | `/api/validate-key` | _(key goes in the `X-Echo-Api-Key` header)_ | `{ valid: true }`, or a structured error envelope (web/desktop only) |
 | `POST` | `/api/transcript` | `{ url, lang?, transcribe?, whisperModel?, jobId? }` | `{ videoId, url, title, channel, channelUrl, segments, langCode, transcriptSource }` |
+| `POST` | `/api/transcript/file` | raw file bytes, `?name=&jobId=` | same envelope as `/api/transcript`, for a local audio/video file (local/desktop only) |
 | `GET` | `/api/transcript/progress` | `?jobId=` | Server-sent events with live Whisper progress |
 | `GET` | `/api/whisper/status` | _(none)_ | `{ binaryPresent, defaultModel, cacheDir, models }` (local/desktop only) |
 | `POST` | `/api/whisper/model` | `{ model }` (`base`\|`small`) | download state for that model (local/desktop only) |
@@ -260,6 +296,7 @@ echo/
 | `GET` | `/api/auth/callback` | `?code=&state=` | completes sign-in, sets the session cookie |
 | `GET` | `/api/auth/me` | _(none)_ | `{ enabled, user }` — who is signed in, if anyone |
 | `POST` | `/api/auth/logout` | _(none)_ | `{ ok: true }` |
+| `POST` | `/api/auth/signout-everywhere` | _(none)_ | ends every session for the account, on every device |
 | `DELETE` | `/api/auth/account` | _(none)_ | deletes the account and its synced library |
 | `GET` | `/api/sync/pull` | `?since=` | entries changed since a timestamp, incl. tombstones |
 | `POST` | `/api/sync/push` | `{ entries }` | `{ applied, skipped, serverTime }` — last write wins |
@@ -282,11 +319,16 @@ echo/
 - **Explain** and **Background** are both grounded in the surrounding transcript plus Claude's own training knowledge, with **no live web access** — verify anything consequential against other sources.
 - **Whisper transcription** is off by default and local/desktop only. Turn it on in Settings as a **Fallback** (only when captions are missing) or **High-accuracy** (always). It needs `ffmpeg` on your `PATH`, runs entirely on your machine, and takes real time on long videos — a live progress bar shows where it's at, and closing the tab cancels it.
 - Each enrich lookup shows its own **tokens · cost · duration**.
+- **Nothing on the page comes from a third party.** The Content-Security-Policy allows no inline script, no inline style, and no external script or style origin at all (`script-src 'self'; style-src 'self'; font-src 'self'`) — JSZip is vendored, and the theme uses system fonts. The only outbound requests are YouTube thumbnails.
 - **Signing in never moves your API key.** Accounts exist for one reason — a library that follows you between devices. The key stays in your browser's localStorage and is sent per-request; the server stores transcripts and digests, never credentials.
 - Library **export to ZIP** uses a vendored copy of JSZip, fetched on first use rather than on every page load. Nothing on the page comes from a third-party origin, so the export works offline; a JSON backup remains as a fallback.
 - Per-digest stats (tokens, cost, duration) are always shown when available; these are real billing data from your AI provider.
 
 ## 🔖 Send to Echo (bookmarklet)
+
+> The [browser extension](extension/) does this better — a real button on the
+> page, and it follows YouTube's in-app navigation. The bookmarklet stays for
+> browsers where an extension is not an option.
 
 Drag this bookmarklet to your bookmarks bar, then click it on any YouTube video page — Echo opens in a new tab with that video's transcript already loading. Requires Echo running locally at `http://localhost:8000`.
 
@@ -297,6 +339,34 @@ javascript:(function(){var u=location.href;var m=u.match(/[?&]v=([\w-]{11})/)||u
 **How to install:** most browsers block dragging a code block straight into the bookmarks bar, so the reliable way is to create a new bookmark manually, paste the code above into its URL/address field, and give it a name like "Send to Echo".
 
 No bookmarklet? You can also just open `http://localhost:8000/?v=VIDEO_ID` or `http://localhost:8000/?url=<full YouTube URL>` directly.
+
+## 🧪 Development
+
+```bash
+npm test                  # 386 tests, no dependencies, ~2s
+npm run digest:fidelity   # how faithfully saved digests carry the transcript's specifics
+npm run digest:aitell     # score saved digests for AI-writing tells
+```
+
+Three things a unit test structurally cannot reach have their own harnesses.
+They need Playwright, which is deliberately **not** a dependency, so they are
+not part of `npm test`:
+
+```bash
+npm i --no-save playwright && npx playwright install chromium
+node tests/e2e/oauth-flow.mjs    # the whole Google sign-in flow, against a mock provider
+node extension/test/e2e.mjs      # the extension in a real browser, incl. YouTube's SPA navigation
+```
+
+CI runs the suite plus a boot job that checks every backend module parses and
+the server actually starts in all three modes.
+
+> ⚠️ **Two things to know before changing the frontend.** `public/app.css` and
+> `public/app.js` are read and gzipped at boot, so edits need a server restart.
+> And the CSP forbids inline `<script>`, inline `<style>` and `style=""`
+> attributes — all of which fail silently in a browser and are invisible to the
+> test suite. Put code in `app.js`, CSS in `app.css`, and reach for a class
+> rather than a style attribute.
 
 ## 🛠️ Built with
 
