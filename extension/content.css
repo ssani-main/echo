@@ -1,0 +1,52 @@
+/* Sits in YouTube's actions row next to Share/Download, so it borrows YouTube's
+   pill shape and its own theme tokens (--yt-spec-*) rather than importing
+   Echo's Plaintext theme — a square ink button would read as a broken element
+   on that row. The mark is the only Echo signal, which is enough. */
+
+#echo-read-button.echo-read-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 16px;
+  margin-right: 8px;
+  border: 0;
+  border-radius: 18px;
+  cursor: pointer;
+  font-family: "Roboto", "Arial", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 36px;
+  white-space: nowrap;
+  /* YouTube's own button tokens — correct in both light and dark, and they
+     follow if YouTube retunes its palette. */
+  color: var(--yt-spec-text-primary, #0f0f0f);
+  background-color: var(--yt-spec-badge-chip-background, rgba(0, 0, 0, 0.05));
+}
+
+#echo-read-button.echo-read-button:hover {
+  background-color: var(--yt-spec-button-chip-background-hover, rgba(0, 0, 0, 0.1));
+}
+
+#echo-read-button.echo-read-button:active {
+  background-color: var(--yt-spec-button-chip-background-hover, rgba(0, 0, 0, 0.15));
+}
+
+#echo-read-button.echo-read-button:focus-visible {
+  outline: 2px solid var(--yt-spec-text-primary, #0f0f0f);
+  outline-offset: 2px;
+}
+
+#echo-read-button.echo-read-button svg {
+  flex: none;
+}
+
+/* Narrow viewports: the row is tight, so drop to the mark alone. */
+@media (max-width: 656px) {
+  #echo-read-button.echo-read-button span {
+    display: none;
+  }
+  #echo-read-button.echo-read-button {
+    padding: 0 12px;
+  }
+}

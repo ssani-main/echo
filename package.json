@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test",
+    "test": "node --test \"tests/*.test.js\"",
     "digest:aitell": "node tools/ai-tell/score-digests.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

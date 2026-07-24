@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Echo — settings</title>
+  <style>
+    /* Echo's Plaintext theme: one system mono family, no accent hue, hierarchy
+       from weight and the --title token rather than size. This page is Echo's
+       own surface (unlike the injected YouTube button), so it looks like Echo. */
+    :root {
+      --font-stack: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      --paper: #fbfbfa;
+      --ink: #3a3a38;
+      --title: #000000;
+      --rule: #d8d8d4;
+      --warn: #b3261e;
+      --ok: #1a7f4b;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --paper: #131312; --ink: #b9b9b4; --title: #ffffff; --rule: #33332f; --warn: #f2b8b5; --ok: #6fdc9c; }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 48px 24px;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--font-stack);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    main { max-width: 660px; margin: 0 auto; }
+    h1 {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--title);
+      margin: 0 0 4px;
+    }
+    .sub { margin: 0 0 32px; }
+    label { display: block; font-weight: 700; color: var(--title); margin-bottom: 8px; }
+    input[type="url"] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--rule);
+      border-radius: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--font-stack);
+      font-size: 14px;
+    }
+    input[type="url"]:focus { outline: 2px solid var(--title); outline-offset: -1px; }
+    .hint { margin: 8px 0 0; opacity: 0.75; }
+    .row { display: flex; gap: 8px; align-items: center; margin-top: 20px; }
+    button {
+      padding: 10px 18px;
+      border: 1px solid var(--title);
+      border-radius: 0;
+      background: var(--title);
+      color: var(--paper);
+      font-family: var(--font-stack);
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button.secondary { background: transparent; color: var(--title); }
+    #status { min-height: 1.6em; margin-top: 12px; }
+    #status.ok { color: var(--ok); }
+    #status.error { color: var(--warn); }
+    hr { border: 0; border-top: 1px solid var(--rule); margin: 32px 0; }
+    .note { opacity: 0.75; }
+    code { font-family: var(--font-stack); font-weight: 700; color: var(--title); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Echo</h1>
+    <p class="sub">Where should "Read in Echo" send videos?</p>
+
+    <label for="server">Echo server</label>
+    <input type="url" id="server" placeholder="http://localhost:8000" spellcheck="false" autocomplete="off">
+    <p class="hint">
+      Running Echo locally with <code>npm start</code>? Leave this as
+      <code>http://localhost:8000</code>. Using a hosted or self-hosted Echo?
+      Put its address here.
+    </p>
+
+    <div class="row">
+      <button id="save" type="button">Save</button>
+      <button id="reset" type="button" class="secondary">Reset to default</button>
+    </div>
+    <p id="status" role="status" aria-live="polite"></p>
+
+    <hr>
+
+    <p class="note">
+      The extension only ever opens a tab pointing at this address — it reads no
+      page content, sends nothing anywhere else, and has no analytics.
+      Transcripts and AI calls all happen in Echo itself.
+    </p>
+  </main>
+  <script src="shared.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
