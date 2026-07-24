@@ -343,7 +343,7 @@ No bookmarklet? You can also just open `http://localhost:8000/?v=VIDEO_ID` or `h
 ## 🧪 Development
 
 ```bash
-npm test                  # 386 tests, no dependencies, ~2s
+npm test                  # 406 tests, no dependencies, ~3s
 npm run digest:fidelity   # how faithfully saved digests carry the transcript's specifics
 npm run digest:aitell     # score saved digests for AI-writing tells
 ```
@@ -362,11 +362,22 @@ CI runs the suite plus a boot job that checks every backend module parses and
 the server actually starts in all three modes.
 
 > ⚠️ **Two things to know before changing the frontend.** `public/app.css` and
-> `public/app.js` are read and gzipped at boot, so edits need a server restart.
-> And the CSP forbids inline `<script>`, inline `<style>` and `style=""`
-> attributes — all of which fail silently in a browser and are invisible to the
-> test suite. Put code in `app.js`, CSS in `app.css`, and reach for a class
-> rather than a style attribute.
+> `public/app.js` are read and compressed at boot, so edits need a server
+> restart. (Brotli is preferred over gzip when the browser offers it, but is
+> built lazily on first use so boot stays fast.) And the CSP forbids inline
+> `<script>`, inline `<style>`, `style=""` **and inline event handlers like
+> `onerror=`** — all of which fail silently in a browser and are invisible to
+> the test suite. Put code in `app.js`, CSS in `app.css`, and reach for a class
+> or a real listener rather than an attribute. The last one is not theoretical:
+> two thumbnail fallbacks used `onerror=""` and had quietly not worked since the
+> policy was tightened.
+>
+> ⚠️ **And one about the library.** Anything touching "the whole library" needs
+> bounding, and ten test entries will never show you the problem — seven bugs of
+> that shape have been found so far, every one with a green suite. **Seed a few
+> hundred entries before believing a library-wide path is fine.** The list
+> itself renders a window at a time with delegated listeners, so never add a
+> per-card `addEventListener` in the render path.
 
 ## 🛠️ Built with
 
