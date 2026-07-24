@@ -13,21 +13,42 @@ const DB_FILE     = process.env.ECHO_DB_PATH || join(__dirname, 'data', 'library
 const DATA_DIR    = dirname(DB_FILE);
 const LEGACY_JSON = join(DATA_DIR, 'library.json');
 
-// Ensure the data directory exists before opening the DB file.
-mkdirSync(DATA_DIR, { recursive: true });
+// Opened on FIRST USE, not at import.
+//
+// server.js imports this module in every mode, but in web mode every route
+// that touches it is blockInWeb'd — so eager initialisation created a SQLite
+// file that could never be read, in a container that is meant to be stateless,
+// and would fail outright on a read-only filesystem. Local and desktop reach a
+// library route within moments of starting, so nothing there is deferred in
+// any way a user could notice.
+let _db = null;
 
-const db = new DatabaseSync(DB_FILE);
+function getDb() {
+  if (_db) return _db;
 
-// Enable WAL mode and FK enforcement via plain PRAGMA SQL (node:sqlite has no
-// separate pragma() method; exec() runs any SQL statement directly).
-db.exec('PRAGMA journal_mode = WAL');
-db.exec('PRAGMA foreign_keys = ON');
+  mkdirSync(DATA_DIR, { recursive: true });
+  _db = new DatabaseSync(DB_FILE);
+
+  // Enable WAL mode and FK enforcement via plain PRAGMA SQL (node:sqlite has no
+  // separate pragma() method; exec() runs any SQL statement directly).
+  _db.exec('PRAGMA journal_mode = WAL');
+  _db.exec('PRAGMA foreign_keys = ON');
+
+  initSchema();
+  migrateSegmentCount();
+  migrateChannelColumns();
+  migrateTranscriptSourceColumns();
+  migrateFromLegacyJson();
+
+  return _db;
+}
 
 // ---------------------------------------------------------------------------
 // Schema
 // ---------------------------------------------------------------------------
 
-db.exec(`
+function initSchema() {
+  getDb().exec(`
   CREATE TABLE IF NOT EXISTS videos (
     videoId   TEXT PRIMARY KEY,
     url       TEXT NOT NULL,
@@ -57,6 +78,7 @@ db.exec(`
     digest
   );
 `);
+}
 
 // ---------------------------------------------------------------------------
 // One-time migration: add segment_count column to pre-existing DBs and
@@ -66,13 +88,13 @@ db.exec(`
 // concurrent processes touching the same DB file).
 // ---------------------------------------------------------------------------
 
-(function migrateSegmentCount() {
-  const cols = db.prepare('PRAGMA table_info(videos)').all();
+function migrateSegmentCount() {
+  const cols = getDb().prepare('PRAGMA table_info(videos)').all();
   const hasCol = cols.some((c) => c.name === 'segment_count');
   if (hasCol) return; // Already migrated (or created fresh with the column above)
 
   try {
-    db.exec('ALTER TABLE videos ADD COLUMN segment_count INTEGER NOT NULL DEFAULT 0');
+    getDb().exec('ALTER TABLE videos ADD COLUMN segment_count INTEGER NOT NULL DEFAULT 0');
   } catch (err) {
     // Tolerate a race where another process added the column concurrently.
     if (!/duplicate column/i.test(err?.message || '')) throw err;
@@ -80,14 +102,14 @@ db.exec(`
   }
 
   // Backfill existing rows (added before this column existed) once.
-  const rows = db.prepare('SELECT videoId, segments FROM videos').all();
-  const updateCount = db.prepare('UPDATE videos SET segment_count = ? WHERE videoId = ?');
+  const rows = getDb().prepare('SELECT videoId, segments FROM videos').all();
+  const updateCount = getDb().prepare('UPDATE videos SET segment_count = ? WHERE videoId = ?');
   for (const row of rows) {
     let n = 0;
     try { n = JSON.parse(row.segments || '[]').length; } catch { n = 0; }
     updateCount.run(n, row.videoId);
   }
-})();
+}
 
 // ---------------------------------------------------------------------------
 // One-time migration: add channel/channelUrl columns to pre-existing DBs so
@@ -96,20 +118,20 @@ db.exec(`
 // mirrors migrateSegmentCount()'s PRAGMA-check + duplicate-column tolerance.
 // ---------------------------------------------------------------------------
 
-(function migrateChannelColumns() {
-  const cols = db.prepare('PRAGMA table_info(videos)').all();
+function migrateChannelColumns() {
+  const cols = getDb().prepare('PRAGMA table_info(videos)').all();
   const colNames = new Set(cols.map((c) => c.name));
 
   for (const col of ['channel', 'channelUrl']) {
     if (colNames.has(col)) continue; // Already migrated (or created fresh with the column above)
     try {
-      db.exec(`ALTER TABLE videos ADD COLUMN ${col} TEXT`);
+      getDb().exec(`ALTER TABLE videos ADD COLUMN ${col} TEXT`);
     } catch (err) {
       // Tolerate a race where another process added the column concurrently.
       if (!/duplicate column/i.test(err?.message || '')) throw err;
     }
   }
-})();
+}
 
 // ---------------------------------------------------------------------------
 // One-time migration: add transcript_source/whisper_model columns to
@@ -120,20 +142,20 @@ db.exec(`
 // duplicate-column tolerance.
 // ---------------------------------------------------------------------------
 
-(function migrateTranscriptSourceColumns() {
-  const cols = db.prepare('PRAGMA table_info(videos)').all();
+function migrateTranscriptSourceColumns() {
+  const cols = getDb().prepare('PRAGMA table_info(videos)').all();
   const colNames = new Set(cols.map((c) => c.name));
 
   for (const col of ['transcript_source', 'whisper_model']) {
     if (colNames.has(col)) continue; // Already migrated (or created fresh with the column above)
     try {
-      db.exec(`ALTER TABLE videos ADD COLUMN ${col} TEXT`);
+      getDb().exec(`ALTER TABLE videos ADD COLUMN ${col} TEXT`);
     } catch (err) {
       // Tolerate a race where another process added the column concurrently.
       if (!/duplicate column/i.test(err?.message || '')) throw err;
     }
   }
-})();
+}
 
 // ---------------------------------------------------------------------------
 // Internal DB helpers
@@ -144,10 +166,10 @@ db.exec(`
  * Returns null if the videoId does not exist in the videos table.
  */
 function fetchFullEntry(videoId) {
-  const row = db.prepare('SELECT * FROM videos WHERE videoId = ?').get(videoId);
+  const row = getDb().prepare('SELECT * FROM videos WHERE videoId = ?').get(videoId);
   if (!row) return null;
 
-  const tags = db.prepare(
+  const tags = getDb().prepare(
     'SELECT tag FROM tags WHERE videoId = ? ORDER BY rowid'
   ).all(videoId);
 
@@ -217,7 +239,7 @@ function metaFromRow(row, tags) {
  * Called after every write that may affect title, segments, or digest.
  */
 function syncFts(videoId) {
-  const row = db.prepare(
+  const row = getDb().prepare(
     'SELECT title, segments, digest FROM videos WHERE videoId = ?'
   ).get(videoId);
   if (!row) return;
@@ -226,8 +248,8 @@ function syncFts(videoId) {
     .map((s) => s.text || '')
     .join(' ');
 
-  db.prepare('DELETE FROM videos_fts WHERE videoId = ?').run(videoId);
-  db.prepare(
+  getDb().prepare('DELETE FROM videos_fts WHERE videoId = ?').run(videoId);
+  getDb().prepare(
     'INSERT INTO videos_fts(videoId, title, transcript_text, digest) VALUES (?, ?, ?, ?)'
   ).run(videoId, row.title ?? '', transcriptText, row.digest ?? '');
 }
@@ -238,9 +260,9 @@ function syncFts(videoId) {
 // already populated). Does NOT delete library.json (left as backup).
 // ---------------------------------------------------------------------------
 
-(function migrate() {
+function migrateFromLegacyJson() {
   if (process.env.ECHO_DB_PATH) return;
-  const count = db.prepare('SELECT COUNT(*) as n FROM videos').get().n;
+  const count = getDb().prepare('SELECT COUNT(*) as n FROM videos').get().n;
   if (count > 0) return; // Already populated — nothing to migrate
   if (!existsSync(LEGACY_JSON)) return;
 
@@ -253,17 +275,17 @@ function syncFts(videoId) {
     return; // Corrupt / unreadable — skip silently
   }
 
-  const insertVideo = db.prepare(`
+  const insertVideo = getDb().prepare(`
     INSERT OR IGNORE INTO videos (videoId, url, title, savedAt, updatedAt, segments, digest, favorite, segment_count)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  const insertTag = db.prepare(
+  const insertTag = getDb().prepare(
     'INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)'
   );
 
   // node:sqlite's DatabaseSync has no transaction() wrapper — use raw SQL.
   let migrated = 0;
-  db.exec('BEGIN');
+  getDb().exec('BEGIN');
   try {
     for (const entry of entries) {
       if (!entry.videoId) continue;
@@ -290,15 +312,15 @@ function syncFts(videoId) {
       syncFts(entry.videoId);
       migrated++;
     }
-    db.exec('COMMIT');
+    getDb().exec('COMMIT');
   } catch (err) {
-    db.exec('ROLLBACK');
+    getDb().exec('ROLLBACK');
     console.error('[store] Migration failed, rolled back:', err.message);
     return;
   }
 
   console.log(`[store] Migrated ${migrated} entr${migrated === 1 ? 'y' : 'ies'} from library.json to SQLite.`);
-})();
+}
 
 // ---------------------------------------------------------------------------
 // Core CRUD
@@ -311,7 +333,7 @@ function syncFts(videoId) {
  * transcript JSON / digest markdown blobs), since those are discarded anyway.
  */
 export async function listEntries() {
-  const rows = db.prepare(`
+  const rows = getDb().prepare(`
     SELECT videoId, url, title, savedAt, favorite, segment_count, channel, channelUrl,
            transcript_source, whisper_model, (digest IS NOT NULL) AS hasDigest
     FROM videos
@@ -319,7 +341,7 @@ export async function listEntries() {
   `).all();
 
   // Batch-load related data in three queries instead of N per-video lookups
-  const allTags        = db.prepare('SELECT videoId, tag FROM tags ORDER BY videoId, rowid').all();
+  const allTags        = getDb().prepare('SELECT videoId, tag FROM tags ORDER BY videoId, rowid').all();
 
   /** @type {Record<string, string[]>} */
   const tagsByVideo = {};
@@ -346,12 +368,12 @@ export async function getEntry(videoId) {
  */
 export async function saveEntry({ url, videoId, title, segments, digest, tags, favorite, channel, channelUrl, transcriptSource, whisperModel }) {
   const now      = new Date().toISOString();
-  const existing = db.prepare('SELECT * FROM videos WHERE videoId = ?').get(videoId);
+  const existing = getDb().prepare('SELECT * FROM videos WHERE videoId = ?').get(videoId);
   const safeUrl  = safeHttpUrl(url);
 
   if (!existing) {
     // ---- New entry --------------------------------------------------------
-    db.prepare(`
+    getDb().prepare(`
       INSERT INTO videos (videoId, url, title, savedAt, updatedAt, segments, digest, favorite, segment_count, channel, channelUrl, transcript_source, whisper_model)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -371,7 +393,7 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
 
     const initTags = Array.isArray(tags) ? tags : [];
     for (const tag of [...new Set(initTags.map((t) => String(t).trim()).filter(Boolean))].slice(0, 20)) {
-      db.prepare('INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)').run(videoId, tag);
+      getDb().prepare('INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)').run(videoId, tag);
     }
   } else {
     // ---- Existing entry — preserve savedAt and extension fields not in payload ----
@@ -382,7 +404,7 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
     const keepTranscriptSource = transcriptSource != null ? transcriptSource : existing.transcript_source;
     const keepWhisperModel     = whisperModel     != null ? whisperModel     : existing.whisper_model;
 
-    db.prepare(`
+    getDb().prepare(`
       UPDATE videos
       SET url = ?, title = ?, updatedAt = ?, segments = ?, digest = ?, favorite = ?, segment_count = ?, channel = ?, channelUrl = ?, transcript_source = ?, whisper_model = ?
       WHERE videoId = ?
@@ -404,9 +426,9 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
     // Replace tags only if a tags array was explicitly provided
     if (Array.isArray(tags)) {
       const sanitized = [...new Set(tags.map((t) => String(t).trim()).filter(Boolean))].slice(0, 20);
-      db.prepare('DELETE FROM tags WHERE videoId = ?').run(videoId);
+      getDb().prepare('DELETE FROM tags WHERE videoId = ?').run(videoId);
       for (const tag of sanitized) {
-        db.prepare('INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)').run(videoId, tag);
+        getDb().prepare('INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)').run(videoId, tag);
       }
     }
   }
@@ -421,10 +443,10 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
  * Returns true if an entry was removed, false if it wasn't found.
  */
 export async function deleteEntry(videoId) {
-  const result = db.prepare('DELETE FROM videos WHERE videoId = ?').run(videoId);
+  const result = getDb().prepare('DELETE FROM videos WHERE videoId = ?').run(videoId);
   if (result.changes === 0) return false;
   // FK ON DELETE CASCADE removes tags; clean up FTS manually.
-  db.prepare('DELETE FROM videos_fts WHERE videoId = ?').run(videoId);
+  getDb().prepare('DELETE FROM videos_fts WHERE videoId = ?').run(videoId);
   return true;
 }
 
@@ -438,17 +460,17 @@ export async function deleteEntry(videoId) {
  * Returns the updated full entry, or null if videoId not found.
  */
 export async function setTags(videoId, tags) {
-  if (!db.prepare('SELECT videoId FROM videos WHERE videoId = ?').get(videoId)) return null;
+  if (!getDb().prepare('SELECT videoId FROM videos WHERE videoId = ?').get(videoId)) return null;
 
   const sanitized = Array.isArray(tags)
     ? [...new Set(tags.map((t) => String(t).trim()).filter(Boolean))].slice(0, 20)
     : [];
 
-  db.prepare('DELETE FROM tags WHERE videoId = ?').run(videoId);
+  getDb().prepare('DELETE FROM tags WHERE videoId = ?').run(videoId);
   for (const tag of sanitized) {
-    db.prepare('INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)').run(videoId, tag);
+    getDb().prepare('INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)').run(videoId, tag);
   }
-  db.prepare('UPDATE videos SET updatedAt = ? WHERE videoId = ?').run(new Date().toISOString(), videoId);
+  getDb().prepare('UPDATE videos SET updatedAt = ? WHERE videoId = ?').run(new Date().toISOString(), videoId);
 
   return fetchFullEntry(videoId);
 }
@@ -468,7 +490,7 @@ export async function setTags(videoId, tags) {
 export async function searchLibrary(query, limit = 20) {
   if (!query || !String(query).trim()) return [];
   try {
-    const rows = db.prepare(`
+    const rows = getDb().prepare(`
       SELECT f.videoId
       FROM   videos_fts f
       WHERE  videos_fts MATCH ?

@@ -315,6 +315,56 @@ test('an error envelope still arrives intact when the client accepts gzip', asyn
 });
 
 // ---------------------------------------------------------------------------
+// Oversize and malformed bodies
+// ---------------------------------------------------------------------------
+
+test('an oversize request body returns a structured envelope, not an HTML error page', async () => {
+  // express.json() rejecting a body used to surface Express's own HTML error
+  // page, which no client here can read — so a client hitting the limit saw a
+  // generic failure with nothing to act on. This is the path a large library
+  // sync would take if its batching ever regressed.
+  const huge = Buffer.alloc(6 * 1024 * 1024, 'a');
+  const body = Buffer.from(JSON.stringify({ entries: huge.toString('utf8') }));
+
+  const res = await new Promise((resolve, reject) => {
+    const req = http.request({
+      host: '127.0.0.1', port, path: '/api/saved', method: 'POST', agent,
+      headers: { 'Content-Type': 'application/json', 'Content-Length': body.length },
+    }, (r) => {
+      const chunks = [];
+      r.on('data', (c) => chunks.push(c));
+      r.on('end', () => resolve({ status: r.statusCode, text: Buffer.concat(chunks).toString('utf8') }));
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+
+  assert.equal(res.status, 413);
+  const parsed = JSON.parse(res.text);
+  assert.ok(parsed.error, 'must be the structured envelope every client reads');
+  assert.ok(parsed.error.hint, 'and must say what to do about it');
+});
+
+test('a malformed JSON body returns a structured 400', async () => {
+  const body = Buffer.from('{"entries": [oops');
+  const res = await new Promise((resolve, reject) => {
+    const req = http.request({
+      host: '127.0.0.1', port, path: '/api/saved', method: 'POST', agent,
+      headers: { 'Content-Type': 'application/json', 'Content-Length': body.length },
+    }, (r) => {
+      const chunks = [];
+      r.on('data', (c) => chunks.push(c));
+      r.on('end', () => resolve({ status: r.statusCode, text: Buffer.concat(chunks).toString('utf8') }));
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+
+  assert.equal(res.status, 400);
+  assert.ok(JSON.parse(res.text).error);
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/transcript/progress — stream guard rails
 // ---------------------------------------------------------------------------
 

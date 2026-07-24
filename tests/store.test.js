@@ -28,6 +28,30 @@ test.after(cleanupDb);
 // saveEntry / getEntry round-trip
 // ---------------------------------------------------------------------------
 
+test('the database is not opened until the store is actually used', async () => {
+  // server.js imports store.js in every mode, but web mode blockInWeb's every
+  // route that touches it. Opening eagerly created a SQLite file that could
+  // never be read — in a container meant to be stateless, and one that would
+  // fail outright on a read-only filesystem.
+  const { existsSync, rmSync } = await import('node:fs');
+  const probe = join(tmpdir(), `echo-test-lazy-${process.pid}-${Date.now()}.db`);
+  const prev = process.env.ECHO_DB_PATH;
+  process.env.ECHO_DB_PATH = probe;
+  try {
+    // A fresh module instance: importing must touch nothing.
+    const mod = await import(`../store.js?lazy=${Date.now()}`);
+    assert.equal(existsSync(probe), false, 'importing store.js must not create a database');
+
+    await mod.listEntries();
+    assert.equal(existsSync(probe), true, 'the first real use opens it');
+  } finally {
+    process.env.ECHO_DB_PATH = prev;
+    for (const suffix of ['', '-wal', '-shm']) {
+      try { rmSync(probe + suffix, { force: true }); } catch { /* ignore */ }
+    }
+  }
+});
+
 test('saveEntry then getEntry round-trips title, url, segments, digest, and default favorite=false', async () => {
   const segments = [{ text: 'hello there', offset: 0 }, { text: 'world', offset: 5 }];
   await store.saveEntry({

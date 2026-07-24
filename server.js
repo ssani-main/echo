@@ -1492,6 +1492,38 @@ app.get('/api/search', blockInWeb, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Body-parser and last-resort error handling
+// ---------------------------------------------------------------------------
+// Registered after every route, which is what makes Express treat it as error
+// middleware. Without it, express.json() rejecting an oversize or malformed
+// body produced Express's own HTML error page rather than the structured
+// envelope every client here knows how to read — so a client hitting the size
+// limit got an unparseable response and reported a generic failure.
+//
+// The four-argument signature is load-bearing: drop `next` and Express
+// registers this as ordinary middleware and never routes errors to it.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+
+  if (err && err.type === 'entity.too.large') {
+    return sendError(
+      res,
+      'TRANSCRIPT_UNAVAILABLE',
+      'That request is too large.',
+      'Echo sends large libraries in batches — if you are seeing this, try syncing again.',
+      413
+    );
+  }
+
+  if (err && (err.type === 'entity.parse.failed' || err instanceof SyntaxError)) {
+    return sendError(res, 'INTERNAL', 'That request body was not valid JSON.', '', 400);
+  }
+
+  return sendCaughtError(res, err);
+});
+
 const isDirectRun = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isDirectRun) {
   const server = app.listen(PORT, HOST, () => {

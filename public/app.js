@@ -409,6 +409,9 @@ const EchoSync = (() => {
   // Bound on how many pages one sync will walk: 20 x 500 = 10k entries,
   // far past any real library, and it stops a server bug from spinning here.
   const MAX_PULL_PAGES = 20;
+  // Comfortably under the server's 5 MB body limit, leaving room for the JSON
+  // envelope and for an entry growing when escaped.
+  const MAX_PUSH_BYTES = 3 * 1024 * 1024;
   const TOMBSTONE_KEY = 'echo-sync-deletions';
 
   let enabled = false;      // the server has accounts configured
@@ -443,15 +446,45 @@ const EchoSync = (() => {
       const tombstones = readJson(TOMBSTONE_KEY, []);
       const outgoing = [...changed, ...tombstones];
 
+      // Batched by SIZE, not by count. A library is transcripts: 200 saved
+      // videos serialise to ~25 MB, and a request that size is refused by the
+      // server's body limit — so an unbatched first sync of any real library
+      // failed outright. Entries vary hugely, so counting them is the wrong bound.
       if (outgoing.length > 0) {
-        const res = await fetch('/api/sync/push', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ entries: outgoing }),
-        });
-        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error?.message || 'Sync push failed');
-        // Only clear tombstones once the server has them, or a failed push
-        // would silently drop the deletion for good.
+        const batches = [];
+        let batch = [];
+        let batchBytes = 0;
+
+        for (const entry of outgoing) {
+          const size = JSON.stringify(entry).length;
+          if (size > MAX_PUSH_BYTES) {
+            // A single entry bigger than a whole request can never be sent.
+            // Skipping it keeps the rest of the library syncing rather than
+            // wedging every future sync behind it.
+            console.warn('[echo] sync: entry too large to sync, skipping', entry.videoId, size);
+            continue;
+          }
+          if (batchBytes + size > MAX_PUSH_BYTES && batch.length > 0) {
+            batches.push(batch);
+            batch = [];
+            batchBytes = 0;
+          }
+          batch.push(entry);
+          batchBytes += size;
+        }
+        if (batch.length > 0) batches.push(batch);
+
+        for (const entries of batches) {
+          const res = await fetch('/api/sync/push', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ entries }),
+          });
+          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error?.message || 'Sync push failed');
+        }
+
+        // Only clear tombstones once EVERY batch is in: a failure partway
+        // through must not drop the deletions that never made it.
         writeJson(TOMBSTONE_KEY, []);
       }
 
