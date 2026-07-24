@@ -1,0 +1,6 @@
+/* The URL prompt. Everything else uses Obsidian's own Setting components, so
+   the plugin inherits the user's theme instead of imposing Echo's. */
+.echo-url-input {
+  width: 100%;
+  margin-bottom: var(--size-4-3, 12px);
+}

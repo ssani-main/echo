@@ -29,7 +29,14 @@ export function extractSummary(digest, maxLen = 240) {
   let collected = [];
   const tldrIdx = lines.findIndex((l) => tldrRe.test(l.trim()));
   if (tldrIdx !== -1) {
-    for (let i = tldrIdx + 1; i < lines.length; i++) {
+    // Skip the blank line(s) between the heading and its paragraph before
+    // collecting. Breaking on the first blank meant a digest written as
+    // "## TL;DR\n\nThe point." — i.e. ordinary Markdown, and what the model
+    // actually emits — yielded an empty summary, so most vault notes shipped
+    // with no `summary:` frontmatter and the dashboard index lost its blurbs.
+    let i = tldrIdx + 1;
+    while (i < lines.length && !lines[i].trim()) i++;
+    for (; i < lines.length; i++) {
       const line = lines[i];
       if (!line.trim()) break;
       if (headingRe.test(line.trim())) break;

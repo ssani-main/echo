@@ -80,6 +80,19 @@ test('extractSummary: pulls the TL;DR paragraph', () => {
   assert.equal(extractSummary(digest), 'This is the summary line.');
 });
 
+test('extractSummary: handles a blank line between the heading and the paragraph', () => {
+  // Ordinary Markdown, and what the model actually emits. Breaking on the first
+  // blank line returned '' here, so most vault notes shipped with no `summary:`
+  // frontmatter and the dashboard index lost its blurbs. The fixture above
+  // happens to omit the blank line, which is why this went unnoticed.
+  const digest = '## TL;DR\n\nThis is the summary line.\n\n## Key Points\n- x';
+  assert.equal(extractSummary(digest), 'This is the summary line.');
+});
+
+test('extractSummary: a TL;DR heading with nothing under it yields no summary', () => {
+  assert.equal(extractSummary('## TL;DR\n\n## Key Points\n- x'), '');
+});
+
 test('extractSummary: falls back to first paragraph when no TL;DR', () => {
   const digest = '## Overview\nFirst para here.\nsecond line.\n\n## Next';
   assert.equal(extractSummary(digest), 'First para here. second line.');

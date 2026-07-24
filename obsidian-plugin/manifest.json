@@ -1,0 +1,10 @@
+{
+  "id": "echo-reader",
+  "name": "Echo",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "Paste a YouTube link and get a note with the transcript and a faithful AI digest. Requires a running Echo instance.",
+  "author": "ssani-main",
+  "authorUrl": "https://github.com/ssani-main/echo",
+  "isDesktopOnly": true
+}
