@@ -294,25 +294,69 @@ function idbFtsTokens(text) {
 }
 
 const ECHO_DB_NAME    = 'echo';
-const ECHO_DB_VERSION = 1;
+// v2 added the `meta` store. See idbOpen().
+const ECHO_DB_VERSION = 2;
 let _echoDbPromise = null;
 
-/** Open (or reuse) the shared IndexedDB connection, creating the schema on first run. */
+/**
+ * Open (or reuse) the shared IndexedDB connection.
+ *
+ * TWO stores, for the reason store.js projects columns instead of selecting *:
+ * an entry is a whole transcript, and the library list needs none of it.
+ * Reading every record to build that list meant 13.1 MB read to produce 23 KB
+ * of metadata at 120 entries — measured — and it grew with the library.
+ *
+ *   videos — the full entries, keyed by videoId
+ *   meta   — one small record per entry: exactly what a list row shows, plus
+ *            updatedAt so sync can tell what changed without reading transcripts
+ *
+ * They are written and deleted in the same transaction everywhere, so the two
+ * cannot drift; IndexedDB rolls the whole transaction back on failure.
+ */
 function idbOpen() {
   if (_echoDbPromise) return _echoDbPromise;
   _echoDbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(ECHO_DB_NAME, ECHO_DB_VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (event) => {
       const db = req.result;
       if (!db.objectStoreNames.contains('videos')) {
         const store = db.createObjectStore('videos', { keyPath: 'videoId' });
         store.createIndex('savedAt', 'savedAt');
+      }
+      if (!db.objectStoreNames.contains('meta')) {
+        const meta = db.createObjectStore('meta', { keyPath: 'videoId' });
+        meta.createIndex('savedAt', 'savedAt');
+
+        // Backfill from whatever is already saved. Walked with a cursor rather
+        // than getAll() so an existing large library does not have to fit in
+        // memory during the upgrade — the one moment it certainly must not fail.
+        const tx = event.target.transaction;
+        const videos = tx.objectStore('videos');
+        const metaStore = tx.objectStore('meta');
+        const cursorReq = videos.openCursor();
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result;
+          if (!cursor) return;
+          metaStore.put(idbToMetaRecord(cursor.value));
+          cursor.continue();
+        };
       }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror   = () => reject(req.error);
   });
   return _echoDbPromise;
+}
+
+/**
+ * The stored meta record: what a list row shows, plus updatedAt.
+ *
+ * updatedAt is not part of the shape the server's listEntries returns, but sync
+ * needs it to decide what changed — and reading it from here is the difference
+ * between a no-op sync costing kilobytes and costing the whole library.
+ */
+function idbToMetaRecord(entry) {
+  return { ...idbToMeta(entry), updatedAt: entry.updatedAt || entry.savedAt || '' };
 }
 
 /** Wrap a single IDBRequest in a Promise. */
@@ -333,11 +377,45 @@ async function idbGetAllEntries() {
   return idbReq(db.transaction('videos', 'readonly').objectStore('videos').getAll());
 }
 
+/** Every meta record — kilobytes, where idbGetAllEntries() is megabytes. */
+async function idbGetAllMeta() {
+  const db = await idbOpen();
+  return idbReq(db.transaction('meta', 'readonly').objectStore('meta').getAll());
+}
+
+/**
+ * Walk full entries one at a time, for the two paths that genuinely need the
+ * transcript text (search and export). Same bytes read as getAll(), but only
+ * one entry is held at a time rather than the entire library.
+ *
+ * @param {(entry: object) => void} onEntry
+ */
+async function idbForEachEntry(onEntry) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('videos', 'readonly');
+    const req = tx.objectStore('videos').openCursor();
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (!cursor) return;
+      onEntry(cursor.value);
+      cursor.continue();
+    };
+    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 /** Put (insert or overwrite) a full entry record; resolves once the write transaction commits. */
 function idbPutEntry(entry) {
   return idbOpen().then((db) => new Promise((resolve, reject) => {
-    const tx = db.transaction('videos', 'readwrite');
+    // Both stores in ONE transaction: a full entry without its meta record
+    // would be invisible to the library list, and a meta record without its
+    // entry would be a row that opens to nothing.
+    const tx = db.transaction(['videos', 'meta'], 'readwrite');
     tx.objectStore('videos').put(entry);
+    tx.objectStore('meta').put(idbToMetaRecord(entry));
     tx.oncomplete = () => resolve();
     tx.onerror    = () => reject(tx.error);
   }));
@@ -346,8 +424,9 @@ function idbPutEntry(entry) {
 /** Delete an entry record by videoId; resolves once the write transaction commits. */
 function idbDeleteEntryRow(videoId) {
   return idbOpen().then((db) => new Promise((resolve, reject) => {
-    const tx = db.transaction('videos', 'readwrite');
+    const tx = db.transaction(['videos', 'meta'], 'readwrite');
     tx.objectStore('videos').delete(videoId);
+    tx.objectStore('meta').delete(videoId);
     tx.oncomplete = () => resolve();
     tx.onerror    = () => reject(tx.error);
   }));
@@ -441,8 +520,18 @@ const EchoSync = (() => {
       const cursor = localStorage.getItem(CURSOR_KEY) || '';
 
       // --- Push: everything this device changed since the last sync ---
-      const all = await idbGetAllEntries();
-      const changed = all.filter((e) => !cursor || String(e.updatedAt || '') > cursor);
+      // Which entries changed is decided from the meta store, and only those
+      // are then read in full. A sync with nothing to send now costs kilobytes
+      // instead of the whole library — and most syncs have nothing to send.
+      const meta = await idbGetAllMeta();
+      const changedIds = meta
+        .filter((m) => !cursor || String(m.updatedAt || '') > cursor)
+        .map((m) => m.videoId);
+      const changed = [];
+      for (const id of changedIds) {
+        const entry = await idbGetEntry(id);
+        if (entry) changed.push(entry);
+      }
       const tombstones = readJson(TOMBSTONE_KEY, []);
       const outgoing = [...changed, ...tombstones];
 
@@ -590,9 +679,11 @@ const IndexedDbLibrary = {
   /** -> meta[], 200 */
   async listEntries() {
     try {
-      const all = await idbGetAllEntries();
+      // The meta store, not the entries: this used to read every transcript in
+      // the library to produce a list that shows none of them.
+      const all = await idbGetAllMeta();
       all.sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
-      return idbJson(all.map(idbToMeta), 200);
+      return idbJson(all, 200);
     } catch (err) { return idbCaughtError(err); }
   },
 
@@ -713,7 +804,11 @@ const IndexedDbLibrary = {
     try {
       const tokens = idbFtsTokens(q);
       if (!tokens.length) return idbJson({ results: [], mode: 'keyword' }, 200);
-      const all = await idbGetAllEntries();
+      // Full-text search genuinely needs the transcript text, so this reads the
+      // same bytes either way — but walked with a cursor, so peak memory is one
+      // entry rather than the entire library.
+      const all = [];
+      await idbForEachEntry((e) => all.push(e));
       const scored = [];
       for (const e of all) {
         const hay = [e.title, e.digest, ...(Array.isArray(e.segments) ? e.segments.map((s) => s.text) : [])]
