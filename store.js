@@ -367,22 +367,52 @@ function migrateFromLegacyJson() {
 // Core CRUD
 // ---------------------------------------------------------------------------
 
+/** Total number of saved entries. Cheap — SQLite answers it from the index. */
+export async function countEntries() {
+  return getDb().prepare('SELECT COUNT(*) AS n FROM videos').get().n;
+}
+
 /**
  * Return metadata for all saved entries, sorted by savedAt descending (newest first).
  * Uses batch queries to avoid N+1 round-trips. Projects only the columns
  * needed for the metadata shape — does NOT select segments/digest (the full
  * transcript JSON / digest markdown blobs), since those are discarded anyway.
+ *
+ * Pass `{ limit, offset }` to fetch one page. Callers that pass neither get the
+ * whole library exactly as before — the page's first paint only needs a screen
+ * or two of cards, but the export, the vault sync and the Obsidian plugin all
+ * genuinely want everything, and it would be a poor trade to make them ask
+ * twice.
+ *
+ * @param {{limit?: number, offset?: number}} [opts]
  */
-export async function listEntries() {
+export async function listEntries(opts = {}) {
+  const paged = Number.isFinite(opts.limit) && opts.limit > 0;
+  const limit = paged ? Math.floor(opts.limit) : -1;         // -1 = no limit, in SQLite
+  const offset = Number.isFinite(opts.offset) && opts.offset > 0 ? Math.floor(opts.offset) : 0;
+
   const rows = getDb().prepare(`
     SELECT videoId, url, title, savedAt, favorite, segment_count, channel, channelUrl,
            transcript_source, whisper_model, (digest IS NOT NULL) AS hasDigest
     FROM videos
     ORDER BY savedAt DESC
-  `).all();
+    LIMIT ? OFFSET ?
+  `).all(limit, offset);
 
-  // Batch-load related data in three queries instead of N per-video lookups
-  const allTags        = getDb().prepare('SELECT videoId, tag FROM tags ORDER BY videoId, rowid').all();
+  if (rows.length === 0) return [];
+
+  // Tags for exactly the rows being returned. Reading the whole tags table is
+  // right when the whole library is being returned anyway, but for a 60-row
+  // page it would mean loading every tag in the library to decorate one
+  // screenful. The unpaged branch also avoids binding one variable per row —
+  // an IN list over a big library would run into SQLITE_MAX_VARIABLE_NUMBER,
+  // which is exactly the kind of works-at-500-breaks-at-40k this code keeps
+  // having to unlearn.
+  const allTags = paged
+    ? getDb()
+        .prepare(`SELECT videoId, tag FROM tags WHERE videoId IN (${rows.map(() => '?').join(',')}) ORDER BY videoId, rowid`)
+        .all(...rows.map((r) => r.videoId))
+    : getDb().prepare('SELECT videoId, tag FROM tags ORDER BY videoId, rowid').all();
 
   /** @type {Record<string, string[]>} */
   const tagsByVideo = {};

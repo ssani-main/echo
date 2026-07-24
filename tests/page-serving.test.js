@@ -24,7 +24,12 @@ import { rmSync } from 'node:fs';
 const DB = join(tmpdir(), `echo-test-page-serving-${process.pid}-${Date.now()}.db`);
 process.env.ECHO_DB_PATH = DB;
 
-const { app } = await import('../server.js');
+const { app, brotliReady } = await import('../server.js');
+
+// The brotli buffers are built in the background so that neither boot nor the
+// first request waits on a compressor. Everything below that asserts brotli has
+// to wait for that to finish, or it races the warm-up and flakes.
+await brotliReady;
 
 const server = app.listen(0);
 const port = server.address().port;
@@ -140,6 +145,40 @@ test('brotli wins over gzip when the client offers both', async () => {
   assert.match(brotliDecompressSync(res.body).toString('utf8'), /<!doctype html>/i);
 });
 
+test('a request arriving before the warm-up finishes is served immediately, not blocked', async () => {
+  // The property that matters: the request path never compresses, it only
+  // serves a buffer the background warm-up already produced. Compressing app.js
+  // at q=11 takes ~430 ms, so if a cold request ever blocked on it that would
+  // show up here as an enormous first response. Whichever encoding comes back
+  // is fine — gzip during the warm-up, brotli after — as long as nobody waits.
+  const fresh = await import(`../server.js?cold=${Date.now()}`);
+  const coldServer = fresh.app.listen(0);
+  const coldPort = coldServer.address().port;
+  try {
+    const started = Date.now();
+    const res = await new Promise((resolve, reject) => {
+      const req = http.get(
+        { host: '127.0.0.1', port: coldPort, path: '/app.js', headers: { 'Accept-Encoding': 'br, gzip' } },
+        (r) => {
+          const chunks = [];
+          r.on('data', (c) => chunks.push(c));
+          r.on('end', () => resolve({ headers: r.headers, body: Buffer.concat(chunks) }));
+        }
+      );
+      req.on('error', reject);
+    });
+    const elapsed = Date.now() - started;
+
+    assert.ok(elapsed < 300, `a cold asset request took ${elapsed} ms — it should not wait on the compressor`);
+    const encoding = res.headers['content-encoding'];
+    assert.ok(encoding === 'gzip' || encoding === 'br', `unexpected encoding ${encoding}`);
+    const decoded = encoding === 'br' ? brotliDecompressSync(res.body) : gunzipSync(res.body);
+    assert.match(decoded.toString('utf8'), /function renderMarkdown/);
+  } finally {
+    await new Promise((resolve) => coldServer.close(resolve));
+  }
+});
+
 test('brotli is smaller than gzip for the same asset', async () => {
   const br = await rawGet('/app.js', { 'Accept-Encoding': 'br' });
   const gz = await rawGet('/app.js', { 'Accept-Encoding': 'gzip' });
@@ -158,7 +197,7 @@ test('brotli is smaller than gzip for the same asset', async () => {
   );
 });
 
-test('the lazily-built brotli buffer is stable across requests', async () => {
+test('the warmed brotli buffer is stable across requests', async () => {
   // It is computed once and cached. If the cache were keyed or reset wrongly,
   // the second response would differ from the first.
   const first = await rawGet('/app.css', { 'Accept-Encoding': 'br' });

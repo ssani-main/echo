@@ -47,7 +47,7 @@ You've been there: you find a great video, but you'd rather *read* it than sit t
 | 🎛️ | **Shared reading controls** | Font size (A−/A+) and column width (Narrow/Medium/Wide: ~620 / 760 / 940 px) apply to both Transcript and Digest lenses, share one preference, and scale the reading column responsively. Digest AI output is typeset as a readable article |
 | ⏱️ | **Timecoded mode** | Subtitle-editor style with monospace timecode gutter; every timestamp deep-links YouTube (`&t=<sec>s`) |
 | 💾 | **Session restore** | Refreshing the page restores the current transcript, digest, view mode, lens, and Library state via sessionStorage—no re-fetch |
-| 🤖 | **AI Digest** | Switch to the Digest lens for an AI-generated read: **Digest** (synthesized, reorganized by idea), **Article** (full-fidelity rewrite, nothing dropped), or **Bullets** — plus an output-language picker. Very long transcripts fall back to map-reduce automatically |
+| 🤖 | **AI Digest** | Switch to the Digest lens for an AI-generated read: **Digest** (synthesized, reorganized by idea), **Article** (full-fidelity rewrite, nothing dropped), or **Bullets** — plus an output-language picker. **Streams as it is written**, so you start reading in about a second instead of waiting for the whole thing. Very long transcripts fall back to map-reduce automatically |
 | 🔎 | **Selection-driven enrich** | Select any passage in the Digest to show an ephemeral floating popover with **Explain** and **Background** — both answered from the transcript context plus Claude's own knowledge. Results render inside the popover; dismiss on click-outside, Esc, or new selection—nothing persists |
 | 🎙️ | **Whisper transcription** | No captions? Local speech-to-text via whisper.cpp fills the gap (**Fallback**), or transcribes everything for accuracy (**High-accuracy**). Off by default; configured in Settings with a `base`/`small` model picker and on-demand download. Local/desktop only, needs `ffmpeg` on `PATH` |
 | 🎧 | **Local audio & video** | Not just YouTube — open a podcast download, a lecture recording or a meeting capture and Echo transcribes it with Whisper, then digests it like anything else. Local/desktop, needs `ffmpeg` |
@@ -72,7 +72,9 @@ Switch to the **Digest** lens and Echo generates it directly. Three formats:
 - **Article** — a full-fidelity rewrite you read *instead of* watching. Nothing substantive is dropped, only the noise of speech.
 - **Bullets** — a short TL;DR plus the key takeaways.
 
-Pick your output language too (default English). Transcripts past ~120k tokens are chunked, summarized in parallel, and synthesized in a final pass automatically.
+Pick your output language too (default English). Transcripts past ~120k tokens are chunked, summarized in parallel, and synthesized in a final pass automatically — while that is happening the pane reports which part it is reading, since no digest text exists yet.
+
+The digest **streams**: text appears as the model writes it rather than after the whole call returns. If streaming is unavailable for any reason, Echo silently falls back to the single-response request it used before, so the worst case is the wait you already had.
 
 **Selection-driven lookups on the Digest.** Highlight any passage in a generated Digest and a floating popover appears with two actions:
 
@@ -291,6 +293,7 @@ echo/
 | `GET` | `/api/languages` | `?videoId=` | `{ tracks: [{ code, name, auto }] }` |
 | `GET` | `/api/video-meta` | `?videoId=` | `{ videoId, title, channel, channelUrl }` (oEmbed metadata) |
 | `POST` | `/api/digest` | `{ text, length?, format?, language?, title?, videoId? }` | `{ digest, usage, strategy, suggestedTags }` |
+| `POST` | `/api/digest?stream=1` | _(same body)_ | `text/event-stream` — `phase` / `token` / `done` / `error` events; `done` carries the same payload as above |
 | `POST` | `/api/enrich` | `{ selection, context?, mode }` (`mode`: `explain`\|`background`) | `{ mode, text, sources, usage }` |
 | `GET` | `/api/auth/google` | _(none)_ | redirect into Google sign-in (accounts only) |
 | `GET` | `/api/auth/callback` | `?code=&state=` | completes sign-in, sets the session cookie |
@@ -301,6 +304,7 @@ echo/
 | `GET` | `/api/sync/pull` | `?since=` | entries changed since a timestamp, incl. tombstones |
 | `POST` | `/api/sync/push` | `{ entries }` | `{ applied, skipped, serverTime }` — last write wins |
 | `GET` | `/api/saved` | _(none)_ | list of saved entries (metadata incl. tags) |
+| `GET` | `/api/saved?limit=&offset=` | _(none)_ | `{ entries, total, hasMore }` — one page of the same |
 | `GET` | `/api/saved/export` | _(none)_ | `{ entries: [ ...full entries... ] }` |
 | `GET` | `/api/saved/:videoId` | _(none)_ | one full entry (transcript, digest, tags) |
 | `GET` | `/api/saved/:videoId/export.md` | _(none)_ | markdown export of entry |
@@ -343,7 +347,7 @@ No bookmarklet? You can also just open `http://localhost:8000/?v=VIDEO_ID` or `h
 ## 🧪 Development
 
 ```bash
-npm test                  # 406 tests, no dependencies, ~3s
+npm test                  # 424 tests, no dependencies, ~4s
 npm run digest:fidelity   # how faithfully saved digests carry the transcript's specifics
 npm run digest:aitell     # score saved digests for AI-writing tells
 ```
@@ -363,8 +367,9 @@ the server actually starts in all three modes.
 
 > ⚠️ **Two things to know before changing the frontend.** `public/app.css` and
 > `public/app.js` are read and compressed at boot, so edits need a server
-> restart. (Brotli is preferred over gzip when the browser offers it, but is
-> built lazily on first use so boot stays fast.) And the CSP forbids inline
+> restart. (Brotli is preferred over gzip when the browser offers it; it is
+> built in the background after startup, so neither boot nor the first request
+> waits on it.) And the CSP forbids inline
 > `<script>`, inline `<style>`, `style=""` **and inline event handlers like
 > `onerror=`** — all of which fail silently in a browser and are invisible to
 > the test suite. Put code in `app.js`, CSS in `app.css`, and reach for a class

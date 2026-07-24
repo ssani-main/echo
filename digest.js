@@ -33,6 +33,25 @@ function buildClaudeArgs() {
   return CLAUDE_ARGS;
 }
 
+// Streaming variant. `--include-partial-messages` is what turns on the per-token
+// `content_block_delta` events, and it requires `--output-format stream-json`,
+// which in turn requires `--verbose`. The final `result` object is identical to
+// the one `--output-format json` produces, so only the transport differs.
+const CLAUDE_STREAM_ARGS = [
+  '-p', '--model', 'sonnet', '--output-format', 'stream-json',
+  '--include-partial-messages', '--verbose',
+  '--system-prompt', ISOLATED_SYSTEM_PROMPT,
+];
+
+/**
+ * Builds the CLI args array for a streaming `claude -p` invocation.
+ *
+ * @returns {string[]}
+ */
+function buildClaudeStreamArgs() {
+  return CLAUDE_STREAM_ARGS;
+}
+
 // ---------------------------------------------------------------------------
 // Map-reduce chunking constants
 // ---------------------------------------------------------------------------
@@ -195,15 +214,28 @@ export function parseJsonLoose(str) {
  * @param {{ timeoutMs?: number }} [opts]
  * @returns {Promise<{ result: string, usage: object }>}
  */
-export async function runClaude(prompt, opts = {}) {
-  const { timeoutMs = DEFAULT_TIMEOUT_MS } = opts;
-  const { exe, args } = buildSpawnTarget();
+/**
+ * Spawns the Claude CLI, feeds it a prompt, and resolves with its raw output.
+ *
+ * Extracted so the buffered and streaming callers share one copy of the parts
+ * that are easy to get wrong and awful to debug twice: process-group isolation,
+ * tree-killing on timeout, the tmpdir cwd that stops the CLI loading this
+ * repo's own memory into a digest, and the ENOENT-means-not-installed mapping.
+ * The two differ only in what they do with stdout.
+ *
+ * @param {{args: string[], prompt: string, timeoutMs: number,
+ *          onStdoutChunk?: (chunk: string) => void}} params
+ * @returns {Promise<{ stdout: string, stderr: string, code: number|null }>}
+ */
+function spawnClaudeProcess({ args, prompt, timeoutMs, onStdoutChunk }) {
   const isWin = process.platform === 'win32';
+  const exe = isWin ? (process.env.ComSpec || 'cmd.exe') : 'claude';
+  const spawnArgs = isWin ? ['/c', 'claude', ...args] : args;
 
   return new Promise((resolve, reject) => {
     let settled = false;
 
-    const child = spawn(exe, args, {
+    const child = spawn(exe, spawnArgs, {
       shell: false,
       stdio: ['pipe', 'pipe', 'pipe'],
       // Run from the OS temp dir, not the project dir, so the CLI does not
@@ -265,7 +297,18 @@ export async function runClaude(prompt, opts = {}) {
     // --- collect output ---
     const stdoutChunks = [];
     const stderrChunks = [];
-    child.stdout.on('data', (chunk) => stdoutChunks.push(chunk));
+    child.stdout.on('data', (chunk) => {
+      stdoutChunks.push(chunk);
+      if (onStdoutChunk) {
+        try {
+          onStdoutChunk(chunk.toString('utf8'));
+        } catch (err) {
+          // A consumer that throws must not wedge the process or lose the
+          // buffered result; the buffered path below still has everything.
+          console.error('[echo] claude stdout consumer threw:', err);
+        }
+      }
+    });
     child.stderr.on('data', (chunk) => stderrChunks.push(chunk));
 
     // --- write prompt and close stdin ---
@@ -277,61 +320,174 @@ export async function runClaude(prompt, opts = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-
-      const stdout = Buffer.concat(stdoutChunks).toString('utf8').trim();
-      const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
-
-      if (code === 0) {
-        let parsed;
-        try {
-          parsed = JSON.parse(stdout);
-        } catch (_) {
-          return reject(
-            new Error(
-              `claude CLI returned non-JSON output. Snippet: ${stdout.slice(0, 300)}`
-            )
-          );
-        }
-
-        if (parsed.is_error === true || parsed.subtype !== 'success') {
-          return reject(
-            new Error(parsed.result || parsed.subtype || 'Claude CLI call failed')
-          );
-        }
-
-        return resolve({
-          result: String(parsed.result || '').trim(),
-          usage: mapUsage(parsed),
-        });
-      } else {
-        const detail = stderr.slice(0, 500) || '(no stderr output)';
-        const lower  = detail.toLowerCase();
-
-        // Detect authentication / login failures from stderr substrings
-        if (
-          lower.includes('not logged in') ||
-          lower.includes('invalid api key') ||
-          lower.includes('api key') ||
-          lower.includes('please login') ||
-          lower.includes('please log in') ||
-          lower.includes('authentication required') ||
-          lower.includes('unauthorized') ||
-          (code === 1 && lower.includes('login'))
-        ) {
-          const e = new Error('Claude Code is not authenticated. Please log in.');
-          e.echoCode = 'CLAUDE_NOT_AUTHED';
-          e.hint = 'Run `claude` in a terminal and complete the login flow, then restart the Echo server.';
-          return reject(e);
-        }
-
-        const e = new Error(`Claude Code exited with an error (code ${code}).`);
-        e.echoCode = 'CLAUDE_FAILED';
-        e.hint = 'Claude Code hit an error while generating. Check the terminal running the Echo server for the full output.';
-        e.detail = detail || `claude CLI exited with code ${code}`;
-        return reject(e);
-      }
+      resolve({
+        stdout: Buffer.concat(stdoutChunks).toString('utf8').trim(),
+        stderr: Buffer.concat(stderrChunks).toString('utf8').trim(),
+        code,
+      });
     });
   });
+}
+
+/**
+ * Turns a non-zero CLI exit into a tagged Error, telling "you are not logged
+ * in" apart from "the call failed" — the two need completely different advice,
+ * and the error card renders an Open Settings button for one and Try again for
+ * the other.
+ *
+ * @param {number|null} code
+ * @param {string} stderr
+ * @returns {Error}
+ */
+function claudeExitError(code, stderr) {
+  const detail = stderr.slice(0, 500) || '(no stderr output)';
+  const lower = detail.toLowerCase();
+
+  if (
+    lower.includes('not logged in') ||
+    lower.includes('invalid api key') ||
+    lower.includes('api key') ||
+    lower.includes('please login') ||
+    lower.includes('please log in') ||
+    lower.includes('authentication required') ||
+    lower.includes('unauthorized') ||
+    (code === 1 && lower.includes('login'))
+  ) {
+    const e = new Error('Claude Code is not authenticated. Please log in.');
+    e.echoCode = 'CLAUDE_NOT_AUTHED';
+    e.hint = 'Run `claude` in a terminal and complete the login flow, then restart the Echo server.';
+    return e;
+  }
+
+  const e = new Error(`Claude Code exited with an error (code ${code}).`);
+  e.echoCode = 'CLAUDE_FAILED';
+  e.hint = 'Claude Code hit an error while generating. Check the terminal running the Echo server for the full output.';
+  e.detail = detail || `claude CLI exited with code ${code}`;
+  return e;
+}
+
+/**
+ * Validates the CLI's final result object and maps it to the common shape.
+ * Shared by both callers: the streaming path ends with the same object the
+ * buffered path gets in one piece, so success and failure must be judged the
+ * same way in both.
+ *
+ * @param {object} parsed
+ * @returns {{ result: string, usage: object }}
+ */
+function resultFromParsed(parsed) {
+  if (parsed.is_error === true || parsed.subtype !== 'success') {
+    throw new Error(parsed.result || parsed.subtype || 'Claude CLI call failed');
+  }
+  return {
+    result: String(parsed.result || '').trim(),
+    usage: mapUsage(parsed),
+  };
+}
+
+/**
+ * Runs the Claude CLI with the given prompt and returns the raw result text
+ * plus a mapped usage object.
+ *
+ * @param {string} prompt
+ * @param {{ timeoutMs?: number }} [opts]
+ * @returns {Promise<{ result: string, usage: object }>}
+ */
+export async function runClaude(prompt, opts = {}) {
+  const { timeoutMs = DEFAULT_TIMEOUT_MS } = opts;
+  const { stdout, stderr, code } = await spawnClaudeProcess({
+    args: buildClaudeArgs(),
+    prompt,
+    timeoutMs,
+  });
+
+  if (code !== 0) throw claudeExitError(code, stderr);
+
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch (_) {
+    throw new Error(
+      `claude CLI returned non-JSON output. Snippet: ${stdout.slice(0, 300)}`
+    );
+  }
+  return resultFromParsed(parsed);
+}
+
+/**
+ * Same call, but hands text to `onToken` as the model produces it.
+ *
+ * `--output-format stream-json --include-partial-messages` makes the CLI emit
+ * NDJSON instead of one blob: a `stream_event` line per token delta, then the
+ * same final `result` object the buffered path parses. So the end state is
+ * identical — the difference is purely that the caller sees the text early.
+ *
+ * Lines are reassembled across chunk boundaries, because a JSON object can and
+ * does get split across two reads; a naive per-chunk split drops tokens
+ * intermittently and only under load, which is a miserable bug to find.
+ *
+ * @param {string} prompt
+ * @param {{ timeoutMs?: number }} opts
+ * @param {(text: string) => void} onToken
+ * @returns {Promise<{ result: string, usage: object }>}
+ */
+export async function runClaudeStream(prompt, opts = {}, onToken = () => {}) {
+  const { timeoutMs = DEFAULT_TIMEOUT_MS } = opts;
+
+  let pending = '';
+  let finalObject = null;
+  let streamedText = '';
+
+  const consumeLine = (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    let event;
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      return; // not every line is ours to understand; ignore rather than fail
+    }
+
+    if (event.type === 'stream_event' && event.event?.type === 'content_block_delta') {
+      const text = event.event.delta?.text;
+      if (typeof text === 'string' && text.length > 0) {
+        streamedText += text;
+        onToken(text);
+      }
+      return;
+    }
+    if (event.type === 'result') finalObject = event;
+  };
+
+  const { stdout, stderr, code } = await spawnClaudeProcess({
+    args: buildClaudeStreamArgs(),
+    prompt,
+    timeoutMs,
+    onStdoutChunk: (chunk) => {
+      pending += chunk;
+      const lines = pending.split('\n');
+      pending = lines.pop() ?? '';   // keep the partial line for the next chunk
+      for (const line of lines) consumeLine(line);
+    },
+  });
+
+  if (code !== 0) throw claudeExitError(code, stderr);
+
+  if (pending) consumeLine(pending);
+
+  if (!finalObject) {
+    // No terminal result line. Rather than fail outright when text did arrive,
+    // fall back to what was streamed — the user can already see it on screen,
+    // and erroring here would blank a digest they watched being written.
+    if (streamedText.trim()) {
+      return { result: streamedText.trim(), usage: mapUsage({}) };
+    }
+    throw new Error(
+      `claude CLI produced no result line. Snippet: ${stdout.slice(0, 300)}`
+    );
+  }
+
+  return resultFromParsed(finalObject);
 }
 
 /**
@@ -345,6 +501,27 @@ export async function runClaude(prompt, opts = {}) {
  */
 async function callProvider(prompt, opts = {}) {
   return getProvider(opts).call(prompt, opts);
+}
+
+/**
+ * Like callProvider, but hands text to `opts.onToken` as it is produced.
+ *
+ * Falls back to the buffered call whenever streaming is not on offer — no
+ * onToken, or a provider without a stream method. That fallback is the whole
+ * safety story for this feature: a provider that cannot stream still produces
+ * exactly the digest it produced before, so the worst case is the wait users
+ * already had rather than a broken core loop.
+ *
+ * @param {string} prompt
+ * @param {{ onToken?: (text: string) => void }} [opts]
+ * @returns {Promise<{ result: string, usage: object }>}
+ */
+async function callProviderStreaming(prompt, opts = {}) {
+  const provider = getProvider(opts);
+  if (typeof opts.onToken !== 'function' || typeof provider.stream !== 'function') {
+    return provider.call(prompt, opts);
+  }
+  return provider.stream(prompt, opts, opts.onToken);
 }
 
 // ---------------------------------------------------------------------------
@@ -426,6 +603,7 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
   const usages = [];
   const chunkSummaries = [];
   const total = chunks.length;
+  let completedChunks = 0;
 
   // --- MAP phase: summarise all chunks concurrently ---
   const mapResults = await Promise.all(chunks.map(async (chunk, i) => {
@@ -446,6 +624,14 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
         `digestMapReduce: map phase chunk ${i + 1}/${total} returned an empty result. ` +
         'Cannot produce a complete digest.'
       );
+    }
+
+    // The map phase produces nothing the reader ever sees, but on a very long
+    // transcript it is most of the wait — so report it as progress rather than
+    // leaving the screen empty until the reduce step starts producing text.
+    if (typeof opts.onPhase === 'function') {
+      completedChunks += 1;
+      opts.onPhase({ phase: 'map', done: completedChunks, total });
     }
 
     return { summary: `### Part ${i + 1} of ${total}\n\n${result}`, usage };
@@ -473,7 +659,9 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
     '\n\nCHUNK SUMMARIES (in chronological order):\n\n' +
     combined;
 
-  const { result: digest, usage: reduceUsage } = await callProvider(reducePrompt, opts);
+  // The reduce output IS the digest, so this is the phase worth streaming.
+  if (typeof opts.onPhase === 'function') opts.onPhase({ phase: 'reduce', done: total, total });
+  const { result: digest, usage: reduceUsage } = await callProviderStreaming(reducePrompt, opts);
   usages.push(reduceUsage);
 
   if (!digest || !digest.trim()) {
@@ -664,7 +852,7 @@ export async function generateDigest(transcriptText, opts = {}) {
         '\n\nHere is the transcript:\n\n' +
         transcriptText;
 
-  const { result, usage } = await callProvider(prompt, opts);
+  const { result, usage } = await callProviderStreaming(prompt, opts);
   return { digest: result, usage, strategy: 'single' };
 }
 

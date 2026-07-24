@@ -25,9 +25,10 @@ const ECHO = window.__ECHO__ || { mode: 'local' };
    web mode is added in a later step.)
 =============================================== */
 const ServerLibrary = {
-  /** GET /api/saved -> meta[] */
-  listEntries() {
-    return fetch('/api/saved');
+  /** GET /api/saved -> meta[] (whole library), or one page when limit is given */
+  listEntries({ limit, offset } = {}) {
+    if (!limit) return fetch('/api/saved');
+    return fetch(`/api/saved?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset || 0)}`);
   },
 
   /** GET /api/saved/:id -> entry|null (raw Response, caller inspects .status/.ok) */
@@ -804,22 +805,54 @@ const IndexedDbLibrary = {
     try {
       const tokens = idbFtsTokens(q);
       if (!tokens.length) return idbJson({ results: [], mode: 'keyword' }, 200);
-      // Full-text search genuinely needs the transcript text, so this reads the
-      // same bytes either way — but walked with a cursor, so peak memory is one
-      // entry rather than the entire library.
-      const all = [];
-      await idbForEachEntry((e) => all.push(e));
-      const scored = [];
-      for (const e of all) {
-        const hay = [e.title, e.digest, ...(Array.isArray(e.segments) ? e.segments.map((s) => s.text) : [])]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-        const score = tokens.reduce((n, t) => n + (hay.includes(t) ? 1 : 0), 0);
-        if (score > 0) scored.push({ entry: e, score });
+      const capped = Number(limit) || 50;
+
+      // Web mode has no FTS5, so a keyword search has to read the transcripts.
+      // What it must NOT do is materialise them. The first version walked a
+      // cursor — and then pushed every entry into an array, which put the whole
+      // library back in memory — and built a joined, lowercased copy of each
+      // transcript (~45 KB a piece) just to run substring tests over it.
+      // Measured at 400 entries: 0.8-1.4 s per search, and search runs on a
+      // 300 ms keystroke debounce.
+      //
+      // Three changes, no change in what comes back: score inside the cursor
+      // and keep only {videoId, score} (a few bytes per hit, not a transcript);
+      // test each field in turn instead of concatenating them; and stop as soon
+      // as every token has been found, which is the common case for a query
+      // that matches at all. The full entries for the winners are fetched at
+      // the end — at most `capped` of them.
+      const hits = [];
+      await idbForEachEntry((e) => {
+        const remaining = new Set(tokens);
+        const seek = (value) => {
+          if (!value || remaining.size === 0) return;
+          const lower = String(value).toLowerCase();
+          for (const token of remaining) {
+            if (lower.includes(token)) remaining.delete(token);
+          }
+        };
+
+        // Cheapest fields first: a title or digest hit often settles it.
+        seek(e.title);
+        seek(e.digest);
+        if (remaining.size > 0 && Array.isArray(e.segments)) {
+          for (const seg of e.segments) {
+            seek(seg && seg.text);
+            if (remaining.size === 0) break;
+          }
+        }
+
+        const score = tokens.length - remaining.size;
+        if (score > 0) hits.push({ videoId: e.videoId, score });
+      });
+
+      hits.sort((a, b) => b.score - a.score);
+      const top = hits.slice(0, capped);
+      const results = [];
+      for (const hit of top) {
+        const entry = await idbGetEntry(hit.videoId);
+        if (entry) results.push(entry);
       }
-      scored.sort((a, b) => b.score - a.score);
-      const results = scored.slice(0, Number(limit) || 50).map((s) => s.entry);
       return idbJson({ results, mode: 'keyword' }, 200);
     } catch (err) { return idbCaughtError(err); }
   },
@@ -847,6 +880,9 @@ let savedSearchQuery    = '';     // current search filter string (client-side)
 let savedSortMode       = 'recent'; // 'recent' | 'title'
 let savedApiResults     = null;   // { results, mode } from /api/search, or null = use local filter
 let savedSearchDebTimer = null;   // debounce timer handle
+let savedSearchSeq      = 0;      // monotonic; only the newest search may render
+let savedTotal          = 0;      // entries the server reports, incl. pages not fetched yet
+let savedLoadSeq        = 0;      // monotonic; abandons a background page-walk when a reload starts
 
 // Find-in-transcript state
 let findQuery         = '';
@@ -3074,6 +3110,117 @@ function stopDigestTimer() {
    digestBtn in Transcript pane and digestRegenBtn
    in Summary panel)
 =============================================== */
+/**
+ * Run a digest over the SSE transport, rendering text as it arrives.
+ *
+ * Returns the server's final payload (the same object the JSON route returns),
+ * or `null` if streaming was not usable — a transport-level failure, a response
+ * that was not an event stream, a browser without a readable body. Returning
+ * null rather than throwing is deliberate: the caller then falls back to the
+ * plain JSON request, so the worst case is the wait users already had.
+ *
+ * An error *reported by the server mid-stream* is not that case. It comes back
+ * as a payload with an `error` key, which the caller renders through the
+ * classified error card — retrying it as a JSON request would just spend a
+ * second AI call to be told the same thing.
+ */
+async function streamDigest(body) {
+  let res;
+  try {
+    const headers = { 'Content-Type': 'application/json', Accept: 'text/event-stream' };
+    if (ECHO.mode === 'web' || ECHO.mode === 'desktop') {
+      const k = getApiKey();
+      if (k) headers['X-Echo-Api-Key'] = k;
+    }
+    res = await fetch('/api/digest?stream=1', { method: 'POST', headers, body: JSON.stringify(body) });
+  } catch {
+    return null; // network-level failure: let the caller retry unstreamed
+  }
+
+  // A non-stream response means the server answered the old way (or refused).
+  // Hand the parsed body back so the caller can render it — including errors,
+  // which arrive here as a normal JSON envelope with a non-2xx status.
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('text/event-stream')) {
+    try {
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
+  if (!res.body || typeof res.body.getReader !== 'function') return null;
+
+  digestOutput.classList.add('visible');
+  let markdown = '';
+  let finalPayload = null;
+
+  // Re-rendering Markdown on every token is wasted work at ~20 tokens/second
+  // and makes the text jitter. One frame's worth is enough to read as live.
+  let paintQueued = false;
+  const paint = () => {
+    paintQueued = false;
+    digestOutput.innerHTML =
+      '<div class="digest-eyebrow">AI Digest</div>' + renderMarkdown(markdown);
+  };
+  const schedulePaint = () => {
+    if (paintQueued) return;
+    paintQueued = true;
+    requestAnimationFrame(paint);
+  };
+
+  const handleEvent = (name, payload) => {
+    if (name === 'token' && payload && typeof payload.text === 'string') {
+      markdown += payload.text;
+      schedulePaint();
+      return;
+    }
+    if (name === 'phase' && payload && payload.phase === 'map') {
+      // Long transcripts spend most of their time here, before a word of the
+      // digest exists. Say so rather than showing an empty pane.
+      setDigestStatus(`Reading the transcript — part ${payload.done} of ${payload.total}…`, false);
+      return;
+    }
+    if (name === 'done') finalPayload = payload;
+    if (name === 'error') finalPayload = payload;
+  };
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // SSE frames are separated by a blank line; a frame can straddle reads.
+      let split;
+      while ((split = buffer.indexOf('\n\n')) !== -1) {
+        const frame = buffer.slice(0, split);
+        buffer = buffer.slice(split + 2);
+
+        let name = 'message';
+        const dataLines = [];
+        for (const line of frame.split('\n')) {
+          if (line.startsWith('event:')) name = line.slice(6).trim();
+          else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+        }
+        if (dataLines.length === 0) continue;
+        try {
+          handleEvent(name, JSON.parse(dataLines.join('\n')));
+        } catch { /* a frame we cannot parse is not worth failing the stream over */ }
+      }
+    }
+  } catch (err) {
+    console.error('[echo] digest stream broke mid-flight:', err);
+    // Text may already be on screen. If the stream died before `done`, treat
+    // it as unusable and let the caller re-run it buffered.
+    if (!finalPayload) return null;
+  }
+
+  return finalPayload;
+}
+
 async function runDigest() {
   if (!lastSegments || lastSegments.length === 0) return;
   if (!requireApiKey()) return;
@@ -3108,18 +3255,27 @@ async function runDigest() {
   setTopIndicator('digesting');
   startDigestTimer(isLargeTranscript);
 
-  try {
-    const res  = await aiFetch('/api/digest', { text: plainText, length: lengthOpt, format: formatOpt, language: langOpt, title: (currentMeta && currentMeta.title) || '', videoId: (currentMeta && currentMeta.videoId) || undefined });
-    const data = await res.json();
+  const body = {
+    text: plainText, length: lengthOpt, format: formatOpt, language: langOpt,
+    title: (currentMeta && currentMeta.title) || '',
+    videoId: (currentMeta && currentMeta.videoId) || undefined,
+  };
 
-    if (!res.ok) {
+  try {
+    const streamed = await streamDigest(body);
+    const data = streamed || await (await aiFetch('/api/digest', body)).json();
+
+    if (data && data.error) {
       stopDigestTimer();
       setTopIndicator('error');
       renderDigestError(data);
       return;
     }
 
-    // Render digest content
+    // Render digest content. When it streamed, the text is already on screen —
+    // this final pass replaces the partial render with the authoritative result
+    // (the server's `done` payload), which also settles any Markdown that was
+    // mid-construction when the last token arrived.
     digestOutput.innerHTML = '<div class="digest-eyebrow">AI Digest</div>' + renderMarkdown(data.digest);
     digestOutput.classList.add('visible');
 
@@ -3269,12 +3425,33 @@ function updateEmptyStateSavedHint() {
 
 /** Keep the header Library button's count badge in sync with savedList. */
 function updateLibraryCount() {
-  if (libraryCountEl) libraryCountEl.textContent = String(savedList.length);
+  // savedTotal, not savedList.length: while the rest of a large library is
+  // still arriving those differ, and a count that climbs from 120 to 500 as
+  // pages land looks like a bug.
+  if (libraryCountEl) libraryCountEl.textContent = String(Math.max(savedTotal, savedList.length));
 }
 
+// Enough for two render windows, so the first paint is full and the first
+// scroll has somewhere to go while the remainder is still in flight.
+const SAVED_FIRST_PAGE = 120;
+const SAVED_PAGE_SIZE  = 500;
+
+/**
+ * Load the library, newest first.
+ *
+ * The list renders a window at a time, so the first screen needs a page, not
+ * the whole library — at 500 entries the full payload is 159 KB and the page
+ * cannot show more than about 60 cards of it. So: take a page, paint, then
+ * fetch the remainder in the background, because the local filter and the sort
+ * both work over the complete list and would quietly go wrong on a partial one.
+ *
+ * Web mode's adapter reads IndexedDB and ignores the paging arguments — its
+ * meta store answers the whole list in about 35 ms, so there is nothing to win.
+ */
 async function loadSaved() {
+  const seq = ++savedLoadSeq;
   try {
-    const res = await Library.listEntries();
+    const res = await Library.listEntries({ limit: SAVED_FIRST_PAGE });
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
       savedOutput.innerHTML =
@@ -3283,16 +3460,58 @@ async function loadSaved() {
       return;
     }
     const data = await res.json();
-    savedList = Array.isArray(data) ? data : [];
+    if (seq !== savedLoadSeq) return; // a newer load has started
+
+    // Bare array = the whole library (web mode, or a server asked for no page).
+    if (Array.isArray(data)) {
+      savedList  = data;
+      savedTotal = data.length;
+    } else {
+      savedList  = Array.isArray(data.entries) ? data.entries : [];
+      savedTotal = Number(data.total) || savedList.length;
+    }
+
     renderSavedFiltered();
     updateEmptyStateSavedHint();
     updateLibraryCount();
     syncSaveButton();
+
+    if (!Array.isArray(data) && data.hasMore) loadRemainingSaved(seq);
   } catch (err) {
     console.error('[echo] loadSaved network error:', err);
     savedOutput.innerHTML =
       '<p class="saved-empty-state">Network error — could not load your library.</p>';
     showToast('error', 'Network error loading library: ' + err.message);
+  }
+}
+
+/**
+ * Fetch everything after the first page, in the background.
+ *
+ * Failure here is deliberately quiet: the user has a working library of the
+ * most recent entries and a toast about page 3 helps nobody. The count still
+ * reads the true total, so nothing claims to be complete when it is not.
+ */
+async function loadRemainingSaved(seq) {
+  try {
+    while (seq === savedLoadSeq && savedList.length < savedTotal) {
+      const res = await Library.listEntries({ limit: SAVED_PAGE_SIZE, offset: savedList.length });
+      if (!res.ok) return;
+      const data = await res.json();
+      const page = Array.isArray(data) ? data : (data.entries || []);
+      if (page.length === 0) return;          // nothing further to take; stop rather than spin
+      if (seq !== savedLoadSeq) return;
+
+      savedList = savedList.concat(page);
+      savedTotal = Array.isArray(data) ? savedList.length : (Number(data.total) || savedTotal);
+      if (!Array.isArray(data) && !data.hasMore) break;
+    }
+    if (seq !== savedLoadSeq) return;
+    renderSavedFiltered();
+    updateEmptyStateSavedHint();
+    updateLibraryCount();
+  } catch (err) {
+    console.debug('[echo] background library page failed:', err);
   }
 }
 
@@ -4007,24 +4226,40 @@ syncThemeToggle();
    * When q is empty, clears savedApiResults and falls back to local filter.
    */
   function triggerSearch(q) {
+    // Searches can finish out of order — more easily now that web mode runs a
+    // transcript scan whose cost depends on where the match is, so a query for
+    // "a" can outlive the "ab" typed after it. Only the newest one may write.
+    const seq = ++savedSearchSeq;
+    const isCurrent = () => seq === savedSearchSeq;
+
     if (!q) {
       savedApiResults  = null;
       savedSearchQuery = '';
       renderSavedFiltered();
       return;
     }
-    // Web mode has no per-user server-side search index —
-    // always fall back to the existing client-side text filter.
+    // Web mode has no server-side index, but it does have the transcripts —
+    // they are sitting in IndexedDB. This used to stop here at the local
+    // title-and-tag filter, so searching in web mode could not see a word of a
+    // transcript or a digest, while the same search in local mode went through
+    // FTS5 over the lot. IndexedDbLibrary.searchLibrary() closes that gap.
+    //
+    // It reads transcripts, so it is not instant (~0.5 s over 400 entries).
+    // Rather than leave the list stale while it runs, paint the local filter
+    // first — it is synchronous and covers titles and tags — and let the
+    // full-text results replace it when they land. Same two-stage shape in
+    // both modes below; only the adapter differs.
     if (ECHO.mode === 'web') {
       savedApiResults  = null;
       savedSearchQuery = q;
       renderSavedFiltered();
-      return;
     }
+
     // Use API for all non-empty queries
     Library.searchLibrary(q)
       .then(r => r.json())
       .then(data => {
+        if (!isCurrent()) return;
         if (data.error) {
           // Server error — fall back to client-side filter silently
           savedApiResults  = null;
@@ -4036,6 +4271,7 @@ syncThemeToggle();
         renderSavedFiltered();
       })
       .catch(() => {
+        if (!isCurrent()) return;
         // Network failure — fall back to client-side filter
         savedApiResults  = null;
         savedSearchQuery = q;

@@ -5,7 +5,7 @@ import { readFileSync } from 'fs';
 import { writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { gzip, gzipSync, createGzip, brotliCompressSync, constants } from 'node:zlib';
+import { gzip, gzipSync, createGzip, brotliCompress, constants } from 'node:zlib';
 import { promisify } from 'node:util';
 import {
   extractVideoId,
@@ -17,6 +17,7 @@ import { WHISPER_MODELS, DEFAULT_WHISPER_MODEL, modelCacheDir, downloadState, st
 import { resolveWhisperBinary, transcribeFile, LOCAL_MEDIA_EXTENSIONS } from './whisper.js';
 import {
   listEntries,
+  countEntries,
   getEntry,
   saveEntry,
   deleteEntry,
@@ -190,17 +191,28 @@ function acceptsGzip(req) {
 // Brotli at maximum quality, which is worth 17% over gzip -9 on this app's
 // assets (81.2 KB → 67.3 KB across index.html + app.css + app.js).
 //
-// It is NOT computed at boot. Measured, q=11 costs ~455 ms for the three files
-// — more than doubling a 208 ms startup — and boot happens on every dev restart
-// (the price of the no-build-step asset cache), on every Tauri sidecar launch,
-// and in CI's boot job, none of which ever ask for brotli. So the first client
-// that advertises `br` pays for its own asset and every request after it is
-// free. On a hosted deploy that is one warm-up request, once.
+// Compressed in the BACKGROUND, just after this module finishes loading —
+// neither at boot nor on demand, because both of those make somebody wait.
+// q=11 costs ~455 ms for the three files: doing it inline more than doubles a
+// 208 ms startup, on every dev restart, every Tauri sidecar launch and in CI's
+// boot job, none of which ever ask for brotli. Doing it on first request
+// instead just moves the same cost onto whoever loads the page first, which
+// measured at 431 ms on app.js alone against 6 ms warm.
+//
+// So: schedule it with setImmediate (boot is not delayed), run it through the
+// async zlib binding (it lands on the libuv threadpool, so the event loop keeps
+// serving), and have the request path use the buffer only if it is already
+// there. Anyone who arrives during the warm-up gets gzip — correct, fast, and
+// nobody blocks on a compressor.
 //
 // Lower qualities were measured and are not worth a knob: q=9 costs 55 ms for
 // only 9%, and the whole point of a cached-forever buffer is that the CPU is
 // amortised to nothing.
 const BROTLI_QUALITY = 11;
+const brotliAsync = promisify(brotliCompress);
+
+/** @type {Array<() => Promise<void>>} One warm-up per cached asset. */
+const brotliWarmups = [];
 
 /**
  * Serve a boot-time-cached, pre-compressed asset.
@@ -222,22 +234,31 @@ const BROTLI_QUALITY = 11;
 function serveCached(path, contentType, text) {
   const raw = Buffer.from(text, 'utf8');
   const gzipped = gzipSync(raw, { level: 9 });
-  /** @type {Buffer|null} Computed on the first request that can use it. */
+  /** @type {Buffer|null} Filled in by the background warm-up below. */
   let brotli = null;
+
+  brotliWarmups.push(async () => {
+    if (brotli) return;
+    try {
+      brotli = await brotliAsync(raw, {
+        params: {
+          [constants.BROTLI_PARAM_QUALITY]: BROTLI_QUALITY,
+          [constants.BROTLI_PARAM_SIZE_HINT]: raw.length,
+        },
+      });
+    } catch {
+      // A failed warm-up is not an error worth taking the server down for —
+      // gzip stays available and every request still gets a correct response.
+    }
+  });
 
   app.get(path, (req, res) => {
     res.set('Content-Type', contentType);
     res.set('Vary', 'Accept-Encoding');
 
-    if (acceptsEncoding(req, 'br')) {
-      if (brotli === null) {
-        brotli = brotliCompressSync(raw, {
-          params: {
-            [constants.BROTLI_PARAM_QUALITY]: BROTLI_QUALITY,
-            [constants.BROTLI_PARAM_SIZE_HINT]: raw.length,
-          },
-        });
-      }
+    // Note the `brotli &&`: this path never compresses, it only serves what the
+    // warm-up has already produced. That is what guarantees no request waits.
+    if (brotli && acceptsEncoding(req, 'br')) {
       res.set('Content-Encoding', 'br');
       return res.send(brotli);
     }
@@ -262,6 +283,24 @@ serveCached('/app.js', 'text/javascript; charset=utf-8', APP_JS);
 serveCached('/theme-init.js', 'text/javascript; charset=utf-8', THEME_INIT_JS);
 serveCached('/echo-config.js', 'text/javascript; charset=utf-8', CONFIG_JS);
 serveCached('/vendor/jszip.min.js', 'text/javascript; charset=utf-8', JSZIP_JS);
+
+/**
+ * Resolves once every cached asset has its brotli buffer.
+ *
+ * Kicked off with setImmediate so importing this module — which every mode and
+ * every test does — returns first and the server can start listening. The
+ * warm-ups run one after another rather than all at once, so a small hosted VM
+ * sees one busy threadpool slot instead of five.
+ *
+ * Exported because tests need a deterministic point to wait for: without it, an
+ * assertion about brotli would race the warm-up and flake.
+ */
+const brotliReady = new Promise((resolve) => {
+  setImmediate(async () => {
+    for (const warm of brotliWarmups) await warm();
+    resolve();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Response compression (API JSON + markdown export)
@@ -1030,6 +1069,53 @@ async function suggestTagsBestEffort(text, { apiKey, language, videoId } = {}) {
   }
 }
 
+/**
+ * Server-sent-events transport for a digest.
+ *
+ * Opened only when the client asks for it (`?stream=1`), because the JSON shape
+ * is what the Obsidian plugin and every other caller expect, and because a
+ * provider that cannot stream should degrade to exactly the behaviour it had.
+ *
+ * Four event types:
+ *   phase  — map-reduce progress, before any digest text exists
+ *   token  — a chunk of digest text
+ *   done   — the full JSON payload the non-streaming route returns
+ *   error  — the same structured envelope, since headers are already sent by
+ *            the time most failures happen and a 500 is no longer available
+ *
+ * The last point is the one that shapes the client: an SSE response is a 200
+ * the moment it opens, so a failure has to arrive as a message rather than a
+ * status. The client renders it through the same classified error card.
+ */
+function openDigestStream(res) {
+  res.status(200).set({
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    // Nginx and friends will happily sit on an un-flushed proxy buffer and
+    // hand the client the whole "stream" at the end, which looks exactly like
+    // streaming being broken.
+    'X-Accel-Buffering': 'no',
+  });
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  let open = true;
+  res.on('close', () => { open = false; });
+
+  return {
+    get open() { return open; },
+    send(event, data) {
+      if (!open) return;
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    },
+    end() {
+      if (!open) return;
+      open = false;
+      res.end();
+    },
+  };
+}
+
 app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
   const { text, length, format, language, title, videoId } = req.body;
 
@@ -1037,6 +1123,9 @@ app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
 
   if (rejectOversizeAiPayload(res, { text })) return;
   if (requireWebKey(req, res)) return;
+
+  const wantsStream = req.query.stream === '1' || req.query.stream === 'true';
+  if (wantsStream) return digestStreaming(req, res, { text, length, format, language, title, videoId });
 
   const t0 = Date.now();
   const apiKey = readApiKey(req);
@@ -1062,6 +1151,66 @@ app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
     return sendCaughtError(res, err);
   }
 });
+
+/**
+ * The streaming half of POST /api/digest.
+ *
+ * Mirrors the JSON route exactly — same generateDigest call, same concurrent
+ * best-effort tagging, same usage log — and differs only in delivery. The
+ * `done` event carries the identical payload, so a client can treat streaming
+ * as a progressive rendering of a response it already knows how to handle.
+ */
+async function digestStreaming(req, res, { text, length, format, language, title, videoId }) {
+  const t0 = Date.now();
+  const apiKey = readApiKey(req);
+  const stream = openDigestStream(res);
+
+  try {
+    const [result, suggestedTags] = await Promise.all([
+      generateDigest(text, {
+        length, format, language, title, apiKey,
+        onToken: (chunk) => stream.send('token', { text: chunk }),
+        onPhase: (info) => stream.send('phase', info),
+      }),
+      suggestTagsBestEffort(text, { apiKey, language, videoId }),
+    ]);
+
+    logEvent('digest', {
+      videoId: videoId || null,
+      chars: (text || '').length,
+      length, format, language,
+      strategy: result.strategy,
+      model: 'sonnet',
+      streamed: true,
+      costUsd: result.usage && result.usage.costUsd,
+      tokIn: result.usage && result.usage.inputTokens,
+      tokOut: result.usage && result.usage.outputTokens,
+      ok: true, ms: Date.now() - t0,
+    });
+
+    stream.send('done', { ...result, suggestedTags });
+    stream.end();
+  } catch (err) {
+    logEvent('digest', {
+      videoId: videoId || null, chars: (text || '').length, length, format,
+      streamed: true, ok: false, err: errLabel(err), ms: Date.now() - t0,
+    });
+
+    // Same envelope sendError builds, delivered as an event because the 200 is
+    // already on the wire.
+    const code = err && err.echoCode ? err.echoCode : 'INTERNAL';
+    const payload = {
+      code,
+      message: (err && err.message) || 'Digest failed.',
+      hint: (err && err.hint) || '',
+    };
+    if (err && err.detail) payload.detail = err.detail;
+    console.error(`[echo] ${code}: ${payload.message}`);
+
+    stream.send('error', { error: payload });
+    stream.end();
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Enrich (explain / background a highlighted selection)
@@ -1334,9 +1483,37 @@ app.post('/api/sync/push', requireAuthConfigured, requireSession, webLimit(60, 6
 // IMPORTANT: /api/saved/export must be defined BEFORE /api/saved/:videoId
 // so Express does not capture "export" as a videoId parameter.
 
-app.get('/api/saved', blockInWeb, async (_req, res) => {
+/**
+ * GET /api/saved
+ *
+ * Without a `limit`, returns the bare metadata array it always has — the shape
+ * every existing caller expects, and what the export and vault sync want.
+ *
+ * With `?limit=&offset=`, returns `{ entries, total, hasMore }` instead. The
+ * page opens on a windowed list that paints 60 cards, so it does not need the
+ * other 440 before showing anything; it takes a page, renders, and fetches the
+ * rest in the background. `total` is sent so the library count is right from
+ * the first paint rather than climbing as pages land.
+ */
+app.get('/api/saved', blockInWeb, async (req, res) => {
   try {
-    res.json(await listEntries());
+    const limit = req.query.limit === undefined ? null : Number(req.query.limit);
+    if (limit === null) return res.json(await listEntries());
+
+    if (!Number.isFinite(limit) || limit < 1) {
+      return sendError(res, 'INTERNAL', 'limit must be a positive number.', '', 400);
+    }
+    const offset = req.query.offset === undefined ? 0 : Number(req.query.offset);
+    if (!Number.isFinite(offset) || offset < 0) {
+      return sendError(res, 'INTERNAL', 'offset must be zero or a positive number.', '', 400);
+    }
+
+    const capped = Math.min(limit, 500);
+    const [entries, total] = await Promise.all([
+      listEntries({ limit: capped, offset }),
+      countEntries(),
+    ]);
+    res.json({ entries, total, hasMore: offset + entries.length < total });
   } catch (err) {
     sendCaughtError(res, err);
   }
@@ -1588,4 +1765,4 @@ if (isDirectRun) {
   });
 }
 
-export { app, rateLimitHit, buildConfigScript, localMediaId, ECHO_MODE, isWeb, isDesktop, ECHO_ERROR_STATUS };
+export { app, rateLimitHit, buildConfigScript, localMediaId, ECHO_MODE, isWeb, isDesktop, ECHO_ERROR_STATUS, brotliReady };

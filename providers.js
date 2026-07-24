@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { runClaude } from './digest.js';
+import { runClaude, runClaudeStream } from './digest.js';
 
 // ---------------------------------------------------------------------------
 // Summarization provider seam.
@@ -40,6 +40,19 @@ export const ClaudeCliProvider = {
   async call(prompt, opts = {}) {
     return runClaude(prompt, { timeoutMs: opts.timeoutMs });
   },
+
+  /**
+   * Same call, delivering text through `onToken` as it arrives. Resolves with
+   * the identical { result, usage } the buffered call produces.
+   *
+   * @param {string} prompt
+   * @param {{ timeoutMs?: number }} opts
+   * @param {(text: string) => void} onToken
+   * @returns {Promise<{ result: string, usage: object }>}
+   */
+  async stream(prompt, opts = {}, onToken) {
+    return runClaudeStream(prompt, { timeoutMs: opts.timeoutMs }, onToken);
+  },
 };
 
 /**
@@ -73,6 +86,40 @@ function mapAnthropicError(err) {
   e.detail = (err && (err.message || String(err))) || '';
   console.error('Anthropic API error:', err);
   return e;
+}
+
+/**
+ * Maps an Anthropic response's usage block to Echo's usage shape, including the
+ * approximate cost. Shared by the buffered and streaming calls so the two can
+ * never drift into reporting different numbers for the same work.
+ *
+ * @param {{usage?: object}} response
+ * @param {{input: number, output: number}} pricing
+ * @param {number} durationMs
+ */
+function usageFromApiResponse(response, pricing, durationMs) {
+  const u = (response && response.usage) || {};
+  const inputTokens = u.input_tokens || 0;
+  const outputTokens = u.output_tokens || 0;
+  const cacheReadTokens = u.cache_read_input_tokens || 0;
+  const cacheCreationTokens = u.cache_creation_input_tokens || 0;
+
+  // pricing may drift
+  const costUsd =
+    (inputTokens / 1_000_000) * pricing.input +
+    (outputTokens / 1_000_000) * pricing.output +
+    (cacheReadTokens / 1_000_000) * pricing.input * 0.1 +
+    (cacheCreationTokens / 1_000_000) * pricing.input * 1.25;
+
+  return {
+    costUsd,
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheCreationTokens,
+    totalTokens: inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens,
+    durationMs,
+  };
 }
 
 /**
@@ -126,32 +173,66 @@ export const ApiKeyProvider = {
       .join('')
       .trim();
 
-    const u = response.usage || {};
-    const inputTokens = u.input_tokens || 0;
-    const outputTokens = u.output_tokens || 0;
-    const cacheReadTokens = u.cache_read_input_tokens || 0;
-    const cacheCreationTokens = u.cache_creation_input_tokens || 0;
-    const totalTokens = inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens;
+    return { result, usage: usageFromApiResponse(response, pricing, durationMs) };
+  },
 
-    // pricing may drift
-    const costUsd =
-      (inputTokens / 1_000_000) * pricing.input +
-      (outputTokens / 1_000_000) * pricing.output +
-      (cacheReadTokens / 1_000_000) * pricing.input * 0.1 +
-      (cacheCreationTokens / 1_000_000) * pricing.input * 1.25;
+  /**
+   * Streaming counterpart, via the SDK's messages.stream().
+   *
+   * The final message carries the authoritative text and usage, so the result
+   * is assembled from that rather than from the concatenated deltas — the two
+   * agree, but only one of them is the API's own answer, and usage is only
+   * available on the final message anyway.
+   *
+   * @param {string} prompt
+   * @param {{ apiKey?: string, model?: 'sonnet'|'opus' }} opts
+   * @param {(text: string) => void} onToken
+   * @returns {Promise<{ result: string, usage: object }>}
+   */
+  async stream(prompt, opts = {}, onToken) {
+    const apiKey = opts.apiKey || process.env.ANTHROPIC_API_KEY;
+    if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+      const e = new Error('No Anthropic API key available.');
+      e.echoCode = 'API_NOT_AUTHED';
+      e.hint = 'Set ANTHROPIC_API_KEY in the environment or pass an apiKey.';
+      throw e;
+    }
 
-    return {
-      result,
-      usage: {
-        costUsd,
-        inputTokens,
-        outputTokens,
-        cacheReadTokens,
-        cacheCreationTokens,
-        totalTokens,
-        durationMs,
-      },
-    };
+    const modelKey = opts.model === 'opus' ? 'opus' : 'sonnet';
+    const pricing = PRICING[modelKey];
+
+    let client;
+    try {
+      client = new Anthropic({ apiKey });
+    } catch (err) {
+      throw mapAnthropicError(err);
+    }
+
+    const start = Date.now();
+    let final;
+    try {
+      const streamed = client.messages.stream({
+        model: pricing.model,
+        max_tokens: 16000,
+        thinking: { type: 'disabled' },
+        messages: [{ role: 'user', content: prompt }],
+      });
+      streamed.on('text', (text) => {
+        if (typeof onToken === 'function' && text) onToken(text);
+      });
+      final = await streamed.finalMessage();
+    } catch (err) {
+      throw mapAnthropicError(err);
+    }
+    const durationMs = Date.now() - start;
+
+    const result = (final.content || [])
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('')
+      .trim();
+
+    return { result, usage: usageFromApiResponse(final, pricing, durationMs) };
   },
 };
 
