@@ -2,9 +2,9 @@
 #
 # AI calls are bring-your-own-key (each request carries its own Anthropic key
 # via the X-Echo-Api-Key header) — no server-side secrets. Each visitor's
-# library lives in browser IndexedDB. This config opts into public digest
-# shares (ECHO_SHARES=1), which persist server-side on the mounted volume
-# below; disable that + drop the [mounts] block to run fully stateless.
+# library lives in their own browser's IndexedDB, and the server-side library
+# routes are disabled in web mode. Nothing is persisted server-side, so this
+# config needs no volume and no `fly secrets set` step.
 #
 # App name is set to echo-web-ssani; `fly launch` will create/claim it.
 app = "echo-web-ssani"
@@ -16,12 +16,6 @@ primary_region = "iad"
 [build]
   dockerfile = "Dockerfile"
 
-# Backs ECHO_SHARES digest persistence. Volume must be created with:
-# `fly volumes create echo_data`
-[mounts]
-  source = "echo_data"
-  destination = "/data"
-
 [env]
   # Redundant with the Dockerfile's own ENV, set explicitly here so it's
   # visible/auditable from `fly.toml` and survives if the Dockerfile ever
@@ -32,9 +26,6 @@ primary_region = "iad"
   # for visibility. Safe to tune without touching the Dockerfile.
   ECHO_MAX_TRANSCRIPT_CHARS = "200000"
   ECHO_MAX_AI_PAYLOAD_CHARS = "200000"
-  # Opt-in public digest shares (see DEPLOY.md) — persisted on the mounted volume below.
-  ECHO_SHARES = "1"
-  ECHO_DB_PATH = "/data/library.db"
 
 [http_service]
   internal_port = 8080

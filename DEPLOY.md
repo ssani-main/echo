@@ -84,44 +84,18 @@ nobody's using it, at the cost of a few seconds' latency on the first
 request after idle). Set `min_machines_running = 1` in `fly.toml` if you'd
 rather pay for an always-warm machine and avoid that cold start.
 
-### Optional: enable public digest shares
+### No volume, no database
 
-By default, web-mode shares are disabled — the deployment needs no persistent
-storage. To enable anonymous public digest shares, set `ECHO_SHARES=1` and
-provide durable storage:
+Web mode keeps nothing on the server: the library lives in each visitor's
+IndexedDB, the server-side library routes (`/api/saved*`, `/api/search`,
+`/api/vault/sync`) return 503, and API keys arrive per-request and are never
+written down. So `fly.toml` has no `[mounts]` block and needs none — don't add
+a volume or set `ECHO_DB_PATH` for a hosted deployment.
 
-```bash
-# 1. Create a Fly volume
-fly volumes create library_data
-
-# 2. Modify fly.toml to mount it and set ECHO_SHARES
-# Under [env], add:
-# ECHO_SHARES = "1"
-# ECHO_DB_PATH = "/data/library.db"
-
-# Under [mounts], add:
-# source = "library_data"
-# destination = "/data"
-
-# 3. Deploy
-fly deploy
-```
-
-**Configuration:**
-- `ECHO_SHARES` (`1` or `true`; default: off) — enables public shares.
-- `ECHO_DB_PATH` — must point at the mounted volume (e.g., `/data/library.db`).
-  Shares persist in the `shares` table of the SQLite database. Without a volume,
-  shares work but are lost on restart.
-- `ECHO_SHARE_MAX_CHARS` (default: 100000) — max digest markdown per share;
-  oversized digests rejected with HTTP 413.
-- `ECHO_SHARES_TTL_DAYS` (default: 30) — web shares expire after N days (lazily
-  deleted on access; pruned when new shares are created).
-- `ECHO_SHARES_MAX` (default: 500) — max share rows retained in web mode; oldest
-  overflow pruned when a new share is created.
-
-Shares are anonymous and public — anyone with the unguessable link can view the
-digest. This feature is only available in `ECHO_MODE=web`; local and desktop
-modes always have unlimited, permanent shares (unchanged).
+(An earlier build offered server-persisted public digest shares behind
+`ECHO_SHARES`, which is what the volume was for. That feature was removed in
+the 2026-07-23 lean cut; the env var no longer does anything. Web sharing is
+Phase-2 work — see `CLAUDE.md`.)
 
 ## Alternative: Railway
 
@@ -148,12 +122,10 @@ intentionally brief.
   deployment — visitors bring their own key from the browser. Setting a
   server-side key isn't needed and isn't the intended usage model for
   hosted web mode.
-- **By default, don't add a Fly volume.** The default `ECHO_MODE=web` deployment
-  is stateless — library routes are disabled (`503`), and each visitor's library
-  lives in their own browser's IndexedDB. However, if you opt into public digest
-  shares (`ECHO_SHARES=1`), you should mount a small Fly volume and point
-  `ECHO_DB_PATH` at it for persistence; without it, shares are ephemeral (lost on
-  restart/redeploy).
+- **Don't add a Fly volume.** The `ECHO_MODE=web` deployment is stateless —
+  library routes are disabled (`503`), and each visitor's library lives in their
+  own browser's IndexedDB. There is nothing on the server worth persisting, so a
+  volume and `ECHO_DB_PATH` buy you nothing.
 
 ## Node version
 

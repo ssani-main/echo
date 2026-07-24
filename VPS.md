@@ -27,8 +27,8 @@ own Anthropic API key from the browser (sent per-request as `X-Echo-Api-Key`,
 stored in their `localStorage`), their library lives in their browser's
 IndexedDB, and the server never sees an API key. The server has per-IP rate
 limits and payload caps that guard the AI and transcript endpoints. This is
-BYOK (bring-your-own-key) — no secrets to secure on the server, no persistent
-volume needed unless you enable optional public digest shares.
+BYOK (bring-your-own-key) — no secrets to secure on the server, and no
+persistent volume needed at all.
 
 **The one exception:** a *private* local-on-VPS setup where you bind
 `127.0.0.1`, reach it over SSH tunnel or Tailscale, and never expose ports
@@ -63,13 +63,6 @@ services:
       ECHO_MODE: web
       ECHO_HOST: 0.0.0.0
       PORT: 8080
-      ECHO_SHARES: "1"
-      ECHO_DB_PATH: /data/library.db
-    volumes:
-      - echo_data:/data
-
-volumes:
-  echo_data:
 ```
 
 A few details matter here:
@@ -83,15 +76,10 @@ so the sole route in is Caddy on the host. Writing `8080:8080` instead drops
 that prefix, publishes Echo on every interface, and lets anyone reach it over
 plain HTTP while bypassing your TLS entirely.
 
-**`echo_data` volume:** This is the VPS equivalent of Fly's
-`[mounts]` block (see `fly.toml`). It persists share data across restarts and
-container rebuilds. Drop both the volume and the `ECHO_SHARES` env var if you
-want to run fully stateless (shares won't survive a restart).
-
-**`ECHO_SHARES=1` and `ECHO_DB_PATH`:** Optional; enable public digest shares.
-If you don't want this feature, omit them and drop the `volumes` block. See
-[`DEPLOY.md`](DEPLOY.md#optional-enable-public-digest-shares) for the
-full share configuration (same environment variables work here).
+**No volume, no `ECHO_DB_PATH`.** Web mode writes nothing durable: the
+server-side library routes are disabled (`503`) and each visitor's library
+lives in their own browser's IndexedDB. There is no state to mount a volume
+for, which is also why a rebuild costs you nothing.
 
 ## Deploy
 

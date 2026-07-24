@@ -7,11 +7,11 @@
 
 ### _Paste a YouTube link. Read what was actually said._
 
-Echo pulls the transcript out of any YouTube video, reflows the messy auto-captions into something you'd actually want to read, and — if you like — hands it to AI for a clean English digest.
+Echo pulls the transcript out of any YouTube video, reflows the messy auto-captions into something you'd actually want to read, and — if you like — hands it to AI for a clean digest.
 
 <br>
 
-![Node](https://img.shields.io/badge/Node-%E2%89%A518-3c873a?style=flat-square&logo=node.js&logoColor=white)
+![Node](https://img.shields.io/badge/Node-%E2%89%A522.5-3c873a?style=flat-square&logo=node.js&logoColor=white)
 ![Express](https://img.shields.io/badge/Express-4-16181D?style=flat-square&logo=express&logoColor=white)
 ![Runs locally](https://img.shields.io/badge/runs-100%25%20local-0B6B4F?style=flat-square)
 ![No API key](https://img.shields.io/badge/AI%20digest-no%20API%20key%20needed-0B6B4F?style=flat-square)
@@ -28,13 +28,13 @@ You've been there: you find a great video, but you'd rather *read* it than sit t
    🔗  paste a link
         │
         ▼
-   📥  fetch the caption track          (youtube-transcript → yt-dlp fallback)
+   📥  fetch the caption track          (youtube-transcript → yt-dlp → Whisper)
         │
         ▼
    🧹  reflow into readable paragraphs   (sentence + pause aware)
         │
         ▼
-   🤖  optional: AI digest in English    (via your local Claude Code CLI)
+   🤖  optional: AI digest               (via your local Claude Code CLI)
 ```
 
 ## 🌟 Features
@@ -47,13 +47,14 @@ You've been there: you find a great video, but you'd rather *read* it than sit t
 | 🎛️ | **Shared reading controls** | Font size (A−/A+) and column width (Narrow/Medium/Wide: ~620 / 760 / 940 px) apply to both Transcript and Digest lenses, share one preference, and scale the reading column responsively. Digest AI output is typeset as a readable article |
 | ⏱️ | **Timecoded mode** | Subtitle-editor style with monospace timecode gutter; every timestamp deep-links YouTube (`&t=<sec>s`) |
 | 💾 | **Session restore** | Refreshing the page restores the current transcript, digest, view mode, lens, and Library state via sessionStorage—no re-fetch |
-| 🤖 | **AI Digest** | Switch to the Digest lens for an AI-generated digest — short/detailed, bullets/prose, and output-language options |
-| 🔎 | **Selection-driven enrich** | Select any passage in the Digest to show an ephemeral floating popover with **Explain** (Claude's own knowledge) and **Background** (live web search with citations). Results render inside the popover; dismiss on click-outside, Esc, or new selection—nothing persists |
+| 🤖 | **AI Digest** | Switch to the Digest lens for an AI-generated read: **Digest** (synthesized, reorganized by idea), **Article** (full-fidelity rewrite, nothing dropped), or **Bullets** — plus an output-language picker. Very long transcripts fall back to map-reduce automatically |
+| 🔎 | **Selection-driven enrich** | Select any passage in the Digest to show an ephemeral floating popover with **Explain** and **Background** — both answered from the transcript context plus Claude's own knowledge. Results render inside the popover; dismiss on click-outside, Esc, or new selection—nothing persists |
+| 🎙️ | **Whisper transcription** | No captions? Local speech-to-text via whisper.cpp fills the gap (**Fallback**), or transcribes everything for accuracy (**High-accuracy**). Off by default; configured in Settings with a `base`/`small` model picker and on-demand download. Local/desktop only, needs `ffmpeg` on `PATH` |
 | 📑 | **Reader & Library** | Transcript and Digest are lens tabs—two views of the current video. Saved videos open from a **Library** button in the header (with count) |
 | 🟢 | **Live status indicator** | Fixed pill shows "AI is digesting…" → "Digest ready ✓" as it processes; click to jump to the Digest pane |
 | 💾 | **Library & tagging** | Save videos; search by keyword (SQLite FTS5), sort (Recently saved / Title A–Z), tag with auto-suggestions; export whole library as ZIP of Markdown files or JSON backup; sync to Obsidian vault |
 | ⌨️ | **Keyboard shortcuts** | Press `?` for the overlay; `/` focus find, `1`/`2` switch Transcript & Digest lenses, `3` open Library, `t` toggle dark mode, `Esc` close — all paused while typing |
-| 🎨 | **Dark mode & fonts** | Crisp dark-first theme ("Signal" aesthetic), Inter for reading, JetBrains Mono for code; loading skeletons respect reduced-motion |
+| 🎨 | **Light & dark themes** | The "Plaintext" theme: one system monospace family, no webfonts, no accent hue, hierarchy carried by weight rather than size. Loading skeletons respect reduced-motion |
 | 🛟 | **Automatic fallback** | If the transcript library hiccups, `yt-dlp` steps in |
 | 🏠 | **Fully local** | Your own machine, your own browser — nothing leaves the room |
 
@@ -61,12 +62,20 @@ You've been there: you find a great video, but you'd rather *read* it than sit t
 
 The AI digest **doesn't need an Anthropic API key or any billing setup** when running locally. Echo shells out to your locally-installed [**Claude Code**](https://claude.com/claude-code) CLI in headless mode, reusing your existing login and subscription quota.
 
-Switch to the **Digest** lens and Echo generates the digest directly — a TL;DR, key points, and a topic-by-topic breakdown. Choose short or detailed, bullets or prose, and pick your output language (default English).
+Switch to the **Digest** lens and Echo generates it directly. Three formats:
+
+- **Digest** _(default)_ — the video's real substance, synthesized and reorganized by idea rather than in the order it was said. Not a summary of what the video "covers"; the point itself.
+- **Article** — a full-fidelity rewrite you read *instead of* watching. Nothing substantive is dropped, only the noise of speech.
+- **Bullets** — a short TL;DR plus the key takeaways.
+
+Pick your output language too (default English). Transcripts past ~120k tokens are chunked, summarized in parallel, and synthesized in a final pass automatically.
 
 **Selection-driven lookups on the Digest.** Highlight any passage in a generated Digest and a floating popover appears with two actions:
 
-- **Explain**: A 1–3 sentence explanation from Claude's own knowledge (no web search) — good for jargon or a quick definition.
-- **Background**: 2–4 sentences of context, grounded in a live web search with linked sources.
+- **Explain**: A 1–3 sentence explanation — good for jargon or a quick definition.
+- **Background**: 2–4 sentences of wider context around the passage.
+
+Both read the surrounding transcript context plus Claude's own training knowledge. Neither has live web access, so treat anything consequential as a starting point rather than a citation.
 
 Results render **inside the popover** (max-height 320px, scrollable); dismiss with Esc, click-outside, or select new text — nothing persists. Every enrich call shows its **tokens · cost · duration**.
 
@@ -79,6 +88,7 @@ The prompts live in [`digest.js`](./digest.js) — tweak them if you'd rather ha
 - **[Node.js](https://nodejs.org/) ≥ 22.5**
 - **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** _(optional)_ — the reliability fallback. `winget install yt-dlp` or `pip install yt-dlp`, and make sure it's on your `PATH`.
 - **[Claude Code](https://claude.com/claude-code)** _(optional)_ — only needed for the **AI features** (the digest and Explain/Background lookups). Desktop mode can use BYOK (Bring Your Own Key) from Anthropic as a fallback.
+- **[ffmpeg](https://ffmpeg.org/)** _(optional)_ — only needed for **Whisper transcription**, to extract audio. The `whisper-cli` binary itself ships with Echo on Linux x64 and Windows x64; macOS has no prebuilt binary, so Whisper stays off there.
 
 ### Install & run
 
@@ -103,7 +113,7 @@ Echo is one codebase that runs three ways—same core, different shells.
 npm start
 ```
 
-Opens **http://localhost:8000**. The AI Workspace shells out to your locally-installed [Claude Code CLI](https://claude.com/claude-code) — no API key or subscription setup needed, reuses your existing quota. **This is the standard way to run Echo and requires no environment configuration.**
+Opens **http://localhost:8000**. The AI features shell out to your locally-installed [Claude Code CLI](https://claude.com/claude-code) — no API key or subscription setup needed, reuses your existing quota. **This is the standard way to run Echo and requires no environment configuration.**
 
 ### Hosted web (BYOK — Bring Your Own Key)
 
@@ -119,10 +129,11 @@ Public web mode with no authentication. Each visitor:
 - Library stored in browser's **IndexedDB** — each visitor's library is isolated, no user accounts
 
 **Web-mode limits:**
-- Server-side library API disabled (HTTP 503): `/api/saved*` — library in IndexedDB only
+- Server-side library API disabled (HTTP 503): `/api/saved*`, `/api/search`, `/api/vault/sync` — library in IndexedDB only
+- Whisper transcription disabled (`/api/whisper/*`); captions only
 - Per-IP rate limiting: 20 requests / 60s on AI and transcript routes
 - Transcript and AI payload size caps
-- Batch playlist digest unavailable
+- Nothing is persisted server-side — no volume or database to provision
 
 ### Desktop app (Tauri v2)
 
@@ -161,15 +172,20 @@ docker run -e PORT=3000 -e ECHO_MODE=web -p 3000:3000 echo
 | Variable | Default | Purpose |
 |---|---|---|
 | `PORT` | `8000` | Server port |
-| `ECHO_MODE` | `local` | `local` (Claude Code CLI) or `web` (visitor-supplied keys) |
+| `ECHO_HOST` | `127.0.0.1` | Interface to bind. Localhost-only by default; set to `0.0.0.0` to expose (containers, reverse proxies) |
+| `ECHO_MODE` | `local` | `local` (Claude Code CLI), `desktop` (CLI + optional BYOK), or `web` (visitor-supplied keys) |
 | `ECHO_PROVIDER` | _(CLI)_ | Set to `api` to use Anthropic API instead of CLI. Web-mode per-request `X-Echo-Api-Key` also selects API provider. |
 | `ANTHROPIC_API_KEY` | _(unset)_ | API key used when no per-request key is supplied |
-| `ECHO_DB_PATH` | `data/library.db` | SQLite library database path |
+| `ECHO_DB_PATH` | `data/library.db` | SQLite library database path (local/desktop only) |
+| `ECHO_VAULT_DIR` | _(unset)_ | Default Obsidian vault folder for `/api/vault/sync` when none is passed |
 | `ECHO_MAX_TRANSCRIPT_CHARS` | `200000` | Web-mode transcript character limit |
 | `ECHO_MAX_AI_PAYLOAD_CHARS` | `200000` | Web-mode AI payload character limit |
 | `ECHO_YTDLP_JS_RUNTIME` | `'node'` | JavaScript runtime for yt-dlp (Node >=22 supported); set to empty string to disable (required for older yt-dlp builds) |
+| `ECHO_WHISPER_DEFAULT_MODEL` | `base` | Whisper model used when none is selected (`base` or `small`) |
+| `ECHO_WHISPER_THREADS` | _(75% of cores)_ | Threads for whisper.cpp — lower it to keep the machine responsive |
+| `ECHO_WHISPER_MAX_MINUTES` | `180` | Reject Whisper transcription of audio longer than this |
 
-See [`.env.example`](./.env.example) for the full list of variables and detailed documentation for each. **Node version requirement:** ≥ 22.5 (for `node:sqlite` support).
+See [`.env.example`](./.env.example) for the common variables with detailed documentation for each; the Whisper knobs above are documented in [`WHISPER.md`](./WHISPER.md). **Node version requirement:** ≥ 22.5 (for `node:sqlite` support).
 
 ## 🕹️ How to use
 
@@ -184,12 +200,18 @@ See [`.env.example`](./.env.example) for the full list of variables and detailed
 
 ```
 echo/
-├── server.js         # Express server: API routes + serves the UI
-├── transcript.js     # video-ID parsing + transcript fetch (library + yt-dlp fallback)
-├── digest.js         # AI tools: digest generation + Explain/Background/Verify enrich
-├── store.js          # library storage layer (local: file-based; web: IndexedDB)
-├── data/             # (gitignored, local mode only) persistent video library
-│   └── library.db    # SQLite database of saved videos, tags, follows, inbox
+├── server.js         # Express server: all API routes + serves the UI
+├── transcript.js     # video-ID parsing + caption fetch (library → yt-dlp) + error classification
+├── whisper.js        # local whisper.cpp speech-to-text (local/desktop only)
+├── whisperModel.js   # Whisper model registry + on-demand download/cache
+├── digest.js         # digest generation (incl. map-reduce), Explain/Background enrich, auto-tagging
+├── providers.js      # AI provider seam: local `claude` CLI vs Anthropic API (BYOK)
+├── store.js          # SQLite library (local/desktop); web mode uses IndexedDB in the browser
+├── markdown.js       # Markdown export + Obsidian vault index note
+├── vault.js          # Obsidian vault folder sync
+├── data/             # (gitignored, local/desktop only) persistent video library
+│   └── library.db    # SQLite database of saved videos, transcripts, digests, tags
+├── vendor/whisper/   # prebuilt whisper-cli binaries (linux-x64, win32-x64)
 ├── public/
 │   └── index.html    # the whole UI — one self-contained file, no build step; loads JSZip from CDN for library export
 ├── package.json
@@ -201,12 +223,15 @@ echo/
 | Method | Route | Body | Returns |
 |--------|-------|------|---------|
 | `GET` | `/api/health` | _(none)_ | `{ status: 'ok', mode }` |
-| `POST` | `/api/validate-key` | `{ key }` | `{ valid: true }` or `{ valid: false, error }` |
-| `POST` | `/api/transcript` | `{ url, lang? }` | `{ videoId, url, title, segments }` |
+| `POST` | `/api/validate-key` | _(key goes in the `X-Echo-Api-Key` header)_ | `{ valid: true }`, or a structured error envelope (web/desktop only) |
+| `POST` | `/api/transcript` | `{ url, lang?, transcribe?, whisperModel?, jobId? }` | `{ videoId, url, title, channel, channelUrl, segments, langCode, transcriptSource }` |
+| `GET` | `/api/transcript/progress` | `?jobId=` | Server-sent events with live Whisper progress |
+| `GET` | `/api/whisper/status` | _(none)_ | `{ binaryPresent, defaultModel, cacheDir, models }` (local/desktop only) |
+| `POST` | `/api/whisper/model` | `{ model }` (`base`\|`small`) | download state for that model (local/desktop only) |
 | `GET` | `/api/languages` | `?videoId=` | `{ tracks: [{ code, name, auto }] }` |
-| `GET` | `/api/video-meta` | `?videoId=` | `{ title, channel, channelUrl, duration, … }` (oEmbed metadata) |
-| `POST` | `/api/digest` | `{ text, length?, format?, language? }` | `{ digest, usage, suggestedTags }` |
-| `POST` | `/api/enrich` | `{ selection, context?, mode }` (`mode`: `explain`\|`background`) | `{ mode, text, sources: [{ title, url }], usage }` |
+| `GET` | `/api/video-meta` | `?videoId=` | `{ videoId, title, channel, channelUrl }` (oEmbed metadata) |
+| `POST` | `/api/digest` | `{ text, length?, format?, language?, title?, videoId? }` | `{ digest, usage, strategy, suggestedTags }` |
+| `POST` | `/api/enrich` | `{ selection, context?, mode }` (`mode`: `explain`\|`background`) | `{ mode, text, sources, usage }` |
 | `GET` | `/api/saved` | _(none)_ | list of saved entries (metadata incl. tags) |
 | `GET` | `/api/saved/export` | _(none)_ | `{ entries: [ ...full entries... ] }` |
 | `GET` | `/api/saved/:videoId` | _(none)_ | one full entry (transcript, digest, tags) |
@@ -215,7 +240,7 @@ echo/
 | `DELETE` | `/api/saved/:videoId` | _(none)_ | `{ ok: true }` |
 | `PATCH` | `/api/saved/:videoId/tags` | `{ tags }` | updated entry |
 | `GET` | `/api/search` | `?q=` (query string) | FTS5 keyword search over the library (local/desktop only) |
-| `POST` | `/api/vault/sync` | `{ url, videoId, title, digest, tags? }` | `{ synced: true, path }` (local/desktop only) |
+| `POST` | `/api/vault/sync` | `{ dir?, includeTranscript? }` | `{ dir, total, written, unchanged, failed, index }` (local/desktop only) |
 
 ## ⚠️ Good to know
 
@@ -223,7 +248,8 @@ echo/
 - YouTube occasionally shifts its internals; that's exactly what the `yt-dlp` fallback is there to cover.
 - The **AI features** (digest + enrich) need Claude Code installed and logged in (local mode) or an Anthropic API key (web/desktop modes). Without AI, transcript reading, search, and library features work just fine. If a digest can't be generated — CLI not installed or signed in, or an API key/rate-limit issue — Echo shows a clear card explaining what to do (with an **Open Settings** or **Try again** button), not a cryptic error.
 - Your **saved library** (`data/library.db`) is **gitignored** — it never leaves your machine and doesn't get pushed to any repo (local/desktop modes only; web mode uses client-side IndexedDB).
-- **Explain** is grounded in Claude's own training knowledge with **no live web access**; **Background** runs a live web search for citations, but always verify anything consequential via other sources.
+- **Explain** and **Background** are both grounded in the surrounding transcript plus Claude's own training knowledge, with **no live web access** — verify anything consequential against other sources.
+- **Whisper transcription** is off by default and local/desktop only. Turn it on in Settings as a **Fallback** (only when captions are missing) or **High-accuracy** (always). It needs `ffmpeg` on your `PATH`, runs entirely on your machine, and takes real time on long videos — a live progress bar shows where it's at, and closing the tab cancels it.
 - Each enrich lookup shows its own **tokens · cost · duration**.
 - Library **export to ZIP** loads JSZip from a CDN; if the CDN is unavailable, the app falls back to a single JSON backup file.
 - Per-digest stats (tokens, cost, duration) are always shown when available; these are real billing data from your AI provider.
@@ -242,7 +268,7 @@ No bookmarklet? You can also just open `http://localhost:8000/?v=VIDEO_ID` or `h
 
 ## 🛠️ Built with
 
-**Node.js** · **Express** · **[youtube-transcript](https://www.npmjs.com/package/youtube-transcript)** · **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** · **[Claude Code](https://claude.com/claude-code)** · plain HTML/CSS/JS (Space Grotesk · Inter · JetBrains Mono)
+**Node.js** · **Express** · **`node:sqlite`** · **[youtube-transcript](https://www.npmjs.com/package/youtube-transcript)** · **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** · **[whisper.cpp](https://github.com/ggml-org/whisper.cpp)** · **[Claude Code](https://claude.com/claude-code)** · **[Tauri](https://tauri.app/)** · plain HTML/CSS/JS on a system monospace stack — no webfonts, no build step
 
 ## 📄 License
 
