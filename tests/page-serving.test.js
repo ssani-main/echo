@@ -159,14 +159,29 @@ test('the page carries no inline script, which is what lets the CSP refuse it', 
   assert.doesNotMatch(html, /<style[\s>]/i, 'inline <style> should have moved to app.css');
 });
 
-test('the CSP no longer allows inline script', async () => {
+test('the CSP allows no inline script and no inline style at all', async () => {
   const res = await rawGet('/');
   const csp = res.headers['content-security-policy'];
   assert.match(csp, /script-src 'self' https:\/\/cdn\.jsdelivr\.net/);
-  assert.doesNotMatch(csp.split('script-src')[1].split(';')[0], /unsafe-inline/,
-    "script-src must not allow inline any more");
+  // Not a single 'unsafe-inline' anywhere in the policy.
+  assert.doesNotMatch(csp, /unsafe-inline/, 'the policy must not allow inline anything');
+  assert.doesNotMatch(csp, /unsafe-eval/);
   // The stale Google Fonts allowances went with the Plaintext theme.
   assert.doesNotMatch(csp, /fonts\.googleapis\.com|fonts\.gstatic\.com/);
+});
+
+test('nothing served carries a style attribute the CSP would refuse', async () => {
+  // A style="" written into markup — or into a template string that later goes
+  // through innerHTML — is silently dropped by the browser under this policy,
+  // and nothing else would catch it. el.style.x assignments are the CSSOM and
+  // are fine, which is why this looks for the attribute form only.
+  const html = gunzipSync((await rawGet('/', { 'Accept-Encoding': 'gzip' })).body).toString('utf8');
+  assert.doesNotMatch(html, /\sstyle=["']/i, 'index.html must carry no style attribute');
+
+  const js = (await rawGet('/app.js', { 'Accept-Encoding': 'identity' })).body.toString('utf8');
+  // Strip line comments first so the explanatory ones in app.js do not trip it.
+  const code = js.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  assert.doesNotMatch(code, /style=["']/i, 'app.js must not build markup with a style attribute');
 });
 
 test('echo-config.js reports the running mode to the page', async () => {

@@ -733,6 +733,12 @@ body.has-transcript .hero-landing {
   flex-shrink: 0;
 }
 
+/* The hidden state is a class, not a style="" attribute, so the page carries
+   no inline style and style-src can refuse them outright. */
+.digest-dot.is-hidden {
+  display: none;
+}
+
 /* ==============================================
    8. CONTROLS ROW
 =============================================== */

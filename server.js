@@ -110,12 +110,16 @@ app.use(express.json({ limit: '5mb' }));
 // ---------------------------------------------------------------------------
 // Security headers
 // ---------------------------------------------------------------------------
-// The page's script and CSS now live in real files (app.js / app.css /
-// theme-init.js / echo-config.js), so script-src no longer needs
-// 'unsafe-inline' — the single biggest CSP weakness the inline monolith had.
-// style-src still does: a handful of style="" attributes are set from markup
-// and from innerHTML, and removing those is a separate change. It also blocks
-// framing, MIME-sniffing, and
+// The page's script and CSS live in real files (app.js / app.css /
+// theme-init.js / echo-config.js) and it carries no inline <script>, <style>
+// or style="" attribute, so NEITHER script-src nor style-src needs
+// 'unsafe-inline' — the weakness the inline monolith forced is gone.
+//
+// Note what this does and does not cover: `el.style.width = x` is the CSSOM
+// and is not governed by style-src, so dynamic styling still works. What is
+// blocked is a style attribute in parsed markup, including one arriving
+// through innerHTML — which is exactly the injection path worth closing.
+// It also blocks framing, MIME-sniffing, and
 // restricts network/asset origins to what the app actually uses: self, plus
 // the JSZip CDN for the library ZIP export. The Google Fonts allowances that
 // used to be here went stale when the Plaintext theme dropped webfonts — the
@@ -123,7 +127,7 @@ app.use(express.json({ limit: '5mb' }));
 const CSP =
   "default-src 'self'; " +
   "script-src 'self' https://cdn.jsdelivr.net; " +
-  "style-src 'self' 'unsafe-inline'; " +
+  "style-src 'self'; " +
   "font-src 'self'; " +
   "img-src 'self' data: https://i.ytimg.com https://img.youtube.com; " +
   "connect-src 'self'; " +

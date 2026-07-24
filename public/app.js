@@ -2377,7 +2377,7 @@ async function fetchLocalFile(file) {
   digestOutput.innerHTML = '';
   digestOutput.classList.remove('visible');
   usageStatsEl.innerHTML = '';
-  digestDot.style.display = 'none';
+  digestDot.classList.add('is-hidden');
   setTopIndicator('idle');
   switchTab('transcript');
   currentLangCode = null;
@@ -2491,7 +2491,7 @@ async function fetchTranscript() {
   digestEmptySt.classList.remove('is-hidden');
   usageStatsEl.classList.remove('visible');
   usageStatsEl.innerHTML    = '';
-  digestDot.style.display   = 'none';
+  digestDot.classList.add('is-hidden');
   setTopIndicator('idle');
   switchTab('transcript');
 
@@ -2989,7 +2989,7 @@ async function runDigest() {
     syncDigestRegenBtn(); // switch label to "Regenerate"
 
     // Show ready dot on tab, update status, set indicator
-    digestDot.style.display = '';
+    digestDot.classList.remove('is-hidden');
     stopDigestTimer();
     setDigestStatus('Digest ready.', false);
     setTopIndicator('done');
@@ -3616,7 +3616,7 @@ async function openSavedEntry(videoId) {
     digestEmptySt.classList.remove('is-hidden');
     usageStatsEl.classList.remove('visible');
     usageStatsEl.innerHTML   = '';
-    digestDot.style.display  = 'none';
+    digestDot.classList.add('is-hidden');
     setTopIndicator('idle');
 
     // Restore digest content if it was saved
@@ -3626,7 +3626,7 @@ async function openSavedEntry(videoId) {
         renderMarkdown(entry.digest);
       digestOutput.classList.add('visible');
       digestEmptySt.classList.add('is-hidden');
-      digestDot.style.display = '';
+      digestDot.classList.remove('is-hidden');
       setDigestStatus('Digest ready.', false);
     }
 
@@ -3795,10 +3795,22 @@ syncThemeToggle();
 =============================================== */
 function showTranscriptSkeleton() {
   const widths = [90, 75, 85, 60, 95, 70, 80, 88, 65, 78];
-  outputEl.innerHTML =
-    '<div class="skeleton-block" aria-hidden="true">' +
-    widths.map(w => `<div class="skeleton-line" style="width:${w}%"></div>`).join('') +
-    '</div>';
+
+  // Built as nodes rather than an HTML string: a style="" attribute inside
+  // innerHTML is parsed markup, so the CSP blocks it once style-src stops
+  // allowing inline. Assigning el.style.width is the CSSOM, which it does not
+  // govern — the lines still vary in width, they just get there legally.
+  const block = document.createElement('div');
+  block.className = 'skeleton-block';
+  block.setAttribute('aria-hidden', 'true');
+  for (const w of widths) {
+    const line = document.createElement('div');
+    line.className = 'skeleton-line';
+    line.style.width = `${w}%`;
+    block.appendChild(line);
+  }
+
+  outputEl.replaceChildren(block);
   outputEl.classList.add('visible');
 }
 
@@ -5125,7 +5137,7 @@ function restoreSession() {
         renderMarkdown(snap.digest);
       digestOutput.classList.add('visible');
       digestEmptySt.classList.add('is-hidden');
-      digestDot.style.display = '';
+      digestDot.classList.remove('is-hidden');
       setDigestStatus('Digest ready.', false);
       if (snap.digestUsageLine) {
         usageStatsEl.innerHTML = snap.digestUsageLine;
