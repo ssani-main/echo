@@ -8,6 +8,11 @@ stores an API key, and needs no persistent volume. That means deploying it
 needs **no secrets** and **no database provisioning** — just build the
 existing `Dockerfile` and run it.
 
+Optionally, accounts can be switched on so a library follows someone between
+devices; that adds one small SQLite file and a Google OAuth client, and nothing
+else. It is off unless configured — see "No volume, no database" below. The
+server never stores an API key either way.
+
 This doc covers **Fly.io** (primary, one command once set up) and a brief
 note on **Railway** as an alternative. To run it on a box you own instead,
 see [`VPS.md`](VPS.md) — same `Dockerfile`, with Docker Compose and Caddy
@@ -158,10 +163,11 @@ intentionally brief.
   deployment — visitors bring their own key from the browser. Setting a
   server-side key isn't needed and isn't the intended usage model for
   hosted web mode.
-- **Don't add a Fly volume.** The `ECHO_MODE=web` deployment is stateless —
-  library routes are disabled (`503`), and each visitor's library lives in their
-  own browser's IndexedDB. There is nothing on the server worth persisting, so a
-  volume and `ECHO_DB_PATH` buy you nothing.
+- **Don't add a Fly volume — unless you enabled accounts.** The default
+  `ECHO_MODE=web` deployment is stateless: library routes are disabled (`503`)
+  and each visitor's library lives in their own browser's IndexedDB, so a volume
+  and `ECHO_DB_PATH` buy you nothing. The exception is library sync, which needs
+  one volume for `ECHO_SYNC_DB_PATH` — see "No volume, no database" above.
 
 ## Node version
 
