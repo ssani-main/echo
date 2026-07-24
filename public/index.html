@@ -1983,6 +1983,16 @@
       color: var(--muted);
     }
 
+    /* Reads out what the selected fidelity step does. Takes the whole row so it
+       sits under the dial rather than beside it — flex-basis:100% is the wrap
+       point in .digest-opts's flex-wrap layout. */
+    .digest-fidelity-note {
+      flex-basis: 100%;
+      margin: calc(var(--space-3) * -1) 0 0;
+      font-size: var(--text-sm);
+      color: var(--muted);
+    }
+
     /* Mini segmented toggle — mirrors .view-toggle at a smaller scale */
     .digest-seg {
       display: inline-flex;
@@ -3772,32 +3782,32 @@
       <div id="aiPanelSummary">
         <!-- Compact options row -->
         <div class="digest-opts">
-          <span class="digest-opt-label">Length</span>
-          <div class="digest-seg" role="group" aria-label="Digest length">
+          <!-- One dial, ordered by FIDELITY: how much of the video survives.
+               This replaced a Length group (Detailed/Short) sitting beside a
+               Format group, which was doubly wrong — the two axes weren't
+               independent, and `length` is ignored by both `digest` and
+               `article` in digest.js, so the control did nothing at all under
+               the default format. Ordering the three as a spectrum is also the
+               only place the product's actual differentiator is legible: the
+               market sells compression, Echo can also hand back everything. -->
+          <span class="digest-opt-label">How much</span>
+          <div class="digest-seg" role="group" aria-label="How much of the video to keep">
             <label>
-              <input type="radio" name="digestLength" value="detailed" checked />
-              Detailed
+              <input type="radio" name="digestFormat" value="bullets" />
+              Gist
             </label>
-            <label>
-              <input type="radio" name="digestLength" value="short" />
-              Short
-            </label>
-          </div>
-          <span class="digest-opt-label">Format</span>
-          <div class="digest-seg" role="group" aria-label="Digest format">
             <label>
               <input type="radio" name="digestFormat" value="digest" checked />
               Digest
             </label>
             <label>
               <input type="radio" name="digestFormat" value="article" />
-              Read it
-            </label>
-            <label>
-              <input type="radio" name="digestFormat" value="bullets" />
-              Gist
+              Everything
             </label>
           </div>
+          <!-- Reads out what the current step actually does. Without it the
+               three words are just labels; with it the dial explains the range. -->
+          <p id="digestFidelityNote" class="digest-fidelity-note" aria-live="polite"></p>
           <label class="digest-opt-label" for="digestLangInput">Language</label>
           <input
             id="digestLangInput"
@@ -6735,8 +6745,11 @@
       }
 
       // Read options live from the Summary panel controls
-      const lengthOpt = document.querySelector('input[name="digestLength"]:checked')?.value || 'detailed';
       const formatOpt = document.querySelector('input[name="digestFormat"]:checked')?.value || 'digest';
+      // `length` only reaches the prompt for `bullets` — digest.js ignores it
+      // for `digest` and `article`, which carry their own instructions. Gist is
+      // the short end of the dial, so bullets always asks for the short form.
+      const lengthOpt = formatOpt === 'bullets' ? 'short' : 'detailed';
       const langOpt   = digestLangInput.value.trim() || 'English';
 
       digestBtn.disabled      = true;
@@ -6810,10 +6823,30 @@
     digestBtn.addEventListener('click', runDigest);
     digestRegenBtn.addEventListener('click', runDigest);
 
-    // Sync active-class for digest option segments on change
-    document.querySelectorAll('input[name="digestLength"], input[name="digestFormat"]').forEach(r => {
-      r.addEventListener('change', syncToggleActive);
+    /* ==============================================
+       FIDELITY DIAL — Gist / Digest / Everything
+       One axis: how much of the video survives. The note under the dial says
+       what the selected step does, so the range is self-explanatory rather
+       than three bare words.
+    =============================================== */
+    const DIGEST_FIDELITY_NOTES = {
+      bullets:  'The bottom line and the few points worth knowing. Shortest.',
+      digest:   'The real substance, reorganised by idea and told better than the video told it.',
+      article:  'Everything that was said, minus the noise of speech. Nothing dropped — read it instead of watching.',
+    };
+
+    function syncFidelityNote() {
+      const note = document.getElementById('digestFidelityNote');
+      if (!note) return;
+      const format = document.querySelector('input[name="digestFormat"]:checked')?.value || 'digest';
+      note.textContent = DIGEST_FIDELITY_NOTES[format] || '';
+    }
+
+    // Sync active-class + the explanatory note for digest option segments on change
+    document.querySelectorAll('input[name="digestFormat"]').forEach(r => {
+      r.addEventListener('change', () => { syncToggleActive(); syncFidelityNote(); });
     });
+    syncFidelityNote();
 
     /* ==============================================
        SAVE BUTTON HANDLER
