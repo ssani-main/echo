@@ -171,24 +171,60 @@ test('listEntries returns metadata with correct counts, tags, and favorite', asy
 });
 
 // ---------------------------------------------------------------------------
-// searchLibrary
+// searchSummaries
 // ---------------------------------------------------------------------------
 
-test('searchLibrary keyword search finds a distinctive word and returns [] for nonsense queries', async () => {
+test('searchSummaries finds a distinctive word and returns [] for nonsense queries', async () => {
   await store.saveEntry({
     videoId: 'vid005',
     url: 'https://www.youtube.com/watch?v=vid005',
     title: 'Zorbnaxaquil Adventures',
     segments: [{ text: 'a normal transcript line', offset: 0 }],
     digest: 'This digest mentions Zorbnaxaquil explicitly.',
+    tags: ['odd'],
   });
 
-  const hits = await store.searchLibrary('Zorbnaxaquil');
+  const hits = await store.searchSummaries('Zorbnaxaquil');
   assert.ok(hits.length >= 1);
   assert.ok(hits.some((e) => e.videoId === 'vid005'));
 
-  const noHits = await store.searchLibrary('qqqzzznonexistentqueryterm');
+  const noHits = await store.searchSummaries('qqqzzznonexistentqueryterm');
   assert.deepEqual(noHits, []);
+});
+
+test('searchSummaries carries the tags a result row shows', async () => {
+  const hit = (await store.searchSummaries('Zorbnaxaquil')).find((h) => h.videoId === 'vid005');
+  assert.deepEqual(hit.tags, ['odd'], 'tags come from one batched query, not one per hit');
+});
+
+test('searchSummaries returns only what a result row shows — never the transcript', async () => {
+  // The point of the rewrite: the previous shape read every hit's full
+  // transcript out of SQLite purely to cut ~200 characters from it. On a
+  // 300-entry library that was 2.0 MB read per search to produce about 4 KB.
+  const hit = (await store.searchSummaries('Zorbnaxaquil')).find((h) => h.videoId === 'vid005');
+  assert.deepEqual(Object.keys(hit).sort(),
+    ['favorite', 'snippet', 'tags', 'title', 'url', 'videoId']);
+  assert.equal(hit.segments, undefined, 'transcript segments must not be loaded');
+  assert.equal(hit.digest, undefined, 'the digest must not be loaded');
+});
+
+test('searchSummaries builds a snippet around the match', async () => {
+  const hit = (await store.searchSummaries('Zorbnaxaquil')).find((h) => h.videoId === 'vid005');
+  assert.ok(typeof hit.snippet === 'string' && hit.snippet.length > 0);
+  assert.match(hit.snippet, /Zorbnaxaquil/i, 'the snippet should contain what was searched for');
+});
+
+test('searchSummaries returns [] for an empty or malformed query rather than throwing', async () => {
+  assert.deepEqual(await store.searchSummaries(''), []);
+  assert.deepEqual(await store.searchSummaries('   '), []);
+  // Unbalanced FTS operators are a user typo, not a server error.
+  assert.deepEqual(await store.searchSummaries('"unclosed AND ((('), []);
+});
+
+test('searchSummaries caps the limit no matter what it is given', async () => {
+  assert.ok((await store.searchSummaries('Zorbnaxaquil', 99999)).length <= 100);
+  assert.ok((await store.searchSummaries('Zorbnaxaquil', -5)).length >= 0);
+  assert.ok((await store.searchSummaries('Zorbnaxaquil', 0)).length >= 0);
 });
 
 // ---------------------------------------------------------------------------

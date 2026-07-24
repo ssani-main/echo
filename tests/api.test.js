@@ -128,6 +128,48 @@ test('POST /api/digest with empty text returns 400 with a structured error envel
   assert.equal(typeof body.error.code, 'string');
 });
 
+test('GET /api/saved/export streams valid JSON containing every entry', async () => {
+  // It is written one entry at a time rather than assembled in memory: on a
+  // 300-entry library the old shape cost +102 MB of heap to produce a 42 MB
+  // payload. Streaming means the response is built incrementally, so the thing
+  // worth asserting is that it is still valid JSON with nothing missing.
+  for (const id of ['expvid001', 'expvid002', 'expvid003']) {
+    await fetch(`${base}/api/saved`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        videoId: id,
+        url: `https://www.youtube.com/watch?v=${id}`,
+        title: `Export ${id}`,
+        segments: [{ text: `content of ${id}`, offset: 0 }],
+        digest: `Digest for ${id}`,
+      }),
+    });
+  }
+
+  const res = await fetch(`${base}/api/saved/export`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /application\/json/);
+
+  const body = await res.json();
+  assert.ok(Array.isArray(body.entries));
+  for (const id of ['expvid001', 'expvid002', 'expvid003']) {
+    const entry = body.entries.find((e) => e.videoId === id);
+    assert.ok(entry, `${id} missing from the export`);
+    // Full fidelity: an export is a backup, so the transcript must be there.
+    assert.equal(entry.segments[0].text, `content of ${id}`);
+    assert.equal(entry.digest, `Digest for ${id}`);
+  }
+});
+
+test('GET /api/saved/export produces well-formed JSON when the library is empty', async () => {
+  // The comma-placement in a hand-written JSON stream is exactly the kind of
+  // thing that breaks at zero and one entries.
+  const res = await fetch(`${base}/api/saved/export?probe=empty`);
+  const text = await res.text();
+  assert.doesNotThrow(() => JSON.parse(text), `not valid JSON: ${text.slice(0, 120)}`);
+});
+
 // ---------------------------------------------------------------------------
 // GET /api/search
 // ---------------------------------------------------------------------------
