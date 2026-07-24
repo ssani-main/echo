@@ -55,6 +55,67 @@ export function resolveWhisperBinary(opts = {}) {
   return binPath && existsSync(binPath) ? binPath : null;
 }
 
+/**
+ * Resolve the Silero VAD model, which is what turns Voice Activity Detection
+ * on. There is no separate on/off flag: pointing at a model IS the opt-in, and
+ * with no model resolved the transcription runs exactly as it did before.
+ *
+ * VAD makes whisper skip non-speech instead of decoding it, so the saving is
+ * proportional to how much of the audio isn't speech — music intros, applause,
+ * long pauses. It also removes whisper's best-known failure mode, which is
+ * hallucinating text over silence.
+ *
+ * It is opt-in rather than default because the trade is not free in both
+ * directions: if the detector scores quiet speech below its threshold, that
+ * audio is never transcribed at all, and silently missing a sentence is worse
+ * for Echo than transcribing a silent one. Verify it against your own audio
+ * before leaving it on — see WHISPER.md.
+ *
+ * @param {{ vadModelPath?: string }} [opts]
+ * @returns {string|null} path to the VAD model, or null when VAD is off
+ */
+export function resolveVadModel(opts = {}) {
+  const vadPath = opts.vadModelPath || process.env.ECHO_WHISPER_VAD_MODEL || null;
+  return vadPath && existsSync(vadPath) ? vadPath : null;
+}
+
+/**
+ * Build the whisper-cli argument list. Pure, so the flag contract is unit
+ * testable without spawning anything (nothing in the test suite ever runs the
+ * real binary — see the "tests miss runtime" note in CLAUDE.md).
+ *
+ * Deliberately absent: any flag that buys speed by giving up accuracy.
+ * `-bs`/`-bo` (beam size / best-of, both 5 by default) and `-nf` (drop the
+ * temperature fallback) would all be faster and all decode worse, and `-p`
+ * (parallel processors) splits the audio into independently-decoded chunks,
+ * which costs accuracy at every boundary. Flash attention is already on by
+ * default in whisper.cpp 1.9.1, so there is nothing to add there.
+ *
+ * @param {{ modelPath: string, wavPath: string, whisperLang: string,
+ *           threads: number, outPrefix: string, vadModelPath?: string|null }} spec
+ * @returns {string[]}
+ */
+export function buildWhisperArgs(spec) {
+  const { modelPath, wavPath, whisperLang, threads, outPrefix, vadModelPath } = spec;
+
+  const args = [
+    '-m', modelPath,
+    '-f', wavPath,
+    '-l', whisperLang,
+    '-t', String(threads),
+    '--print-progress',
+    '-oj', '-of', outPrefix,
+  ];
+
+  // whisper.cpp maps VAD-segment timestamps back onto the original timeline,
+  // so offsets stay absolute and the timecoded view keeps deep-linking to the
+  // right second. Its own defaults (0.5 threshold, 30 ms speech padding,
+  // 100 ms min silence) are the conservative end, so they are left alone.
+  if (vadModelPath) args.push('--vad', '-vm', vadModelPath);
+
+  return args;
+}
+
 // Pure mapper: whisper.cpp `-oj` JSON -> Echo's [{text, offset}] (offset in SECONDS).
 // whisper.cpp emits `transcription[].offsets` in MILLISECONDS (verified 2026-07-18)
 // -> divide by 1000. Stamps langUsed + source non-enumerably, matching the caption path.
@@ -228,14 +289,10 @@ async function runWhisperPipeline(videoId, opts) {
     const timeoutMs = opts.timeoutMs || Number(process.env.ECHO_WHISPER_TIMEOUT_MS) || derivedMs;
     reportProgress(opts, 'transcribe', 0);
     let lastTr = -1;
-    await runStreaming(binPath, [
-      '-m', modelPath,
-      '-f', wavPath,
-      '-l', whisperLang,
-      '-t', String(threads),
-      '--print-progress',
-      '-oj', '-of', outPrefix,
-    ], {
+    const vadModelPath = resolveVadModel(opts);
+    await runStreaming(binPath, buildWhisperArgs({
+      modelPath, wavPath, whisperLang, threads, outPrefix, vadModelPath,
+    }), {
       env, signal, timeoutMs, lowerPriority: true,
       onStderr: (chunk) => {
         const ms = chunk.match(/progress\s*=\s*(\d+)%/g);

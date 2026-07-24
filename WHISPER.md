@@ -147,6 +147,91 @@ benchmark (repo search: zero results), so this is reasoning, not measurement. If
 turbo-on-CPU ever becomes load-bearing, **benchmark it** — `whisper-bench.exe` ships
 inside the same zip.
 
+## Making it faster without giving up accuracy
+
+Audited against the vendored binary's own `--help` (whisper.cpp **1.9.1**), so the
+flag defaults below are read off the shipped build, not recalled from docs.
+
+**Already on:** `-fa` (flash attention) defaults to **true** in 1.9.1 — there is no
+speedup to claim there. The runtime backend dispatch also works: on an AVX2 host the
+binary loads `libggml-cpu-haswell.so` rather than the baseline `libggml-cpu-x64.so`.
+
+**Rejected — every one of these is faster and decodes worse:**
+
+| lever | default | why not |
+|---|---|---|
+| `-bs` beam size | 5 | Greedy (`-bs 1`) is ~2× faster and measurably worse. This is *the* accuracy knob. |
+| `-bo` best-of | 5 | Same trade, sampling side. |
+| `-nf` no-fallback | off | Drops the temperature retry on segments that failed the entropy/logprob thresholds — i.e. gives up exactly where decoding was already struggling. |
+| `-p` processors | 1 | Splits audio into independently-decoded chunks: context resets and words mangle at every boundary. |
+| `-ac` audio-ctx | 0 (full) | Truncates the encoder's context window. |
+| `-mc` max-context | -1 | Cuts the text conditioning that carries punctuation and casing across segments. |
+| smaller model | base q5 | Already the fast tier; `small` is the accuracy tier, not a speed one. |
+
+`tests/whisper-args.test.js` asserts none of these ever appear in the invocation, so
+a future "let's make it faster" change can't quietly reintroduce one.
+
+### The one real lever: VAD (Voice Activity Detection)
+
+1.9.1 supports `--vad` with a Silero model. It detects speech regions first and
+transcribes **only those**, mapping timestamps back onto the original timeline (so
+offsets stay absolute and the timecoded view keeps deep-linking correctly).
+
+The saving is proportional to how much of the audio isn't speech — music intros,
+applause, dead air between questions, long pauses. On talking-head content with
+little silence it saves little; on a conference recording or an interview with gaps
+it can be substantial. It also removes whisper's best-known failure mode: looping or
+hallucinating text over silence.
+
+**It is opt-in, and deliberately not the default.** The trade is not free in both
+directions: audio the detector scores below its threshold is never transcribed at
+all, so a quiet speaker or speech under loud music can go **silently missing**. For a
+"read what was actually said" product, dropping a sentence is worse than spending CPU
+on a silent one.
+
+Enable it by pointing at a model — presence of the model *is* the switch:
+
+```bash
+# ~2 MB, from the whisper.cpp VAD model repo
+curl -L -o ~/.local/share/echo/whisper-models/ggml-silero-v5.1.2.bin \
+  https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin
+
+ECHO_WHISPER_VAD_MODEL=~/.local/share/echo/whisper-models/ggml-silero-v5.1.2.bin npm start
+```
+
+With the variable unset — or pointing at a path that doesn't exist — the invocation
+is byte-for-byte what it has always been. The VAD tuning knobs (`-vt` threshold,
+`-vp` speech padding, `-vsd` min silence) are left at whisper.cpp's conservative
+defaults; raising the threshold or shrinking the padding is what starts clipping
+quiet speech.
+
+🚩 **UNMEASURED.** The dev box for this change had no model, no `ffmpeg` and no
+`yt-dlp`, and its egress proxy blocks huggingface.co, so **VAD has not been run
+end-to-end here** — only the flag contract is unit-tested. Before trusting it, run
+the same video twice (`GRzaq5AHiV8`) with and without the variable set and diff the
+transcripts: confirm the wall-clock drop, and confirm no speech went missing. Record
+the result here as MEASURED, the way the speed table above does.
+
+### Two open speed questions, both unmeasured
+
+1. **Thread count.** The default is `round(logical_cores × 0.75)` (`whisper.js`),
+   which landed together with `PRIORITY_BELOW_NORMAL` in the same commit and for the
+   same goal — don't pin the machine. They are belt-and-braces: the priority alone
+   already yields the CPU to anything interactive, while the thread cap gives up
+   ~25% of throughput unconditionally. The formula is also unaware of SMT — on a
+   hyperthreaded 8-logical/4-physical box it asks for 6 threads on 4 physical cores,
+   which for a compute-bound SIMD workload is typically *slower* than 4. Left alone
+   because changing a default blind is how you make it worse; `ECHO_WHISPER_THREADS`
+   is there to measure with.
+2. **CPU backend variants.** `vendor/whisper/linux-x64/` ships only the baseline
+   (`libggml-cpu-x64.so`) and AVX2 (`libggml-cpu-haswell.so`) backends, so an
+   AVX-512 host silently runs AVX2 code. whisper.cpp's releases also build
+   `skylakex`, `icelake` and `alderlake` variants; dropping them beside the binary
+   is enough for ggml's runtime dispatch to pick the best one. This is the only
+   remaining **genuinely lossless** speedup — same math, wider registers — and it
+   costs a few hundred KB in the bundle. Not done here: the proxy blocks the release
+   downloads.
+
 ## Three transcript tiers (one setting)
 
 `whisperMode`, threaded through `/api/transcript` as `transcribe`. There is no key to

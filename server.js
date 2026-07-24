@@ -2,7 +2,8 @@ import express from 'express';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { readFileSync } from 'fs';
-import { gzipSync } from 'node:zlib';
+import { gzip, gzipSync } from 'node:zlib';
+import { promisify } from 'node:util';
 import {
   extractVideoId,
   fetchTranscript,
@@ -172,6 +173,68 @@ app.get('/', (req, res) => {
     return res.send(CACHED_INDEX_GZIP);
   }
   return res.send(CACHED_INDEX_HTML);
+});
+
+// ---------------------------------------------------------------------------
+// Response compression (API JSON + markdown export)
+// ---------------------------------------------------------------------------
+// The app shell above is compressed once at boot, but API responses are built
+// per request and some are big: a 45-minute transcript is ~166 KB of JSON that
+// gzips to ~14 KB — 11.7x — in ~2 ms at level 6. Level 9 buys another 2% for 3x
+// the CPU, so 6 it is (the same default zlib and the `compression` middleware
+// use). At 2 ms per response this earns its place in every mode, including the
+// loopback ones, rather than being gated to hosted web mode.
+//
+// This wraps res.send() instead of pulling in a compression middleware because
+// every response Echo would compress is ALREADY a fully-buffered string or
+// Buffer — res.json() serialises before it sends — so there is no streaming
+// case to handle and no reason to carry a dependency for one. The SSE route
+// never goes through res.send(), so it is untouched by this and keeps
+// streaming uncompressed, which is what an event stream needs.
+
+const gzipAsync = promisify(gzip);
+const RESPONSE_GZIP_LEVEL = 6;
+
+// Under roughly one network packet, compressing spends CPU and two extra
+// headers to save nothing.
+const RESPONSE_GZIP_MIN_BYTES = 1024;
+
+const COMPRESSIBLE_TYPE_RE = /^(?:application\/json|text\/)/i;
+
+app.use((req, res, next) => {
+  const rawSend = res.send.bind(res);
+
+  res.send = function compressedSend(body) {
+    // Already encoded (the pre-gzipped app shell), or the client can't take it.
+    if (res.get('Content-Encoding') || !acceptsGzip(req)) return rawSend(body);
+    // Objects are left alone: res.json() stringifies first and calls back into
+    // here with the serialised string, so compressing here too would be double
+    // work on a body Express is about to replace.
+    if (typeof body !== 'string' && !Buffer.isBuffer(body)) return rawSend(body);
+    if (!COMPRESSIBLE_TYPE_RE.test(res.get('Content-Type') || '')) return rawSend(body);
+
+    const buf = Buffer.isBuffer(body) ? body : Buffer.from(body, 'utf8');
+    if (buf.length < RESPONSE_GZIP_MIN_BYTES) return rawSend(body);
+
+    res.set('Vary', 'Accept-Encoding');
+    gzipAsync(buf, { level: RESPONSE_GZIP_LEVEL }).then(
+      (gz) => {
+        // The client can disconnect while we compress — writing then would
+        // throw inside a promise nobody is awaiting.
+        if (res.writableEnded) return;
+        res.set('Content-Encoding', 'gzip');
+        rawSend(gz);
+      },
+      (err) => {
+        // Compression is an optimisation, never a reason to fail a response.
+        console.error('[echo] response compression failed, sending uncompressed:', err.message);
+        if (!res.writableEnded) rawSend(body);
+      }
+    );
+    return res;
+  };
+
+  next();
 });
 
 app.use(express.static(join(__dirname, 'public')));

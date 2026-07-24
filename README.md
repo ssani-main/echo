@@ -184,6 +184,7 @@ docker run -e PORT=3000 -e ECHO_MODE=web -p 3000:3000 echo
 | `ECHO_WHISPER_DEFAULT_MODEL` | `base` | Whisper model used when none is selected (`base` or `small`) |
 | `ECHO_WHISPER_THREADS` | _(75% of cores)_ | Threads for whisper.cpp — lower it to keep the machine responsive |
 | `ECHO_WHISPER_MAX_MINUTES` | `180` | Reject Whisper transcription of audio longer than this |
+| `ECHO_WHISPER_VAD_MODEL` | _(unset)_ | Path to a Silero VAD model. Setting it makes Whisper skip non-speech (faster on audio with pauses); unset = today's behaviour. Opt-in — see [`WHISPER.md`](./WHISPER.md) |
 
 See [`.env.example`](./.env.example) for the common variables with detailed documentation for each; the Whisper knobs above are documented in [`WHISPER.md`](./WHISPER.md). **Node version requirement:** ≥ 22.5 (for `node:sqlite` support).
 

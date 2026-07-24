@@ -124,6 +124,103 @@ test('GET / still serves the page when no Accept-Encoding is sent at all', async
 });
 
 // ---------------------------------------------------------------------------
+// API responses — compression
+// ---------------------------------------------------------------------------
+
+/** Raw POST of a JSON body, used to seed a library entry big enough to compress. */
+function rawPostJson(path, payload) {
+  return new Promise((resolve, reject) => {
+    const body = Buffer.from(JSON.stringify(payload), 'utf8');
+    const req = http.request({
+      host: '127.0.0.1',
+      port,
+      path,
+      method: 'POST',
+      agent,
+      headers: { 'Content-Type': 'application/json', 'Content-Length': body.length },
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks) }));
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
+test('seeds a saved entry with a transcript large enough to be worth compressing', async () => {
+  const segments = [];
+  for (let i = 0; i < 1200; i++) {
+    segments.push({ text: `segment ${i} of a fairly long transcript about a repeated subject`, offset: i * 2 });
+  }
+  const res = await rawPostJson('/api/saved', {
+    videoId: 'gzipvid001',
+    url: 'https://www.youtube.com/watch?v=gzipvid001',
+    title: 'Compression Test Video',
+    segments,
+  });
+  assert.equal(res.status, 200);
+});
+
+test('a large JSON response is gzipped and decompresses to the same JSON', async () => {
+  const res = await rawGet('/api/saved/gzipvid001', { 'Accept-Encoding': 'gzip' });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.headers['content-encoding'], 'gzip');
+  assert.match(String(res.headers.vary || ''), /accept-encoding/i);
+
+  const entry = JSON.parse(gunzipSync(res.body).toString('utf8'));
+  assert.equal(entry.videoId, 'gzipvid001');
+  assert.equal(entry.segments.length, 1200);
+
+  // Content-Length must describe the compressed body actually written.
+  assert.equal(Number(res.headers['content-length']), res.body.length);
+});
+
+test('a large JSON response is substantially smaller gzipped than plain', async () => {
+  const gzipped = await rawGet('/api/saved/gzipvid001', { 'Accept-Encoding': 'gzip' });
+  const plain = await rawGet('/api/saved/gzipvid001', { 'Accept-Encoding': 'identity' });
+
+  assert.equal(plain.headers['content-encoding'], undefined);
+  assert.ok(
+    gzipped.body.length < plain.body.length / 4,
+    `expected a large ratio on transcript JSON, got ${gzipped.body.length} vs ${plain.body.length} bytes`
+  );
+  // Both encodings must carry the same data.
+  const fromGzip = JSON.parse(gunzipSync(gzipped.body).toString('utf8'));
+  const fromPlain = JSON.parse(plain.body.toString('utf8'));
+  assert.deepEqual(fromGzip, fromPlain);
+});
+
+test('a small JSON response is left uncompressed', async () => {
+  // /api/health is a few dozen bytes — under the threshold, where gzip would
+  // cost CPU and two headers to save nothing.
+  const res = await rawGet('/api/health', { 'Accept-Encoding': 'gzip' });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.headers['content-encoding'], undefined);
+  assert.equal(JSON.parse(res.body.toString('utf8')).status, 'ok');
+});
+
+test('a markdown export is gzipped too (it is text, and transcripts are long)', async () => {
+  const res = await rawGet('/api/saved/gzipvid001/export.md', { 'Accept-Encoding': 'gzip' });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.headers['content-encoding'], 'gzip');
+  const md = gunzipSync(res.body).toString('utf8');
+  assert.match(md, /# Compression Test Video/);
+});
+
+test('an error envelope still arrives intact when the client accepts gzip', async () => {
+  const res = await rawGet('/api/saved/no-such-video-id', { 'Accept-Encoding': 'gzip' });
+
+  assert.equal(res.status, 404);
+  // Small enough to skip compression — the point is that the envelope parses.
+  const raw = res.headers['content-encoding'] === 'gzip' ? gunzipSync(res.body) : res.body;
+  assert.ok(JSON.parse(raw.toString('utf8')).error);
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/transcript/progress — stream guard rails
 // ---------------------------------------------------------------------------
 
