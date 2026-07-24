@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { gunzipSync } from 'node:zlib';
+import { gunzipSync, brotliDecompressSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync } from 'node:fs';
@@ -125,6 +125,67 @@ test('GET / still serves the page when no Accept-Encoding is sent at all', async
 });
 
 // ---------------------------------------------------------------------------
+// Brotli
+//
+// Preferred over gzip when the client offers it, worth ~17% on these assets,
+// and compressed lazily on first use so that boot — which happens on every dev
+// restart, every Tauri sidecar launch and in CI — never pays for it.
+// ---------------------------------------------------------------------------
+
+test('brotli wins over gzip when the client offers both', async () => {
+  const res = await rawGet('/', { 'Accept-Encoding': 'gzip, deflate, br' });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.headers['content-encoding'], 'br');
+  assert.match(brotliDecompressSync(res.body).toString('utf8'), /<!doctype html>/i);
+});
+
+test('brotli is smaller than gzip for the same asset', async () => {
+  const br = await rawGet('/app.js', { 'Accept-Encoding': 'br' });
+  const gz = await rawGet('/app.js', { 'Accept-Encoding': 'gzip' });
+
+  assert.equal(br.headers['content-encoding'], 'br');
+  assert.equal(gz.headers['content-encoding'], 'gzip');
+  assert.ok(
+    br.body.length < gz.body.length,
+    `brotli should beat gzip, got ${br.body.length} vs ${gz.body.length} bytes`
+  );
+  // Both must be the same file once decoded — a mismatch here would mean one
+  // representation had gone stale.
+  assert.equal(
+    brotliDecompressSync(br.body).toString('utf8'),
+    gunzipSync(gz.body).toString('utf8')
+  );
+});
+
+test('the lazily-built brotli buffer is stable across requests', async () => {
+  // It is computed once and cached. If the cache were keyed or reset wrongly,
+  // the second response would differ from the first.
+  const first = await rawGet('/app.css', { 'Accept-Encoding': 'br' });
+  const second = await rawGet('/app.css', { 'Accept-Encoding': 'br' });
+
+  assert.equal(first.headers['content-encoding'], 'br');
+  assert.deepEqual(first.body, second.body);
+  assert.equal(Number(second.headers['content-length']), second.body.length);
+});
+
+test('a client that refuses brotli falls back to gzip, not to br', async () => {
+  const res = await rawGet('/', { 'Accept-Encoding': 'br;q=0, gzip' });
+
+  assert.equal(res.headers['content-encoding'], 'gzip');
+  assert.match(gunzipSync(res.body).toString('utf8'), /<!doctype html>/i);
+});
+
+test('an encoding token that merely starts with "br" is not read as brotli', async () => {
+  // Without a token boundary, "br" matches the first two characters of a longer
+  // token and the server ships an encoding the client never offered.
+  const res = await rawGet('/', { 'Accept-Encoding': 'brotli-unknown, gzip' });
+
+  assert.equal(res.headers['content-encoding'], 'gzip');
+  assert.match(gunzipSync(res.body).toString('utf8'), /<!doctype html>/i);
+});
+
+// ---------------------------------------------------------------------------
 // The split assets
 // ---------------------------------------------------------------------------
 
@@ -210,6 +271,23 @@ test('nothing served carries a style attribute the CSP would refuse', async () =
   // Strip line comments first so the explanatory ones in app.js do not trip it.
   const code = js.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
   assert.doesNotMatch(code, /style=["']/i, 'app.js must not build markup with a style attribute');
+});
+
+test('nothing served carries an inline event handler the CSP would refuse', async () => {
+  // Sibling of the style="" guard above, and it caught two live ones: the
+  // library card thumbnails and the content-header thumbnail both used
+  // onerror="" to hide a broken image. Under script-src 'self' the browser
+  // refuses to run an inline handler — it logs to the console and moves on —
+  // so both fallbacks had quietly not worked. Handlers now live in app.js.
+  const HANDLER = /\son[a-z]+\s*=\s*["']/i;
+
+  const html = gunzipSync((await rawGet('/', { 'Accept-Encoding': 'gzip' })).body).toString('utf8');
+  const markup = html.split('\n').filter((l) => !l.trim().startsWith('<!--')).join('\n');
+  assert.doesNotMatch(markup, HANDLER, 'index.html must carry no inline event handler');
+
+  const js = (await rawGet('/app.js', { 'Accept-Encoding': 'identity' })).body.toString('utf8');
+  const code = js.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  assert.doesNotMatch(code, HANDLER, 'app.js must not build markup with an inline event handler');
 });
 
 test('echo-config.js reports the running mode to the page', async () => {

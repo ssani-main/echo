@@ -137,8 +137,9 @@
          Shown only while a video is loaded AND a reader lens (Transcript/Digest)
          is active; hidden while the Library pane is active. -->
     <div id="contentHeader" class="content-header" hidden>
-      <img id="contentHeaderThumb" class="content-header-thumb" alt="" loading="lazy" hidden
-           onerror="this.hidden = true; this.removeAttribute('src')">
+      <!-- A broken thumbnail hides itself. Wired in app.js, not with an onerror
+           attribute: that is inline script, and the CSP refuses it silently. -->
+      <img id="contentHeaderThumb" class="content-header-thumb" alt="" loading="lazy" hidden>
       <div class="content-header-main">
         <div id="contentHeaderTitle" class="content-header-title"></div>
         <div class="content-header-meta">

@@ -897,6 +897,14 @@ const libraryCountEl     = document.getElementById('libraryCount');
 const savedOutput        = document.getElementById('savedOutput');
 const contentHeaderEl       = document.getElementById('contentHeader');
 const contentHeaderThumb    = document.getElementById('contentHeaderThumb');
+// A thumbnail YouTube does not have (or that fails to load) hides itself rather
+// than leaving a broken-image box in the header. This lived in an onerror
+// attribute until it was noticed that the CSP had been refusing it — silently,
+// since a blocked inline handler reports to the console and nowhere else.
+contentHeaderThumb.addEventListener('error', () => {
+  contentHeaderThumb.hidden = true;
+  contentHeaderThumb.removeAttribute('src');
+});
 const contentHeaderTitle    = document.getElementById('contentHeaderTitle');
 const contentHeaderUrl      = document.getElementById('contentHeaderUrl');
 const contentHeaderDuration = document.getElementById('contentHeaderDuration');
@@ -2805,8 +2813,15 @@ function renderMarkdown(md) {
   // 1. Escape HTML in the raw source first.
   // Delegates to the canonical escapeAttr() (escapes &, <, >, " — same
   // character set this local esc() previously escaped by hand).
+  //
+  // Control characters are dropped in the same pass, because inlineMarkdown()
+  // below parks code spans behind a U+0000 sentinel. Text carrying that byte
+  // could otherwise forge a placeholder and get substituted into a <code>
+  // element — or, where the index does not exist, render the literal string
+  // "undefined". Nothing here can render a control character anyway, so
+  // removing them costs nothing and closes the hole at the only door.
   function esc(s) {
-    return escapeAttr(s);
+    return escapeAttr(String(s ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ''));
   }
 
   // 2. Apply inline transforms (code, links, bold, italic) to an
@@ -2817,7 +2832,7 @@ function renderMarkdown(md) {
     const codeSpans = [];
     s = s.replace(/`([^`]+)`/g, (m, code) => {
       codeSpans.push(code);
-      return ` CODE${codeSpans.length - 1} `;
+      return `\u0000CODE${codeSpans.length - 1}\u0000`;
     });
 
     // Links: [text](url) — only accept safe http(s) URLs, else drop the
@@ -2839,7 +2854,7 @@ function renderMarkdown(md) {
          .replace(/(^|[^_])_([^_\s][^_]*?)_(?!_)/g, '$1<em>$2</em>');
 
     // Restore protected code spans
-    s = s.replace(/ CODE(\d+) /g, (m, i) => `<code>${codeSpans[Number(i)]}</code>`);
+    s = s.replace(/\u0000CODE(\d+)\u0000/g, (m, i) => `<code>${codeSpans[Number(i)]}</code>`);
 
     return s;
   }
@@ -3334,194 +3349,299 @@ function renderSavedFiltered() {
   renderSavedList(items);
 }
 
+/* ----------------------------------------------------------------------------
+   Windowed library rendering.
+
+   The list used to build every card in one innerHTML assignment and then wire
+   listeners with seven querySelectorAll().forEach() passes. Measured at 500
+   entries: 1.15 MB of HTML, 10,851 DOM nodes, 2,043 buttons each carrying its
+   own listener — 2,295 ms to open the library and 293 ms per re-render, and a
+   re-render happens on every tag edit and every debounced search keystroke.
+
+   Two changes fix it. Cards are rendered a window at a time and extended as the
+   sentinel below them scrolls into view, and all the listeners collapse into
+   one delegated set on the container — which is also what makes appending more
+   cards free, since there is nothing to re-wire.
+
+   The known trade-off: the browser's own Ctrl+F only sees rendered cards. The
+   library has its own search field, which covers the whole library (and, in
+   local/desktop, the full transcripts), so this costs less than it sounds.
+---------------------------------------------------------------------------- */
+
+const SAVED_WINDOW_SIZE = 60;
+
+let savedWindowEntries  = [];    // full filtered list backing the current render
+let savedWindowCount    = 0;     // how many of them are actually in the DOM
+let savedWindowKey      = '';    // identity of the last render (see below)
+let savedWindowObserver = null;
+let savedDelegationWired = false;
+
 function renderSavedList(entries) {
+  teardownSavedWindow();
+
   if (!Array.isArray(entries) || entries.length === 0) {
     savedOutput.innerHTML = savedList.length === 0
       ? '<p class="saved-empty-state">Nothing saved yet — load a video and hit <strong>Save</strong>.</p>'
       : '<p class="saved-empty-state">No saved videos match.</p>';
+    savedWindowEntries = [];
+    savedWindowCount   = 0;
+    savedWindowKey     = '';
     return;
   }
 
-  savedOutput.innerHTML = entries.map(entry => {
-    const title   = entry.title || entry.videoId;
-    const d       = new Date(entry.savedAt);
-    const dateStr = isNaN(d.getTime())
-      ? ''
-      : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) +
-        ' · ' +
-        d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  ensureSavedDelegation();
 
-    const hasDigest   = entry.digest != null || entry.hasDigest;
-    const digestBadge = hasDigest ? '<span class="saved-thumb-badge">Digest</span>' : '';
+  // Re-rendering the same list — which is what a tag edit does — must not throw
+  // someone who has scrolled 300 cards down back to the top with only 60 cards
+  // left under them. Comparing the ids exactly rather than guessing from the
+  // length: at 500 entries the join costs well under a millisecond, and a
+  // heuristic that is wrong once is a scroll position lost for no reason.
+  const key      = entries.map(e => e.videoId).join(',');
+  const preserve = key === savedWindowKey ? savedWindowCount : 0;
+  const scrollY  = window.scrollY;
 
-    // Meta line: saved date + segment count (replaces the noisy repeated URL).
-    const segCount = entry.segmentCount || entry.segment_count || 0;
-    const segStr   = segCount ? `${segCount.toLocaleString()} segments` : '';
-    const metaSep  = (dateStr && segStr)
-      ? '<span class="saved-meta-sep" aria-hidden="true">·</span>'
-      : '';
+  savedWindowEntries = entries;
+  savedWindowKey     = key;
+  savedWindowCount   = 0;
+  savedOutput.innerHTML = '';
 
-    // Tag chips
-    const tags     = Array.isArray(entry.tags) ? entry.tags : [];
-    const chipsHtml = tags.map(tag =>
-      `<span class="saved-tag-chip">` +
-        `<button class="saved-tag-filter"
-                 data-tag="${escapeAttr(tag)}"
-                 aria-label="Filter by tag: ${escapeAttr(tag)}">${escapeHtml(tag)}</button>` +
-        `<button class="saved-tag-remove"
-                 data-videoid="${escapeAttr(entry.videoId)}"
-                 data-tag="${escapeAttr(tag)}"
-                 aria-label="Remove tag ${escapeAttr(tag)}">×</button>` +
-      `</span>`
-    ).join('');
-    const tagAddBtn =
-      `<button class="saved-tag-add-btn"
-               data-videoid="${escapeAttr(entry.videoId)}"
-               aria-label="Add a tag to ${escapeAttr(title)}">＋ tag</button>`;
-    const tagsRow =
-      `<div class="saved-tags-row" id="tags-row-${escapeAttr(entry.videoId)}">${chipsHtml}${tagAddBtn}</div>`;
+  appendSavedWindow(Math.max(preserve, SAVED_WINDOW_SIZE));
+  if (preserve) window.scrollTo(0, scrollY);
+}
 
-    // Export-to-Markdown button
-    const exportBtn  =
-      `<button class="saved-export-btn"
-               data-videoid="${escapeAttr(entry.videoId)}"
-               data-title="${escapeAttr(title)}"
-               aria-label="Export ${escapeAttr(title)} as Markdown">⬇ .md</button>`;
+/** Render cards up to `target`, appending to whatever is already there. */
+function appendSavedWindow(target) {
+  const end = Math.min(target, savedWindowEntries.length);
+  if (end <= savedWindowCount) return;
 
-    // "Send to Obsidian" deep-link button — shown in all modes. Opens the
-    // entry as a new note in Obsidian via the obsidian://new URI (digest-only,
-    // length-guarded); complements full-vault sync for one-off pushes.
-    const obsidianBtn =
-      `<button class="saved-obsidian-btn"
-               data-videoid="${escapeAttr(entry.videoId)}"
-               data-title="${escapeAttr(title)}"
-               aria-label="Send ${escapeAttr(title)} to Obsidian">Send to Obsidian</button>`;
+  const html = savedWindowEntries.slice(savedWindowCount, end).map(buildSavedCard).join('');
+  const sentinel = savedOutput.querySelector('.saved-window-sentinel');
+  if (sentinel) sentinel.insertAdjacentHTML('beforebegin', html);
+  else savedOutput.insertAdjacentHTML('beforeend', html);
 
-    // Thumbnail — only fetched for entries whose URL passed the safe-URL
-    // check (unsafe/striped entries get no remote fetch). A failed image
-    // load removes itself so the card degrades to the no-thumbnail layout.
-    const safeUrl  = safeHttpUrl(entry.url);
-    const thumbHtml = safeUrl
-      ? `<img class="saved-card-thumb"
-              src="https://i.ytimg.com/vi/${encodeURIComponent(entry.videoId)}/mqdefault.jpg"
-              alt="" loading="lazy"
-              onerror="this.remove()">`
-      : '';
+  savedWindowCount = end;
+  updateSavedSentinel();
+}
 
-    return `<div class="saved-card"
-                 data-videoid="${escapeAttr(entry.videoId)}"
-                 tabindex="0"
-                 role="button"
-                 aria-label="Open ${escapeAttr(title)}">
-      <div class="saved-card-thumb-wrap">
-        <div class="saved-card-thumb-fallback" aria-hidden="true">
-          <svg width="34" height="34" viewBox="0 0 24 24" fill="none"
-               stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
-            <rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/>
-            <path d="M10 8.75 15 12l-5 3.25z" fill="currentColor" stroke="none"/>
-          </svg>
-        </div>
-        ${thumbHtml}
-        ${digestBadge}
-      </div>
-      <div class="saved-card-body">
-        <div class="saved-card-title-row">
-          <div class="saved-card-title">${escapeHtml(title)}</div>
-        </div>
-        <div class="saved-card-meta">
-          ${dateStr ? `<span class="saved-meta-item">${escapeHtml(dateStr)}</span>` : ''}
-          ${metaSep}
-          ${segStr ? `<span class="saved-meta-item">${escapeHtml(segStr)}</span>` : ''}
-        </div>
-        ${entry.snippet ? `<p class="saved-snippet">${escapeHtml(entry.snippet)}</p>` : ''}
-        ${tagsRow}
-        <div class="saved-card-actions">
-          ${exportBtn}
-          ${obsidianBtn}
-          <button class="saved-delete-btn"
-                  data-videoid="${escapeAttr(entry.videoId)}"
-                  aria-label="Delete ${escapeAttr(title)}">✕ Delete</button>
-        </div>
-      </div>
-    </div>`;
-  }).join('');
+/**
+ * Keep the load-more sentinel in step with the window: present and observed
+ * while entries remain, gone once everything is rendered.
+ */
+function updateSavedSentinel() {
+  const done = savedWindowCount >= savedWindowEntries.length;
+  let sentinel = savedOutput.querySelector('.saved-window-sentinel');
 
-  // Wire up card-level click (open entry) — stopPropagation handled per inner control
-  savedOutput.querySelectorAll('.saved-card').forEach(card => {
-    card.addEventListener('click', e => {
-      if (e.target.closest('.saved-delete-btn'))    return;
-      if (e.target.closest('.saved-card-url'))      return;
-      if (e.target.closest('.saved-tag-chip'))      return;
-      if (e.target.closest('.saved-tag-add-btn'))   return;
-      if (e.target.closest('.saved-tag-input'))     return;
-      if (e.target.closest('.saved-export-btn'))    return;
-      if (e.target.closest('.saved-obsidian-btn'))  return;
-      openSavedEntry(card.dataset.videoid);
-    });
-    card.addEventListener('keydown', e => {
-      if ((e.key === 'Enter' || e.key === ' ') && e.target === card) {
-        e.preventDefault();
-        openSavedEntry(card.dataset.videoid);
+  if (done) {
+    if (savedWindowObserver) { savedWindowObserver.disconnect(); savedWindowObserver = null; }
+    if (sentinel) sentinel.remove();
+    return;
+  }
+
+  if (!sentinel) {
+    sentinel = document.createElement('div');
+    sentinel.className = 'saved-window-sentinel';
+    sentinel.setAttribute('aria-hidden', 'true');
+    savedOutput.appendChild(sentinel);
+  } else {
+    savedOutput.appendChild(sentinel); // keep it last after an append
+  }
+
+  if (!savedWindowObserver) {
+    // rootMargin gives the next window a head start, so scrolling stays smooth
+    // instead of stuttering at the boundary. No root: #savedOutput scrolls with
+    // the page, and IntersectionObserver accounts for clipping ancestors anyway.
+    savedWindowObserver = new IntersectionObserver((records) => {
+      if (records.some(r => r.isIntersecting)) {
+        appendSavedWindow(savedWindowCount + SAVED_WINDOW_SIZE);
       }
-    });
-  });
+    }, { rootMargin: '600px 0px' });
+  }
+  savedWindowObserver.observe(sentinel);
+}
 
-  // Delete buttons
-  savedOutput.querySelectorAll('.saved-delete-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      deleteSavedEntry(btn.dataset.videoid);
-    });
-  });
+function teardownSavedWindow() {
+  if (savedWindowObserver) { savedWindowObserver.disconnect(); savedWindowObserver = null; }
+}
 
-  // Export-to-Markdown buttons
-  savedOutput.querySelectorAll('.saved-export-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      exportEntryMd(btn.dataset.videoid, btn.dataset.title);
-    });
-  });
+function buildSavedCard(entry) {
+  const title   = entry.title || entry.videoId;
+  const d       = new Date(entry.savedAt);
+  const dateStr = isNaN(d.getTime())
+    ? ''
+    : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) +
+      ' · ' +
+      d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 
-  // Send-to-Obsidian buttons (all modes — see obsidianBtn above)
-  savedOutput.querySelectorAll('.saved-obsidian-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      sendEntryToObsidian(btn.dataset.videoid, btn.dataset.title);
-    });
-  });
+  const hasDigest   = entry.digest != null || entry.hasDigest;
+  const digestBadge = hasDigest ? '<span class="saved-thumb-badge">Digest</span>' : '';
 
-  // Tag filter buttons (click chip text → set search to that tag)
-  savedOutput.querySelectorAll('.saved-tag-filter').forEach(btn => {
-    btn.addEventListener('click', e => {
+  // Meta line: saved date + segment count (replaces the noisy repeated URL).
+  const segCount = entry.segmentCount || entry.segment_count || 0;
+  const segStr   = segCount ? `${segCount.toLocaleString()} segments` : '';
+  const metaSep  = (dateStr && segStr)
+    ? '<span class="saved-meta-sep" aria-hidden="true">·</span>'
+    : '';
+
+  // Tag chips
+  const tags     = Array.isArray(entry.tags) ? entry.tags : [];
+  const chipsHtml = tags.map(tag =>
+    `<span class="saved-tag-chip">` +
+      `<button class="saved-tag-filter"
+               data-tag="${escapeAttr(tag)}"
+               aria-label="Filter by tag: ${escapeAttr(tag)}">${escapeHtml(tag)}</button>` +
+      `<button class="saved-tag-remove"
+               data-videoid="${escapeAttr(entry.videoId)}"
+               data-tag="${escapeAttr(tag)}"
+               aria-label="Remove tag ${escapeAttr(tag)}">×</button>` +
+    `</span>`
+  ).join('');
+  const tagAddBtn =
+    `<button class="saved-tag-add-btn"
+             data-videoid="${escapeAttr(entry.videoId)}"
+             aria-label="Add a tag to ${escapeAttr(title)}">＋ tag</button>`;
+  const tagsRow =
+    `<div class="saved-tags-row" id="tags-row-${escapeAttr(entry.videoId)}">${chipsHtml}${tagAddBtn}</div>`;
+
+  // Export-to-Markdown button
+  const exportBtn  =
+    `<button class="saved-export-btn"
+             data-videoid="${escapeAttr(entry.videoId)}"
+             data-title="${escapeAttr(title)}"
+             aria-label="Export ${escapeAttr(title)} as Markdown">⬇ .md</button>`;
+
+  // "Send to Obsidian" deep-link button — shown in all modes. Opens the
+  // entry as a new note in Obsidian via the obsidian://new URI (digest-only,
+  // length-guarded); complements full-vault sync for one-off pushes.
+  const obsidianBtn =
+    `<button class="saved-obsidian-btn"
+             data-videoid="${escapeAttr(entry.videoId)}"
+             data-title="${escapeAttr(title)}"
+             aria-label="Send ${escapeAttr(title)} to Obsidian">Send to Obsidian</button>`;
+
+  // Thumbnail — only fetched for entries whose URL passed the safe-URL
+  // check (unsafe/striped entries get no remote fetch). A failed image load
+  // removes itself so the card degrades to the no-thumbnail layout; that is
+  // handled by the delegated capturing 'error' listener, not by an onerror
+  // attribute, which the CSP refuses.
+  const safeUrl  = safeHttpUrl(entry.url);
+  const thumbHtml = safeUrl
+    ? `<img class="saved-card-thumb"
+            src="https://i.ytimg.com/vi/${encodeURIComponent(entry.videoId)}/mqdefault.jpg"
+            alt="" loading="lazy">`
+    : '';
+
+  return `<div class="saved-card"
+               data-videoid="${escapeAttr(entry.videoId)}"
+               tabindex="0"
+               role="button"
+               aria-label="Open ${escapeAttr(title)}">
+    <div class="saved-card-thumb-wrap">
+      <div class="saved-card-thumb-fallback" aria-hidden="true">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+          <rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/>
+          <path d="M10 8.75 15 12l-5 3.25z" fill="currentColor" stroke="none"/>
+        </svg>
+      </div>
+      ${thumbHtml}
+      ${digestBadge}
+    </div>
+    <div class="saved-card-body">
+      <div class="saved-card-title-row">
+        <div class="saved-card-title">${escapeHtml(title)}</div>
+      </div>
+      <div class="saved-card-meta">
+        ${dateStr ? `<span class="saved-meta-item">${escapeHtml(dateStr)}</span>` : ''}
+        ${metaSep}
+        ${segStr ? `<span class="saved-meta-item">${escapeHtml(segStr)}</span>` : ''}
+      </div>
+      ${entry.snippet ? `<p class="saved-snippet">${escapeHtml(entry.snippet)}</p>` : ''}
+      ${tagsRow}
+      <div class="saved-card-actions">
+        ${exportBtn}
+        ${obsidianBtn}
+        <button class="saved-delete-btn"
+                data-videoid="${escapeAttr(entry.videoId)}"
+                aria-label="Delete ${escapeAttr(title)}">✕ Delete</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/**
+ * One delegated listener set for the whole library, attached once.
+ *
+ * Previously every card wired its own handlers on every render — at 500 entries
+ * that was 2,043 listeners re-attached each time. Delegation makes the cost
+ * independent of library size and, more usefully here, means cards appended by
+ * the scroll window are live the moment they exist.
+ */
+function ensureSavedDelegation() {
+  if (savedDelegationWired) return;
+  savedDelegationWired = true;
+
+  savedOutput.addEventListener('click', (e) => {
+    const del = e.target.closest('.saved-delete-btn');
+    if (del) { e.stopPropagation(); deleteSavedEntry(del.dataset.videoid); return; }
+
+    const exp = e.target.closest('.saved-export-btn');
+    if (exp) { e.stopPropagation(); exportEntryMd(exp.dataset.videoid, exp.dataset.title); return; }
+
+    const obs = e.target.closest('.saved-obsidian-btn');
+    if (obs) { e.stopPropagation(); sendEntryToObsidian(obs.dataset.videoid, obs.dataset.title); return; }
+
+    // Click a tag chip's text → filter the library down to that tag.
+    const filter = e.target.closest('.saved-tag-filter');
+    if (filter) {
       e.stopPropagation();
-      const tag = btn.dataset.tag;
       const inp = document.getElementById('savedSearchInput');
       if (inp) {
-        inp.value        = tag;
-        savedSearchQuery = tag;
+        inp.value        = filter.dataset.tag;
+        savedSearchQuery = filter.dataset.tag;
         renderSavedFiltered();
       }
-    });
-  });
+      return;
+    }
 
-  // Tag remove buttons
-  savedOutput.querySelectorAll('.saved-tag-remove').forEach(btn => {
-    btn.addEventListener('click', e => {
+    const remove = e.target.closest('.saved-tag-remove');
+    if (remove) {
       e.stopPropagation();
-      patchSavedTags(btn.dataset.videoid,
-        (savedList.find(x => x.videoId === btn.dataset.videoid)?.tags || [])
-          .filter(t => t !== btn.dataset.tag));
-    });
+      patchSavedTags(remove.dataset.videoid,
+        (savedList.find(x => x.videoId === remove.dataset.videoid)?.tags || [])
+          .filter(t => t !== remove.dataset.tag));
+      return;
+    }
+
+    const add = e.target.closest('.saved-tag-add-btn');
+    if (add) { e.stopPropagation(); showSavedTagInput(add.dataset.videoid, add); return; }
+
+    // Anything left inside a tag chip or the inline tag input is chrome, not a
+    // request to open the entry.
+    if (e.target.closest('.saved-tag-chip')) return;
+    if (e.target.closest('.saved-tag-input')) return;
+    if (e.target.closest('.saved-card-url')) return;
+
+    const card = e.target.closest('.saved-card');
+    if (card) openSavedEntry(card.dataset.videoid);
   });
 
-  // Tag + add buttons
-  savedOutput.querySelectorAll('.saved-tag-add-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      e.stopPropagation();
-      showSavedTagInput(btn.dataset.videoid, btn);
-    });
+  savedOutput.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const card = e.target.closest('.saved-card');
+    if (card && e.target === card) {
+      e.preventDefault();
+      openSavedEntry(card.dataset.videoid);
+    }
   });
 
+  // Thumbnails that 404 fall back to the placeholder behind them. This has to
+  // be a capturing listener: `error` does not bubble. It replaces an onerror
+  // attribute, which is inline script — the CSP had been refusing it silently,
+  // so the fallback never actually ran.
+  savedOutput.addEventListener('error', (e) => {
+    const img = e.target;
+    if (img instanceof HTMLImageElement && img.classList.contains('saved-card-thumb')) img.remove();
+  }, true);
 }
 
 /* ==============================================

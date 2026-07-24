@@ -1477,6 +1477,14 @@ body.has-transcript .hero-landing {
   gap: var(--space-10);
 }
 
+/* Load-more tripwire for the windowed list. Spans the grid so it cannot be
+   parked in a column next to a card, and carries a little height because a
+   zero-height element is unreliable to observe. */
+.saved-window-sentinel {
+  grid-column: 1 / -1;
+  height: 1px;
+}
+
 .saved-card {
   position: relative;
   display: flex;

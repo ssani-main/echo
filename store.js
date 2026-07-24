@@ -38,6 +38,7 @@ function getDb() {
   migrateSegmentCount();
   migrateChannelColumns();
   migrateTranscriptSourceColumns();
+  migrateFtsRowids();
   migrateFromLegacyJson();
 
   return _db;
@@ -237,10 +238,21 @@ function metaFromRow(row, tags) {
 /**
  * (Re)populate the FTS5 row for a given videoId from the videos table.
  * Called after every write that may affect title, segments, or digest.
+ *
+ * The FTS row is keyed by the *videos* rowid, not by videoId. That is the whole
+ * point: `videoId` is an UNINDEXED column in an FTS5 table, so deleting by it
+ * plans as `SCAN videos_fts VIRTUAL TABLE` — a linear pass over every stored
+ * transcript, on every single save. Measured: 10.5 ms/save at 100 entries,
+ * 18.6 at 400, 23.7 at 800. Deleting by rowid is a B-tree lookup and does not
+ * grow with the library (27.7 ms → 9.1 ms at 600 entries in isolation).
+ *
+ * Reusing videos.rowid rather than inventing a mapping table is safe because
+ * the two rows are always deleted together (see deleteEntry) — so a rowid
+ * SQLite recycles for a new video can never collide with a live FTS row.
  */
 function syncFts(videoId) {
   const row = getDb().prepare(
-    'SELECT title, segments, digest FROM videos WHERE videoId = ?'
+    'SELECT rowid, title, segments, digest FROM videos WHERE videoId = ?'
   ).get(videoId);
   if (!row) return;
 
@@ -248,10 +260,39 @@ function syncFts(videoId) {
     .map((s) => s.text || '')
     .join(' ');
 
-  getDb().prepare('DELETE FROM videos_fts WHERE videoId = ?').run(videoId);
+  getDb().prepare('DELETE FROM videos_fts WHERE rowid = ?').run(row.rowid);
   getDb().prepare(
-    'INSERT INTO videos_fts(videoId, title, transcript_text, digest) VALUES (?, ?, ?, ?)'
-  ).run(videoId, row.title ?? '', transcriptText, row.digest ?? '');
+    'INSERT INTO videos_fts(rowid, videoId, title, transcript_text, digest) VALUES (?, ?, ?, ?, ?)'
+  ).run(row.rowid, videoId, row.title ?? '', transcriptText, row.digest ?? '');
+}
+
+// ---------------------------------------------------------------------------
+// One-time migration: re-key the FTS index by videos.rowid.
+//
+// Rows written before this change carry whatever rowid FTS5 auto-assigned, so
+// they do not line up with videos.rowid and a rowid-keyed delete would miss
+// them — leaving stale documents that search would keep returning. The index
+// is derived data, so the fix is simply to rebuild it once.
+//
+// Gated on PRAGMA user_version, and deliberately NOT wrapped in one giant
+// transaction: `DELETE FROM videos_fts` runs first, so a crash midway just
+// means user_version is still 0 and the next boot redoes the whole thing. That
+// is cheaper than holding a multi-hundred-megabyte write transaction open.
+// ---------------------------------------------------------------------------
+
+const FTS_ROWID_SCHEMA_VERSION = 1;
+
+function migrateFtsRowids() {
+  const { user_version: version } = getDb().prepare('PRAGMA user_version').get();
+  if (version >= FTS_ROWID_SCHEMA_VERSION) return;
+
+  getDb().exec('DELETE FROM videos_fts');
+
+  // Ids first, then one entry at a time — never hold every transcript at once.
+  const ids = getDb().prepare('SELECT videoId FROM videos ORDER BY rowid').all();
+  for (const { videoId } of ids) syncFts(videoId);
+
+  getDb().exec(`PRAGMA user_version = ${FTS_ROWID_SCHEMA_VERSION}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -443,10 +484,16 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
  * Returns true if an entry was removed, false if it wasn't found.
  */
 export async function deleteEntry(videoId) {
+  // Read the rowid *before* the delete — it is the FTS row's key, and once the
+  // videos row is gone there is no cheap way back to it. Deleting both rows
+  // together is also what makes rowid reuse safe (see syncFts).
+  const row = getDb().prepare('SELECT rowid FROM videos WHERE videoId = ?').get(videoId);
+  if (!row) return false;
+
   const result = getDb().prepare('DELETE FROM videos WHERE videoId = ?').run(videoId);
   if (result.changes === 0) return false;
   // FK ON DELETE CASCADE removes tags; clean up FTS manually.
-  getDb().prepare('DELETE FROM videos_fts WHERE videoId = ?').run(videoId);
+  getDb().prepare('DELETE FROM videos_fts WHERE rowid = ?').run(row.rowid);
   return true;
 }
 
