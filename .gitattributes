@@ -1,2 +1,7 @@
 # Vendored whisper.cpp binary + shared libraries — treat as binary (no eol conversion, no diff)
 vendor/whisper/** binary
+
+# ...except the provenance/procedure doc, which is the one file in that tree
+# meant to be read and reviewed. The blanket rule above caught it too, leaving
+# it with no diff and no merge driver.
+vendor/whisper/**/*.md text diff merge

@@ -223,14 +223,29 @@ the result here as MEASURED, the way the speed table above does.
    which for a compute-bound SIMD workload is typically *slower* than 4. Left alone
    because changing a default blind is how you make it worse; `ECHO_WHISPER_THREADS`
    is there to measure with.
-2. **CPU backend variants.** `vendor/whisper/linux-x64/` ships only the baseline
-   (`libggml-cpu-x64.so`) and AVX2 (`libggml-cpu-haswell.so`) backends, so an
-   AVX-512 host silently runs AVX2 code. whisper.cpp's releases also build
-   `skylakex`, `icelake` and `alderlake` variants; dropping them beside the binary
-   is enough for ggml's runtime dispatch to pick the best one. This is the only
-   remaining **genuinely lossless** speedup — same math, wider registers — and it
-   costs a few hundred KB in the bundle. Not done here: the proxy blocks the release
-   downloads.
+2. **CPU backend variants — the only genuinely lossless speedup left.**
+   `vendor/whisper/linux-x64/` ships only the baseline (`libggml-cpu-x64.so`) and
+   AVX2 (`libggml-cpu-haswell.so`) backends, so an **AVX-512 host silently runs
+   AVX2 code**. Same model, same decoding parameters, same output — just narrower
+   registers than the CPU can do.
+
+   Confirmed against the vendored binaries: each backend `.so` exports its own
+   `ggml_backend_score`, and `libggml.so.0` exports `ggml_backend_load_best` /
+   `ggml_backend_load_all_from_path`. The dispatch is entirely inside ggml, so
+   **adding variants requires no Echo code change** — the files need only be in the
+   platform dir and in `tauri.conf.json` `bundle.resources`.
+
+   `tools/vendor-whisper-backends.mjs` does both, and refuses any archive whose
+   shared files are not byte-identical to the vendored ones (a backend from a
+   different build fails *only* on the AVX-512 machines it was added for — never on
+   the machine that vendored it). Procedure: `vendor/whisper/README.md`,
+   "Adding the AVX-512 backends".
+
+   🚩 **Still not done — the files are not in the repo.** The session that wrote the
+   tooling could not fetch them: its GitHub access was scoped to `ssani-main/echo`
+   and its egress proxy blocked huggingface.co. Anywhere with plain internet access
+   this is one `tar xf` and one `node tools/…` away. ~3.5 MB of bundle for the four
+   extra x86-64 variants.
 
 ## Three transcript tiers (one setting)
 

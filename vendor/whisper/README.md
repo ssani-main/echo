@@ -18,6 +18,8 @@ These are **prebuilt** `whisper-cli` binaries + their shared libraries, shipped 
 
 **Note:** upstream ships ~16 per-microarch CPU backends (~17 MB total). We ship only the baseline + AVX2 (~4.3 MB): ggml loads the best-scoring backend whose CPU features are present and falls back to `x64` otherwise (verified — with only `x64` present it still loads and runs). `LD_LIBRARY_PATH` is set to this dir at spawn so the `.so` files resolve.
 
+⚠️ **The lean subset has a cost: an AVX-512 machine runs the AVX2 backend**, because the better variant simply isn't shipped. Each backend `.so` carries its own `ggml_backend_score` and the registry (`ggml_backend_load_best`) picks the highest scorer present, so adding `libggml-cpu-skylakex.so` / `icelake` / `alderlake` needs **no code change at all** — the files just have to be in this directory and in `tauri.conf.json` `bundle.resources`. See "Adding the AVX-512 backends" below.
+
 ### win32-x64/ (populated)
 
 - `whisper-cli.exe` — the CLI (the only entrypoint Echo spawns)
@@ -30,6 +32,38 @@ These are **prebuilt** `whisper-cli` binaries + their shared libraries, shipped 
 ### Other platforms (not yet populated)
 
 - `darwin-*` — upstream publishes **no** CLI binary, only an xcframework (stays "off" until we build our own)
+
+## Adding the AVX-512 backends
+
+Wider-register backends are the only **lossless** Whisper speedup available — same
+model, same decoding parameters, same output, just wider vectors. Everything else
+that is faster (smaller beam, fewer candidates, parallel chunks) decodes worse.
+
+```bash
+# 1. Fetch the asset MATCHING the vendored version — v1.9.1, per "Source" above.
+#    A different build will be refused in step 3, on purpose.
+tar xf whisper-bin-ubuntu-x64.tar.gz -C /tmp/whisper-upstream
+
+# 2. Copy in every backend variant not already vendored, and register them
+#    with the Tauri bundle.
+node tools/vendor-whisper-backends.mjs /tmp/whisper-upstream
+
+# 3. Confirm the dispatch changed on an AVX-512 host:
+LD_LIBRARY_PATH=vendor/whisper/linux-x64 ./vendor/whisper/linux-x64/whisper-cli --help | head -2
+#    → "load_backend: loaded CPU backend from .../libggml-cpu-skylakex.so"
+#      (on an AVX2-only host it will still say haswell — that is correct)
+```
+
+**Why the script and not a `cp`.** A backend `.so` is only loadable by the
+`libggml.so.0` it was built with. Take one from a different release or a local
+build and the mismatch is invisible on an AVX2 machine — the file is never scored
+highest, so never loaded — and fails only on the AVX-512 machines you added it
+for. The script therefore requires every file the archive shares with this
+directory to be **byte-identical** before it copies anything, which is what proves
+the archive is the same build. One differing byte and it stops without touching
+the vendor dir or `tauri.conf.json`.
+
+Size: the four extra x86-64 variants add ~3.5 MB to the bundle.
 
 ## Updating
 
