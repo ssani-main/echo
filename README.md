@@ -53,6 +53,7 @@ You've been there: you find a great video, but you'd rather *read* it than sit t
 | 📑 | **Reader & Library** | Transcript and Digest are lens tabs—two views of the current video. Saved videos open from a **Library** button in the header (with count) |
 | 🟢 | **Live status indicator** | Fixed pill shows "AI is digesting…" → "Digest ready ✓" as it processes; click to jump to the Digest pane |
 | 💾 | **Library & tagging** | Save videos; search by keyword (SQLite FTS5), sort (Recently saved / Title A–Z), tag with auto-suggestions; export whole library as ZIP of Markdown files or JSON backup; sync to Obsidian vault |
+| 🔐 | **Accounts & sync** _(hosted, optional)_ | Sign in with Google so your library follows you between devices. Off unless the operator configures it — and it never changes where your API key lives: keys stay in your browser either way |
 | ⌨️ | **Keyboard shortcuts** | Press `?` for the overlay; `/` focus find, `1`/`2` switch Transcript & Digest lenses, `3` open Library, `t` toggle dark mode, `Esc` close — all paused while typing |
 | 🎨 | **Light & dark themes** | The "Plaintext" theme: one system monospace family, no webfonts, no accent hue, hierarchy carried by weight rather than size. Loading skeletons respect reduced-motion |
 | 🛟 | **Automatic fallback** | If the transcript library hiccups, `yt-dlp` steps in |
@@ -127,6 +128,15 @@ Public web mode with no authentication. Each visitor:
 - Key validated on save via `POST /api/validate-key` — invalid keys are rejected immediately
 - Key stored in browser's **localStorage**, sent per-request as `X-Echo-Api-Key` header — **never stored on server**
 - Library stored in browser's **IndexedDB** — each visitor's library is isolated, no user accounts
+
+**Optional: accounts + library sync.** Set `ECHO_GOOGLE_CLIENT_ID`,
+`ECHO_GOOGLE_CLIENT_SECRET` and `ECHO_SESSION_SECRET` and Echo offers **Sign in
+with Google**, so a library follows a visitor between devices. What the server
+then stores is two tables — one row per account (Google's `sub` → an id) and one
+row per saved video. No passwords (Google is the only way in), no sessions table
+(sessions are signed cookies), and **no API keys**: signing in does not change
+where an Anthropic key lives. Leave the three unset and none of it exists — no
+sign-in UI, no database, no volume. See [`DEPLOY.md`](DEPLOY.md).
 
 **Web-mode limits:**
 - Server-side library API disabled (HTTP 503): `/api/saved*`, `/api/search`, `/api/vault/sync` — library in IndexedDB only
@@ -213,6 +223,8 @@ echo/
 ├── whisperModel.js   # Whisper model registry + on-demand download/cache
 ├── digest.js         # digest generation (incl. map-reduce), Explain/Background enrich, auto-tagging
 ├── providers.js      # AI provider seam: local `claude` CLI vs Anthropic API (BYOK)
+├── auth.js           # Google sign-in + stateless signed-cookie sessions (hosted, optional)
+├── syncStore.js      # accounts + synced libraries — the only server-side state
 ├── store.js          # SQLite library (local/desktop); web mode uses IndexedDB in the browser
 ├── markdown.js       # Markdown export + Obsidian vault index note
 ├── vault.js          # Obsidian vault folder sync
@@ -239,6 +251,13 @@ echo/
 | `GET` | `/api/video-meta` | `?videoId=` | `{ videoId, title, channel, channelUrl }` (oEmbed metadata) |
 | `POST` | `/api/digest` | `{ text, length?, format?, language?, title?, videoId? }` | `{ digest, usage, strategy, suggestedTags }` |
 | `POST` | `/api/enrich` | `{ selection, context?, mode }` (`mode`: `explain`\|`background`) | `{ mode, text, sources, usage }` |
+| `GET` | `/api/auth/google` | _(none)_ | redirect into Google sign-in (accounts only) |
+| `GET` | `/api/auth/callback` | `?code=&state=` | completes sign-in, sets the session cookie |
+| `GET` | `/api/auth/me` | _(none)_ | `{ enabled, user }` — who is signed in, if anyone |
+| `POST` | `/api/auth/logout` | _(none)_ | `{ ok: true }` |
+| `DELETE` | `/api/auth/account` | _(none)_ | deletes the account and its synced library |
+| `GET` | `/api/sync/pull` | `?since=` | entries changed since a timestamp, incl. tombstones |
+| `POST` | `/api/sync/push` | `{ entries }` | `{ applied, skipped, serverTime }` — last write wins |
 | `GET` | `/api/saved` | _(none)_ | list of saved entries (metadata incl. tags) |
 | `GET` | `/api/saved/export` | _(none)_ | `{ entries: [ ...full entries... ] }` |
 | `GET` | `/api/saved/:videoId` | _(none)_ | one full entry (transcript, digest, tags) |
@@ -258,6 +277,7 @@ echo/
 - **Explain** and **Background** are both grounded in the surrounding transcript plus Claude's own training knowledge, with **no live web access** — verify anything consequential against other sources.
 - **Whisper transcription** is off by default and local/desktop only. Turn it on in Settings as a **Fallback** (only when captions are missing) or **High-accuracy** (always). It needs `ffmpeg` on your `PATH`, runs entirely on your machine, and takes real time on long videos — a live progress bar shows where it's at, and closing the tab cancels it.
 - Each enrich lookup shows its own **tokens · cost · duration**.
+- **Signing in never moves your API key.** Accounts exist for one reason — a library that follows you between devices. The key stays in your browser's localStorage and is sent per-request; the server stores transcripts and digests, never credentials.
 - Library **export to ZIP** loads JSZip from a CDN; if the CDN is unavailable, the app falls back to a single JSON backup file.
 - Per-digest stats (tokens, cost, duration) are always shown when available; these are real billing data from your AI provider.
 

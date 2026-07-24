@@ -25,8 +25,14 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 // The sign-in round trip. Ten minutes is generous for choosing an account.
 const OAUTH_TTL_MS = 10 * 60 * 1000;
 
-const GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
-const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
+// Overridable so the full redirect-and-callback flow can be exercised against
+// a mock provider in tests. Unset — the normal case — these are Google's own
+// endpoints. Pointing them anywhere requires control of the server's
+// environment, so this is a test seam rather than an attack surface.
+const GOOGLE_AUTH_ENDPOINT = process.env.ECHO_GOOGLE_AUTH_ENDPOINT
+  || 'https://accounts.google.com/o/oauth2/v2/auth';
+const GOOGLE_TOKEN_ENDPOINT = process.env.ECHO_GOOGLE_TOKEN_ENDPOINT
+  || 'https://oauth2.googleapis.com/token';
 
 export { SESSION_COOKIE, OAUTH_COOKIE, SESSION_TTL_MS, OAUTH_TTL_MS, GOOGLE_TOKEN_ENDPOINT };
 

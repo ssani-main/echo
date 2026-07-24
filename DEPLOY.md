@@ -176,6 +176,28 @@ The `Dockerfile` already pins `node:22-bookworm-slim`, which satisfies the
 that the rest of the app depends on. No action needed here for either Fly
 or Railway.
 
+## Verifying sign-in before you trust it
+
+`tests/e2e/oauth-flow.mjs` drives the whole flow in a real browser — sign-in
+button, redirect, callback, session, sync, sign out, sign in again — against a
+mock provider that verifies PKCE and the client secret the way Google does:
+
+```bash
+npm i --no-save playwright && npx playwright install chromium
+node tests/e2e/oauth-flow.mjs
+```
+
+That proves Echo's half. It cannot prove **Google's** half — the redirect URI
+allow-list and the consent screen live in Google Cloud Console. After a real
+deploy, sign in once yourself and check three things:
+
+1. Google shows the consent screen rather than `redirect_uri_mismatch` — that
+   error means the URI in the console does not exactly match
+   `<ECHO_PUBLIC_URL>/api/auth/callback`, scheme and all.
+2. You land back on the app with a "Signed in" toast.
+3. Settings shows your address, and a video saved on one device appears on
+   another after a moment.
+
 ## A note on verification
 
 Docker is not available in the environment this config was authored in, so
