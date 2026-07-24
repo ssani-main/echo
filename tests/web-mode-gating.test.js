@@ -108,7 +108,10 @@ async function assertWebModeUnsupported(base, method, path) {
   assert.equal(body.error.code, 'WEB_MODE_UNSUPPORTED', `${method} ${path} expected code WEB_MODE_UNSUPPORTED, got ${body.error.code}`);
 }
 
-// The full set of server-side library/search routes gated by blockInWeb().
+// The full set of routes gated by blockInWeb(): the server-side library/search
+// routes (persistence lives in the browser in web mode) and the Whisper routes,
+// including its progress stream — Whisper never runs in web mode, so a hosted
+// visitor could only ever hold that stream open for a job that cannot exist.
 const GATED_ROUTES = [
   ['GET', '/api/saved'],
   ['GET', '/api/saved/export'],
@@ -118,6 +121,10 @@ const GATED_ROUTES = [
   ['DELETE', '/api/saved/some-video-id'],
   ['PATCH', '/api/saved/some-video-id/tags'],
   ['GET', '/api/search'],
+  ['POST', '/api/vault/sync'],
+  ['GET', '/api/whisper/status'],
+  ['POST', '/api/whisper/model'],
+  ['GET', '/api/transcript/progress?jobId=probe'],
 ];
 
 let webServer;

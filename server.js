@@ -2,6 +2,7 @@ import express from 'express';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { readFileSync } from 'fs';
+import { gzipSync } from 'node:zlib';
 import {
   extractVideoId,
   fetchTranscript,
@@ -137,9 +138,40 @@ function buildInjectedHtml(rawHtml, mode) {
 const INDEX_HTML_PATH = join(__dirname, 'public', 'index.html');
 const CACHED_INDEX_HTML = buildInjectedHtml(readFileSync(INDEX_HTML_PATH, 'utf8'), ECHO_MODE);
 
-app.get('/', (_req, res) => {
+// The page is a ~316 KB inline monolith that gzips to ~75 KB, and it is already
+// byte-identical on every request (see the boot-time cache above) — so compress
+// it ONCE here rather than per response. That is why this is a hand-rolled
+// Content-Encoding rather than a general compression middleware: a middleware
+// would re-gzip the same 316 KB on every page load, which on a small hosted VM
+// is real CPU spent to produce a byte-identical result, and in local mode it
+// would be CPU spent compressing loopback traffic that never hits a network.
+// Level 9 is free here for the same reason: it runs once, at boot.
+const CACHED_INDEX_GZIP = gzipSync(Buffer.from(CACHED_INDEX_HTML, 'utf8'), { level: 9 });
+
+/**
+ * True when the client actually accepts gzip. Honours an explicit `q=0`
+ * ("gzip;q=0" means *not* acceptable), which a naive substring test would
+ * misread as support and then serve an encoding the client rejects.
+ *
+ * @param {import('express').Request} req
+ * @returns {boolean}
+ */
+function acceptsGzip(req) {
+  const header = req.get('Accept-Encoding') || '';
+  const match = header.match(/(?:^|,)\s*gzip\s*(?:;\s*q=([0-9.]+))?/i);
+  if (!match) return false;
+  return match[1] === undefined || parseFloat(match[1]) > 0;
+}
+
+app.get('/', (req, res) => {
   res.set('Content-Type', 'text/html; charset=utf-8');
-  res.send(CACHED_INDEX_HTML);
+  // Caches must key on the encoding — the same URL now has two representations.
+  res.set('Vary', 'Accept-Encoding');
+  if (acceptsGzip(req)) {
+    res.set('Content-Encoding', 'gzip');
+    return res.send(CACHED_INDEX_GZIP);
+  }
+  return res.send(CACHED_INDEX_HTML);
 });
 
 app.use(express.static(join(__dirname, 'public')));
@@ -441,12 +473,48 @@ function finishJob(jobId, status) {
   setTimeout(() => whisperJobs.delete(jobId), 15_000).unref?.();
 }
 
+// How often the job state is polled for a connected stream, and how often a
+// comment heartbeat goes out while no job entry exists yet. Polling stays at
+// 500 ms so the progress bar moves smoothly; the heartbeat is far slower
+// because it carries no information — it only keeps the connection warm.
+const PROGRESS_POLL_MS = 500;
+const PROGRESS_PING_MS = 10_000;
+
+// A stream holds an open socket and a repeating timer, so bound both dimensions.
+// The cap is per-process and deliberately generous: one page holds exactly one
+// stream and closes it as soon as its POST settles, so reaching this means
+// something is looping, not that a user has too many tabs open.
+const PROGRESS_MAX_STREAMS = 32;
+
+// Absolute lifetime for a single stream. A client that vanishes without closing
+// the socket (crashed tab, network dropped with no FIN) would otherwise hold its
+// timer until the process restarts. A browser EventSource simply reconnects
+// (`retry: 2000` below) and picks the job's state back up, so a genuinely
+// long-running Whisper job is unaffected by being cut here.
+const PROGRESS_MAX_STREAM_MS = 30 * 60_000;
+
+let openProgressStreams = 0;
+
 // SSE: stream a job's Whisper progress to the browser until it reaches a terminal
 // status. No job entry yet → heartbeats (the POST may not have hit its first
-// progress tick). Local/desktop only in practice — Whisper never runs in web.
-app.get('/api/transcript/progress', (req, res) => {
+// progress tick). blockInWeb because Whisper never runs in web mode — POST
+// /api/transcript ignores `jobId` there and forces transcription off, so this
+// route could only ever heartbeat at a hosted visitor, while still costing a
+// socket and a timer per connection. Gating it removes that sink outright.
+app.get('/api/transcript/progress', blockInWeb, (req, res) => {
   const jobId = String(req.query.jobId || '');
   if (!jobId) { res.status(400).end(); return; }
+
+  if (openProgressStreams >= PROGRESS_MAX_STREAMS) {
+    return sendError(
+      res,
+      'RATE_LIMITED',
+      'Too many progress streams are already open.',
+      'Close some Echo tabs, or wait for the running transcriptions to finish.'
+    );
+  }
+  openProgressStreams++;
+
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
@@ -454,17 +522,46 @@ app.get('/api/transcript/progress', (req, res) => {
     'X-Accel-Buffering': 'no',
   });
   res.write('retry: 2000\n\n');
+
   let done = false;
+  let sinceLastPing = 0;
+
+  // Single teardown path for every exit (terminal status, lifetime cap, client
+  // disconnect), so the open-stream count can never drift. Idempotent: res.end()
+  // re-enters this via the 'close' listener below.
+  const finish = () => {
+    if (done) return;
+    done = true;
+    clearInterval(iv);
+    clearTimeout(maxTimer);
+    openProgressStreams--;
+    res.end();
+  };
+
   const tick = () => {
     if (done) return;
     const st = whisperJobs.get(jobId);
-    if (!st) { res.write(': ping\n\n'); return; }
+    if (!st) {
+      sinceLastPing += PROGRESS_POLL_MS;
+      if (sinceLastPing >= PROGRESS_PING_MS) {
+        sinceLastPing = 0;
+        res.write(': ping\n\n');
+      }
+      return;
+    }
+    sinceLastPing = 0;
     res.write(`data: ${JSON.stringify({ phase: st.phase, pct: st.pct ?? 0, status: st.status || 'running' })}\n\n`);
-    if (st.status && st.status !== 'running') { done = true; clearInterval(iv); res.end(); }
+    if (st.status && st.status !== 'running') finish();
   };
-  const iv = setInterval(tick, 500);
+
+  const iv = setInterval(tick, PROGRESS_POLL_MS);
+  const maxTimer = setTimeout(finish, PROGRESS_MAX_STREAM_MS);
   tick();
-  req.on('close', () => { done = true; clearInterval(iv); });
+
+  // Listen on `res`, not `req`: for a GET there is no request body whose end
+  // could be confused with a disconnect, and res 'close' is the signal that
+  // covers both a vanished client and our own res.end().
+  res.on('close', finish);
 });
 
 app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
