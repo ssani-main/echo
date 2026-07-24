@@ -17,8 +17,8 @@
   <!-- Fonts: none. Plaintext runs on a system monospace stack (--font-stack),
        so there is no webfont request and no render-blocking stylesheet. -->
 
-  <!-- JSZip — used by Export library (ZIP download); graceful fallback if unavailable -->
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <!-- JSZip is vendored (public/vendor/) and loaded on demand by the library
+       export, not from a CDN and not on every page load. See public/vendor/README.md. -->
 
   <link rel="stylesheet" href="/app.css" />
 </head>

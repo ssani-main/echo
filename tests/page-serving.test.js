@@ -162,12 +162,40 @@ test('the page carries no inline script, which is what lets the CSP refuse it', 
 test('the CSP allows no inline script and no inline style at all', async () => {
   const res = await rawGet('/');
   const csp = res.headers['content-security-policy'];
-  assert.match(csp, /script-src 'self' https:\/\/cdn\.jsdelivr\.net/);
+  assert.match(csp, /script-src 'self';/);
   // Not a single 'unsafe-inline' anywhere in the policy.
   assert.doesNotMatch(csp, /unsafe-inline/, 'the policy must not allow inline anything');
   assert.doesNotMatch(csp, /unsafe-eval/);
   // The stale Google Fonts allowances went with the Plaintext theme.
   assert.doesNotMatch(csp, /fonts\.googleapis\.com|fonts\.gstatic\.com/);
+});
+
+test('no script may come from anywhere but this origin', async () => {
+  // JSZip was the last external script origin. Vendoring it means the policy
+  // names no third-party host, so a compromised or unreachable CDN cannot
+  // affect the app at all.
+  const csp = (await rawGet('/')).headers['content-security-policy'];
+  const scriptSrc = csp.split('script-src')[1].split(';')[0];
+  assert.doesNotMatch(scriptSrc, /https?:/, `script-src should name no external origin, got:${scriptSrc}`);
+  assert.doesNotMatch(csp, /jsdelivr/);
+});
+
+test('the vendored JSZip is served locally and compressed', async () => {
+  const res = await rawGet('/vendor/jszip.min.js', { 'Accept-Encoding': 'gzip' });
+  assert.equal(res.status, 200);
+  assert.match(res.headers['content-type'], /javascript/);
+  assert.equal(res.headers['content-encoding'], 'gzip');
+});
+
+test('the page does not pull JSZip on load — it is fetched on first export', async () => {
+  // ~95 KB that the overwhelming majority of visits never need. Checked as a
+  // tag rather than a bare word search, which the explanatory HTML comment
+  // would otherwise trip.
+  const html = gunzipSync((await rawGet('/', { 'Accept-Encoding': 'gzip' })).body).toString('utf8');
+  const tags = html.match(/<(?:script|link)\b[^>]*>/gi) || [];
+  for (const tag of tags) {
+    assert.doesNotMatch(tag, /jszip/i, `JSZip should not be loaded at page load: ${tag}`);
+  }
 });
 
 test('nothing served carries a style attribute the CSP would refuse', async () => {

@@ -119,14 +119,14 @@ app.use(express.json({ limit: '5mb' }));
 // and is not governed by style-src, so dynamic styling still works. What is
 // blocked is a style attribute in parsed markup, including one arriving
 // through innerHTML — which is exactly the injection path worth closing.
-// It also blocks framing, MIME-sniffing, and
-// restricts network/asset origins to what the app actually uses: self, plus
-// the JSZip CDN for the library ZIP export. The Google Fonts allowances that
-// used to be here went stale when the Plaintext theme dropped webfonts — the
-// app loads no external font, so nothing may.
+// It also blocks framing, MIME-sniffing, and restricts every origin to self:
+// JSZip is vendored (public/vendor/) rather than pulled from a CDN, and the
+// Plaintext theme loads no webfont, so the policy names no external host at
+// all. The only remaining outbound origins are images from YouTube's thumbnail
+// CDNs.
 const CSP =
   "default-src 'self'; " +
-  "script-src 'self' https://cdn.jsdelivr.net; " +
+  "script-src 'self'; " +
   "style-src 'self'; " +
   "font-src 'self'; " +
   "img-src 'self' data: https://i.ytimg.com https://img.youtube.com; " +
@@ -212,6 +212,7 @@ function serveCached(path, contentType, text, gzipped) {
 const APP_CSS = readFileSync(join(__dirname, 'public', 'app.css'), 'utf8');
 const APP_JS = readFileSync(join(__dirname, 'public', 'app.js'), 'utf8');
 const THEME_INIT_JS = readFileSync(join(__dirname, 'public', 'theme-init.js'), 'utf8');
+const JSZIP_JS = readFileSync(join(__dirname, 'public', 'vendor', 'jszip.min.js'), 'utf8');
 const CONFIG_JS = buildConfigScript(ECHO_MODE);
 
 serveCached('/', 'text/html; charset=utf-8', CACHED_INDEX_HTML, CACHED_INDEX_GZIP);
@@ -219,6 +220,7 @@ serveCached('/app.css', 'text/css; charset=utf-8', APP_CSS, gzipSync(Buffer.from
 serveCached('/app.js', 'text/javascript; charset=utf-8', APP_JS, gzipSync(Buffer.from(APP_JS, 'utf8'), { level: 9 }));
 serveCached('/theme-init.js', 'text/javascript; charset=utf-8', THEME_INIT_JS, gzipSync(Buffer.from(THEME_INIT_JS, 'utf8'), { level: 9 }));
 serveCached('/echo-config.js', 'text/javascript; charset=utf-8', CONFIG_JS, gzipSync(Buffer.from(CONFIG_JS, 'utf8'), { level: 9 }));
+serveCached('/vendor/jszip.min.js', 'text/javascript; charset=utf-8', JSZIP_JS, gzipSync(Buffer.from(JSZIP_JS, 'utf8'), { level: 9 }));
 
 // ---------------------------------------------------------------------------
 // Response compression (API JSON + markdown export)

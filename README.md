@@ -236,7 +236,8 @@ echo/
 │   ├── index.html    # markup only (~680 lines)
 │   ├── app.css       # the Plaintext theme, fully tokenised
 │   ├── app.js        # the whole client — a classic script, no build step
-│   └── theme-init.js # sets the theme token before first paint
+│   ├── theme-init.js # sets the theme token before first paint
+│   └── vendor/       # JSZip, vendored — no CDN, no external script origin
 ├── package.json
 └── README.md
 ```
@@ -282,7 +283,7 @@ echo/
 - **Whisper transcription** is off by default and local/desktop only. Turn it on in Settings as a **Fallback** (only when captions are missing) or **High-accuracy** (always). It needs `ffmpeg` on your `PATH`, runs entirely on your machine, and takes real time on long videos — a live progress bar shows where it's at, and closing the tab cancels it.
 - Each enrich lookup shows its own **tokens · cost · duration**.
 - **Signing in never moves your API key.** Accounts exist for one reason — a library that follows you between devices. The key stays in your browser's localStorage and is sent per-request; the server stores transcripts and digests, never credentials.
-- Library **export to ZIP** loads JSZip from a CDN; if the CDN is unavailable, the app falls back to a single JSON backup file.
+- Library **export to ZIP** uses a vendored copy of JSZip, fetched on first use rather than on every page load. Nothing on the page comes from a third-party origin, so the export works offline; a JSON backup remains as a fallback.
 - Per-digest stats (tokens, cost, duration) are always shown when available; these are real billing data from your AI provider.
 
 ## 🔖 Send to Echo (bookmarklet)

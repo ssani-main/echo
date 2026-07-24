@@ -3493,6 +3493,37 @@ function showSavedTagInput(videoId, addBtn) {
 }
 
 /* ==============================================
+   JSZIP — vendored, loaded on demand
+   Was a blocking <script> from cdn.jsdelivr.net in <head>. Vendoring it drops
+   the last external origin from the CSP (script-src is now 'self' alone),
+   removes an unpinned third-party script from the page, and makes the ZIP
+   export work offline — which matters for an app whose pitch is that it runs
+   on your own machine. Injecting a <script src> at runtime is fine under the
+   policy: it has a src, so it is not inline.
+=============================================== */
+let jszipPromise = null;
+
+function loadJSZip() {
+  if (window.JSZip) return Promise.resolve(window.JSZip);
+  if (jszipPromise) return jszipPromise;
+
+  jszipPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = '/vendor/jszip.min.js';
+    script.onload = () => resolve(window.JSZip);
+    script.onerror = () => {
+      // Clear the cached promise so a later attempt can retry rather than
+      // inheriting this failure forever.
+      jszipPromise = null;
+      reject(new Error('Could not load the ZIP library.'));
+    };
+    document.head.appendChild(script);
+  });
+
+  return jszipPromise;
+}
+
+/* ==============================================
    SAVED LIBRARY — EXPORT
 =============================================== */
 async function exportSavedLibrary() {
@@ -3511,8 +3542,12 @@ async function exportSavedLibrary() {
     const data    = await res.json();
     const entries = Array.isArray(data.entries) ? data.entries : [];
 
-    if (window.JSZip) {
-      const zip = new window.JSZip();
+    // Loaded here rather than on every page load: it is ~95 KB that the
+    // overwhelming majority of visits never need.
+    const JSZipCtor = await loadJSZip().catch(() => null);
+
+    if (JSZipCtor) {
+      const zip = new JSZipCtor();
 
       for (const entry of entries) {
         const slug = slugify(entry.title || entry.videoId) || entry.videoId;
@@ -3533,7 +3568,8 @@ async function exportSavedLibrary() {
       statusMsg.textContent = `Exported ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} as echo-library.zip.`;
 
     } else {
-      // Graceful fallback: JSON backup when JSZip CDN is unavailable
+      // Graceful fallback: a JSON backup, if the vendored library somehow
+      // fails to load (a broken install rather than, as before, a CDN outage).
       const blob = new Blob([JSON.stringify(data, null, 2)], {
         type: 'application/json;charset=utf-8',
       });
