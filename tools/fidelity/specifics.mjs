@@ -16,12 +16,38 @@
 
 // Numbers, money, percentages, years, times. The robust signal: digits survive
 // even in YouTube's lowercase, unpunctuated auto-captions.
-const NUMERIC_RE = /(?:[$€£¥]\s?\d[\d,.]*|\d[\d,.]*\s?(?:%|percent|dollars?|euros?|pounds?|million|billion|trillion|thousand|k\b|bn\b)|\b\d{4}s?\b|\b\d+(?:[.,]\d+)?\b)/gi;
+//
+// The currency-prefixed alternative also swallows an optional trailing
+// magnitude/percent word (e.g. "$450 billion"), so a digest's "$450 billion"
+// and a transcript's bare "450 billion" normalise to the SAME token instead of
+// silently talking past each other ("$450" vs "450billion").
+//
+// The gap between a number and its magnitude word is `\s*` (zero or more),
+// not `\s?` (zero or one) — a real transcript had "15 \ntrillion" (a caption
+// line-wrap landed a newline right after the ordinary space), which a
+// zero-or-one gap can't bridge. That silently dropped the magnitude word,
+// leaving a bare "15" that could never match the digest's cleanly-formatted
+// "15 trillion". Any run of whitespace between a number and its unit is the
+// same unit, however it happened to wrap.
+const MAGNITUDE_WORD = '(?:%|percent|dollars?|euros?|pounds?|million|billion|trillion|thousand|k\\b|bn\\b)';
+const NUMERIC_RE = new RegExp(
+  `(?:[$€£¥]\\s*\\d[\\d,.]*(?:\\s*${MAGNITUDE_WORD})?|\\d[\\d,.]*\\s*${MAGNITUDE_WORD}|\\b\\d{4}s?\\b|\\b\\d+(?:[.,]\\d+)?\\b)`,
+  'gi'
+);
 
 // Capitalised multi-word or standalone proper nouns. Weaker signal: only
 // meaningful when the source is punctuated and cased (Whisper output is;
 // YouTube auto-captions frequently are not — see readCaseSignal()).
-const PROPER_RE = /\b[A-Z][a-zA-Z0-9'’.-]*(?:\s+[A-Z][a-zA-Z0-9'’.-]*)*\b/g;
+//
+// Deliberately does NOT include '.' in the word-character class. It used to,
+// to allow abbreviations like "U.S." — but that also let the match bridge a
+// real sentence boundary ("...blocked by the Senate. He expects...") into one
+// garbage compound token ("senate.he"), because a trailing sentence period
+// plus the following capitalised word looks identical to an abbreviation
+// period to a regex with no notion of sentences. Losing "U.S." as one token is
+// a smaller cost than every cross-sentence merge being reported as a
+// fabricated specific.
+const PROPER_RE = /\b[A-Z][a-zA-Z0-9'’-]*(?:\s+[A-Z][a-zA-Z0-9'’-]*)*\b/g;
 
 // Words that start sentences or are simply common; capitalisation tells us
 // nothing about them, so they would swamp the proper-noun signal.
@@ -36,12 +62,28 @@ const PROPER_STOPWORDS = new Set([
   'tldr', 'key', 'points', 'summary', 'detailed', 'part', 'echo',
 ]);
 
-/** Normalise a token for comparison: casefold, strip separators and trailing punctuation. */
+/**
+ * Normalise a token for comparison: casefold, strip separators, trailing
+ * punctuation, and currency symbols.
+ *
+ * Currency symbols matter here because they used to survive unstripped, so a
+ * digest's "$270,000" normalised to "$270000" and could never match a
+ * transcript's bare "270,000" (which normalises to "270000") — every
+ * currency figure in a digest was structurally unmatchable, however faithful
+ * it was. Stripping the symbol on both sides is safe precisely because the
+ * two sides are compared as sets of *specifics*, not prose: "$100" and "100"
+ * describe the same quantity once the currency marker is gone, which is what
+ * we want when comparing a digest's rendering against the transcript's.
+ * Distinctness that actually matters (e.g. "$100" vs "100%") is preserved by
+ * the magnitude/percent word staying part of the token — a percent sign is
+ * not a currency symbol, so it is untouched here.
+ */
 export function normalizeToken(token) {
   return String(token || '')
     .toLowerCase()
     .replace(/[’']/g, "'")
     .replace(/[.,;:!?]+$/, '')
+    .replace(/[$€£¥]/g, '')
     .replace(/[\s,]/g, '')
     .trim();
 }
@@ -67,6 +109,49 @@ export function hasCaseSignal(text) {
   return ratio >= 0.01;
 }
 
+// A boundary a new "sentence" can start after: end-of-sentence punctuation,
+// a colon (introduces a clause/list item), or a list/bullet dash.
+const SENTENCE_BOUNDARY_RE = /[.!?:\-+]/;
+
+/**
+ * Is the character at `index` the start of a new sentence, heading or list
+ * item, as best a regex-only tool can tell without real sentence splitting?
+ *
+ * This exists because capitalisation at a sentence/line start carries NO
+ * information — English capitalises the first word of every sentence
+ * regardless of what the word is — so a capitalised "Building", "Skipping" or
+ * "He's" at that position is not evidence of a proper noun, just evidence of
+ * where a sentence began. Digest Markdown makes this worse than ordinary
+ * prose: bold section leads (`**1. Workspace.**`) and bullet items put a
+ * capitalised common word at the start of a huge fraction of lines.
+ *
+ * Walks backward from `index` over whitespace and Markdown decoration
+ * (`*`, `_`, `#`, `>`, `` ` ``) — invisible formatting that doesn't change
+ * what "starts" the sentence underneath it — until it hits a real character.
+ * A newline anywhere in that run always means "yes" (every new line in a
+ * digest is a fresh heading, bullet or paragraph). Otherwise it's "yes" only
+ * if the real character found is sentence/list-boundary punctuation, or there
+ * is no real character at all (start of the whole text).
+ *
+ * @param {string} source
+ * @param {number} index
+ * @returns {boolean}
+ */
+export function isSentenceInitial(source, index) {
+  let i = index;
+  while (i > 0) {
+    const ch = source[i - 1];
+    if (ch === '\n') return true;
+    if (/\s/.test(ch) || '*_#>`'.includes(ch)) {
+      i -= 1;
+      continue;
+    }
+    break;
+  }
+  if (i === 0) return true;
+  return SENTENCE_BOUNDARY_RE.test(source[i - 1]);
+}
+
 /**
  * Pull the concrete specifics out of a piece of text.
  *
@@ -85,8 +170,18 @@ export function extractSpecifics(text) {
   }
 
   const proper = new Set();
-  for (const match of source.match(PROPER_RE) || []) {
-    const norm = normalizeToken(match);
+  for (const match of source.matchAll(PROPER_RE)) {
+    let words = match[0].split(/\s+/);
+    // The leading word of a sentence/line-initial run is capitalised purely
+    // by position, not because it's a proper noun — drop it and keep judging
+    // the rest of the run on its own merits ("When Logan Paul" → "Logan
+    // Paul"; a lone "He's" or "Building" drops to nothing and is skipped).
+    if (isSentenceInitial(source, match.index)) {
+      words = words.slice(1);
+    }
+    if (words.length === 0) continue;
+
+    const norm = normalizeToken(words.join(''));
     if (!norm || norm.length < 3) continue;
     if (PROPER_STOPWORDS.has(norm)) continue;
     proper.add(norm);
