@@ -701,19 +701,6 @@
     </div>
   </div>
 
-  <!-- DIGEST SELECTION ENRICH TOOLBAR (shown when the user selects text inside the AI digest).
-       Verify/Explain/Background results render in place in #enrichToolbarResult below the
-       button row — nothing is persisted; closing the popover discards the result. -->
-  <div id="enrichToolbar" class="hl-popover enrich-toolbar" role="toolbar"
-       aria-label="Look up selected text" hidden>
-    <div class="hl-popover-actions">
-      <button class="mini-btn" id="enrichBtnExplain" aria-label="Explain this passage"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.45.9 1.02.9 1.6H14.6c0-.58.3-1.15.9-1.6A6 6 0 0 0 12 3z"/></svg> Explain</button>
-      <button class="mini-btn" id="enrichBtnBackground" aria-label="Get background on this passage"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h7M9 11h7"/></svg> Background</button>
-    </div>
-    <div class="enrich-toolbar-result" id="enrichToolbarResult" aria-live="polite" hidden></div>
-  </div>
-
-
   <script src="/app.js"></script>
 </body>
 </html>

@@ -142,19 +142,6 @@ for (const [method, path] of GATED_ROUTES) {
 }
 
 
-test('web mode: POST /api/enrich mode:"explain" is not blocked by the factcheck gate (falls through to the normal API-key requirement)', async () => {
-  const res = await fetch(`${webServer.base}/api/enrich`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ selection: 'The sky is blue.', mode: 'explain' }),
-  });
-  // No API key was sent, so this hits requireWebKey rather than succeeding —
-  // the point of this test is that it is NOT rejected as FACTCHECK_DISABLED_IN_WEB.
-  const body = await res.json();
-  assert.notEqual(body.error && body.error.code, 'FACTCHECK_DISABLED_IN_WEB');
-  assert.equal(body.error.code, 'API_NOT_AUTHED');
-});
-
 test('tears down the web-mode server', async () => {
   await webServer.stop();
 });

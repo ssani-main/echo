@@ -48,7 +48,6 @@ You've been there: you find a great video, but you'd rather *read* it than sit t
 | ⏱️ | **Timecoded mode** | Subtitle-editor style with monospace timecode gutter; every timestamp deep-links YouTube (`&t=<sec>s`) |
 | 💾 | **Session restore** | Refreshing the page restores the current transcript, digest, view mode, lens, and Library state via sessionStorage—no re-fetch |
 | 🤖 | **AI Digest** | Switch to the Digest lens for an AI-generated read: **Digest** (synthesized, reorganized by idea), **Article** (full-fidelity rewrite, nothing dropped), or **Bullets** — plus an output-language picker. **Streams as it is written**, so you start reading in about a second instead of waiting for the whole thing. Very long transcripts fall back to map-reduce automatically |
-| 🔎 | **Selection-driven enrich** | Select any passage in the Digest to show an ephemeral floating popover with **Explain** and **Background** — both answered from the transcript context plus Claude's own knowledge. Results render inside the popover; dismiss on click-outside, Esc, or new selection—nothing persists |
 | 🎙️ | **Whisper transcription** | No captions? Local speech-to-text via whisper.cpp fills the gap (**Fallback**), or transcribes everything for accuracy (**High-accuracy**). Off by default; configured in Settings with a `base`/`small` model picker and on-demand download. Local/desktop only, needs `ffmpeg` on `PATH` |
 | 🎧 | **Local audio & video** | Not just YouTube — open a podcast download, a lecture recording or a meeting capture and Echo transcribes it with Whisper, then digests it like anything else. Local/desktop, needs `ffmpeg` |
 | 🧩 | **Browser extension** | A **Read in Echo** button on YouTube watch pages, a toolbar button, and a right-click item for links. See [`extension/`](extension/) |
@@ -75,15 +74,6 @@ Switch to the **Digest** lens and Echo generates it directly. Three formats:
 Pick your output language too (default English). Transcripts past ~120k tokens are chunked, summarized in parallel, and synthesized in a final pass automatically — while that is happening the pane reports which part it is reading, since no digest text exists yet.
 
 The digest **streams**: text appears as the model writes it rather than after the whole call returns. If streaming is unavailable for any reason, Echo silently falls back to the single-response request it used before, so the worst case is the wait you already had.
-
-**Selection-driven lookups on the Digest.** Highlight any passage in a generated Digest and a floating popover appears with two actions:
-
-- **Explain**: A 1–3 sentence explanation — good for jargon or a quick definition.
-- **Background**: 2–4 sentences of wider context around the passage.
-
-Both read the surrounding transcript context plus Claude's own training knowledge. Neither has live web access, so treat anything consequential as a starting point rather than a citation.
-
-Results render **inside the popover** (max-height 320px, scrollable); dismiss with Esc, click-outside, or select new text — nothing persists. Every enrich call shows its **tokens · cost · duration**.
 
 The prompts live in [`digest.js`](./digest.js) — tweak them if you'd rather have a different model, tone, or analysis approach.
 
@@ -255,7 +245,7 @@ echo/
 ├── transcript.js     # video-ID parsing + caption fetch (library → yt-dlp) + error classification
 ├── whisper.js        # local whisper.cpp speech-to-text (local/desktop only)
 ├── whisperModel.js   # Whisper model registry + on-demand download/cache
-├── digest.js         # digest generation (incl. map-reduce), Explain/Background enrich, auto-tagging
+├── digest.js         # digest generation (incl. map-reduce), auto-tagging
 ├── providers.js      # AI provider seam: local `claude` CLI vs Anthropic API (BYOK)
 ├── common/text.js    # shared with the page, the extension AND the plugin — one definition
 ├── auth.js           # Google sign-in + stateless signed-cookie sessions (hosted, optional)
@@ -294,7 +284,6 @@ echo/
 | `GET` | `/api/video-meta` | `?videoId=` | `{ videoId, title, channel, channelUrl }` (oEmbed metadata) |
 | `POST` | `/api/digest` | `{ text, length?, format?, language?, title?, videoId? }` | `{ digest, usage, strategy, suggestedTags }` |
 | `POST` | `/api/digest?stream=1` | _(same body)_ | `text/event-stream` — `phase` / `token` / `done` / `error` events; `done` carries the same payload as above |
-| `POST` | `/api/enrich` | `{ selection, context?, mode }` (`mode`: `explain`\|`background`) | `{ mode, text, sources, usage }` |
 | `GET` | `/api/auth/google` | _(none)_ | redirect into Google sign-in (accounts only) |
 | `GET` | `/api/auth/callback` | `?code=&state=` | completes sign-in, sets the session cookie |
 | `GET` | `/api/auth/me` | _(none)_ | `{ enabled, user }` — who is signed in, if anyone |
@@ -318,11 +307,9 @@ echo/
 
 - When a transcript can't be fetched, Echo tells you **why in plain language** — whether the video is a **scheduled premiere** ("hasn't aired yet"), a **live stream in progress**, **private**, **age-restricted**, **region-blocked**, **removed/unavailable**, or simply **has no captions** — instead of dumping a raw error. The underlying technical detail is one click away under **"Show technical details"**, and for a captionless video (local/desktop) it points you to **Whisper transcription** in Settings.
 - YouTube occasionally shifts its internals; that's exactly what the `yt-dlp` fallback is there to cover.
-- The **AI features** (digest + enrich) need Claude Code installed and logged in (local mode) or an Anthropic API key (web/desktop modes). Without AI, transcript reading, search, and library features work just fine. If a digest can't be generated — CLI not installed or signed in, or an API key/rate-limit issue — Echo shows a clear card explaining what to do (with an **Open Settings** or **Try again** button), not a cryptic error.
+- The **AI digest** needs Claude Code installed and logged in (local mode) or an Anthropic API key (web/desktop modes). Without AI, transcript reading, search, and library features work just fine. If a digest can't be generated — CLI not installed or signed in, or an API key/rate-limit issue — Echo shows a clear card explaining what to do (with an **Open Settings** or **Try again** button), not a cryptic error.
 - Your **saved library** (`data/library.db`) is **gitignored** — it never leaves your machine and doesn't get pushed to any repo (local/desktop modes only; web mode uses client-side IndexedDB).
-- **Explain** and **Background** are both grounded in the surrounding transcript plus Claude's own training knowledge, with **no live web access** — verify anything consequential against other sources.
 - **Whisper transcription** is off by default and local/desktop only. Turn it on in Settings as a **Fallback** (only when captions are missing) or **High-accuracy** (always). It needs `ffmpeg` on your `PATH`, runs entirely on your machine, and takes real time on long videos — a live progress bar shows where it's at, and closing the tab cancels it.
-- Each enrich lookup shows its own **tokens · cost · duration**.
 - **Nothing on the page comes from a third party.** The Content-Security-Policy allows no inline script, no inline style, and no external script or style origin at all (`script-src 'self'; style-src 'self'; font-src 'self'`) — JSZip is vendored, and the theme uses system fonts. The only outbound requests are YouTube thumbnails.
 - **Signing in never moves your API key.** Accounts exist for one reason — a library that follows you between devices. The key stays in your browser's localStorage and is sent per-request; the server stores transcripts and digests, never credentials.
 - Library **export to ZIP** uses a vendored copy of JSZip, fetched on first use rather than on every page load. Nothing on the page comes from a third-party origin, so the export works offline; a JSON backup remains as a fallback.

@@ -28,7 +28,6 @@ import { entryToMarkdown } from './markdown.js';
 import { syncVault } from './vault.js';
 import {
   generateDigest,
-  enrich,
   suggestTags,
 } from './digest.js';
 import {
@@ -1267,36 +1266,6 @@ async function digestStreaming(req, res, { text, length, format, language, title
     stream.end();
   }
 }
-
-// ---------------------------------------------------------------------------
-// Enrich (explain / background a highlighted selection)
-// ---------------------------------------------------------------------------
-
-app.post('/api/enrich', webLimit(20, 60_000), async (req, res) => {
-  const { selection, context, mode, language, videoId } = req.body;
-  if (!requireText(res, selection, 'selection is required.')) return;
-  if (rejectOversizeAiPayload(res, { text: (selection || '') + (context || '') })) return;
-  if (requireWebKey(req, res)) return;
-  const t0 = Date.now();
-  try {
-    const result = await enrich(selection, { context, mode, language, apiKey: readApiKey(req) });
-    logEvent('enrich', {
-      videoId: videoId || null,
-      mode: result.mode || mode,
-      selLen: (selection || '').length,
-      results: result.results,
-      sources: Array.isArray(result.sources) ? result.sources.length : 0,
-      grounded: result.results == null ? undefined : result.results > 0,
-      verdict: result.verdict,
-      costUsd: result.usage && result.usage.costUsd,
-      ok: true, ms: Date.now() - t0,
-    });
-    return res.json(result);
-  } catch (err) {
-    logEvent('enrich', { videoId: videoId || null, mode: mode || 'explain', selLen: (selection || '').length, ok: false, err: errLabel(err), ms: Date.now() - t0 });
-    return sendCaughtError(res, err);
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Key validation (web mode only)
