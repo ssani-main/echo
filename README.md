@@ -111,6 +111,34 @@ npm start
 
 Opens **http://localhost:8000**. The AI features shell out to your locally-installed [Claude Code CLI](https://claude.com/claude-code) — no API key or subscription setup needed, reuses your existing quota. **This is the standard way to run Echo and requires no environment configuration.**
 
+### Public tunnel (Holesail + Janus)
+
+Hosting Echo on a VPS doesn't work: transcript fetches happen server-side, and
+YouTube bot-blocks datacenter IP ranges outright. A machine on a residential
+connection doesn't have that problem, and it can run the local Claude CLI too
+— so instead of deploying, run Echo where you already are and tunnel it out:
+
+```bash
+npm run serve:public
+```
+
+One command starts Echo and opens a [Holesail](https://holesail.io) tunnel
+through [Janus](https://janus.ssani.dev), then prints a public
+`https://0000<key>.janus.ssani.dev/` URL. The URL is **stable across
+restarts** — the underlying key is derived from a seed persisted at
+`.holesail-seed` in the repo root (generated on first run, gitignored, mode
+`0600`). That file **is a secret**: it's the serving capability for the
+tunnel, not a cosmetic id — don't share it, don't commit it. Pass `--attach`
+(or set `ECHO_HOLESAIL_ATTACH=1`) to tunnel an Echo you've already started
+instead of spawning a new one.
+
+⚠️ **This makes Echo reachable by anyone with the link.** In `local` mode
+(the default) that means anyone with the URL can spend your Claude CLI quota
+and read/write your whole library — there's no BYOK gate and no auth. Either
+set a per-key password on the tunnel in the Janus admin dashboard, or run
+with `ECHO_MODE=web` first (visitors bring their own Anthropic key, and the
+server-side library routes are disabled).
+
 ### Hosted web (BYOK — Bring Your Own Key)
 
 ```bash

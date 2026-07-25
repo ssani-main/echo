@@ -38,3 +38,8 @@ data/
 
 # Private working notes — kept out of the public repo
 docs/memory/
+
+# Holesail tunnel seed (tools/holesail-serve.mjs) — this IS the serving
+# capability for the public URL it derives, not a cosmetic id. Treat it like
+# an API key.
+.holesail-seed
