@@ -295,6 +295,65 @@ async function transcribeWav(wavPath, ctx, opts) {
   return segments;
 }
 
+// A refusal YouTube hands out under load and withdraws moments later, versus a
+// fact about the video. Only the former is worth retrying: retrying a private
+// or members-only video just makes the user wait three times as long for the
+// same answer.
+const TRANSIENT_DOWNLOAD_PATTERNS = [
+  /HTTP Error 403/i,
+  /HTTP Error 429/i,
+  /HTTP Error 5\d\d/i,
+  /\bthrottl/i,
+  /temporar(y|ily)/i,
+  /connection reset|timed out|network|ECONNRESET|ETIMEDOUT/i,
+  /Unable to download (webpage|API page|video data)/i,
+];
+
+/** Is this yt-dlp failure the kind that tends to succeed on a second ask? */
+export function isTransientDownloadFailure(err) {
+  if (!err) return false;
+  if (err.name === 'AbortError' || err.code === 'ABORT_ERR') return false; // the user left
+  if (err.killed || err.signal === 'SIGTERM') return false;                // our own timeout
+  const blob = `${err.stderr || ''} ${err.message || ''}`;
+  return TRANSIENT_DOWNLOAD_PATTERNS.some((p) => p.test(blob));
+}
+
+export const DEFAULT_DOWNLOAD_RETRY_DELAYS_MS = [800, 2400];
+
+/**
+ * Run the audio download, retrying only transient refusals. Mirrors the caption
+ * path's fetchWithRetry so both halves of the transcript pipeline survive the
+ * same weather.
+ */
+export async function withDownloadRetry(run, opts = {}, onRetry = null) {
+  const delays = opts.downloadRetryDelaysMs !== undefined
+    ? opts.downloadRetryDelaysMs
+    : DEFAULT_DOWNLOAD_RETRY_DELAYS_MS;
+  let lastErr;
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      return await run();
+    } catch (err) {
+      lastErr = err;
+      const canRetry = attempt < delays.length && isTransientDownloadFailure(err);
+      if (!canRetry) break;
+      if (onRetry) { try { onRetry(0); } catch { /* progress is best-effort */ } }
+      await new Promise((r) => setTimeout(r, delays[attempt]));
+    }
+  }
+  // Out of attempts. If it was transient the whole way, say so — "could not
+  // transcribe this video" reads as a fact about the video and stops the user
+  // trying again, which is exactly the wrong conclusion here.
+  if (isTransientDownloadFailure(lastErr)) {
+    const e = new Error('YouTube refused the audio download.');
+    e.echoCode = 'AUDIO_DOWNLOAD_REFUSED';
+    e.hint = 'YouTube throttles audio downloads under load. This is usually temporary — try again in a minute.';
+    e.detail = lastErr.stderr || lastErr.message || '';
+    throw e;
+  }
+  throw lastErr;
+}
+
 async function runWhisperPipeline(videoId, opts) {
   const { binPath, modelPath } = requireWhisper(opts);
   const ytdlp = opts.ytDlpPath || process.env.ECHO_YTDLP || 'yt-dlp';
@@ -340,7 +399,7 @@ async function runWhisperPipeline(videoId, opts) {
     dlArgs.push(videoUrl);
     reportProgress(opts, 'download', 0);
     let lastDl = -1;
-    await runStreaming(ytdlp, dlArgs, {
+    const runDownload = () => runStreaming(ytdlp, dlArgs, {
       signal, timeoutMs: 5 * 60_000,
       onStderr: (chunk) => {
         const ms = chunk.match(/\[download\]\s+([\d.]+)%/g);
@@ -348,6 +407,14 @@ async function runWhisperPipeline(videoId, opts) {
         const pct = Math.min(99, Math.floor(parseFloat(/([\d.]+)%/.exec(ms[ms.length - 1])[1])));
         if (pct > lastDl) { lastDl = pct; reportProgress(opts, 'download', pct); }
       },
+    });
+    // The caption path has retried since day one; this one never did, so a
+    // single transient refusal threw away an already-resolved binary and model.
+    // Observed in practice: YouTube 403'd this exact format, and the identical
+    // yt-dlp command succeeded seconds later.
+    await withDownloadRetry(runDownload, opts, (pct) => {
+      lastDl = -1;
+      reportProgress(opts, 'download', pct);
     });
     reportProgress(opts, 'download', 100);
 

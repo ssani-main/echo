@@ -389,6 +389,10 @@ const ECHO_ERROR_STATUS = {
   // ffmpeg ran and could not decode the file. 422, not 500: the request is
   // well-formed but its payload is unusable, and the fix is the user's.
   MEDIA_UNREADABLE:       422,
+  // YouTube refused the audio download after retries. 503 + Retry-After
+  // semantics: nothing is wrong with the request or the video, the upstream is
+  // just saying not now.
+  AUDIO_DOWNLOAD_REFUSED: 503,
   WHISPER_MISSING:        503,
   WHISPER_MODEL_MISSING:  503,
   WHISPER_FAILED:         502,

@@ -7,6 +7,9 @@ import {
   resolveWhisper,
   mapWhisperJson,
   mapWhisperError,
+  isTransientDownloadFailure,
+  DEFAULT_DOWNLOAD_RETRY_DELAYS_MS,
+  withDownloadRetry,
 } from '../whisper.js';
 import { fetchTranscript } from '../transcript.js';
 
@@ -338,4 +341,102 @@ test('fetchTranscript: transcribe "fallback" with no whisper resolved never call
     (err) => err.echoCode === 'TRANSCRIPT_UNAVAILABLE'
   );
   assert.equal(transcriberCalled, false);
+});
+
+// ---------------------------------------------------------------------------
+// Audio-download retry + 403 classification.
+//
+// The caption path has retried since day one; the Whisper audio download never
+// did. A single transient refusal threw the whole run away *after* the binary
+// and model had already been resolved, and reported "Could not transcribe this
+// video" — which reads as a fact about the video and stops the user retrying.
+// Observed live: YouTube 403'd format 139, and the identical yt-dlp command
+// succeeded from a shell seconds later.
+// ---------------------------------------------------------------------------
+
+const ytdlpFail = (stderr) => Object.assign(new Error(`yt-dlp exited with code 1: ${stderr}`), { stderr, exitCode: 1 });
+
+test('isTransientDownloadFailure: a 403 is transient', () => {
+  assert.equal(isTransientDownloadFailure(ytdlpFail('ERROR: unable to download video data: HTTP Error 403: Forbidden')), true);
+});
+
+test('isTransientDownloadFailure: 429 and 5xx are transient', () => {
+  assert.equal(isTransientDownloadFailure(ytdlpFail('HTTP Error 429: Too Many Requests')), true);
+  assert.equal(isTransientDownloadFailure(ytdlpFail('HTTP Error 503: Service Unavailable')), true);
+});
+
+// Retrying these just makes the user wait three times as long for the same no.
+test('isTransientDownloadFailure: a fact about the video is NOT transient', () => {
+  assert.equal(isTransientDownloadFailure(ytdlpFail('ERROR: Private video. Sign in if you have been granted access.')), false);
+  assert.equal(isTransientDownloadFailure(ytdlpFail('ERROR: Video unavailable')), false);
+  assert.equal(isTransientDownloadFailure(ytdlpFail('ERROR: Join this channel to get access to members-only content')), false);
+});
+
+// A cancelled request and a timeout we imposed are both "stop", not "try again".
+test('isTransientDownloadFailure: aborts and our own timeouts are not retried', () => {
+  assert.equal(isTransientDownloadFailure(Object.assign(new Error('aborted'), { name: 'AbortError' })), false);
+  assert.equal(isTransientDownloadFailure(Object.assign(new Error('x'), { code: 'ABORT_ERR' })), false);
+  assert.equal(isTransientDownloadFailure(Object.assign(new Error('timed out'), { killed: true, signal: 'SIGTERM' })), false);
+});
+
+test('isTransientDownloadFailure: null/undefined are not transient', () => {
+  assert.equal(isTransientDownloadFailure(null), false);
+  assert.equal(isTransientDownloadFailure(undefined), false);
+});
+
+test('the default gives two retries, so three attempts in total', () => {
+  assert.equal(DEFAULT_DOWNLOAD_RETRY_DELAYS_MS.length, 2);
+  assert.ok(DEFAULT_DOWNLOAD_RETRY_DELAYS_MS.every((d) => Number.isFinite(d) && d > 0));
+});
+
+// The whole point, tested for real against the retry helper itself.
+test('a 403 that clears on the second attempt is invisible to the caller', async () => {
+  let attempts = 0;
+  const result = await withDownloadRetry(async () => {
+    attempts++;
+    if (attempts === 1) throw ytdlpFail('HTTP Error 403: Forbidden');
+    return 'downloaded';
+  }, { downloadRetryDelaysMs: [1, 1] });
+  assert.equal(result, 'downloaded');
+  assert.equal(attempts, 2, 'should have retried exactly once');
+});
+
+test('a 403 that never clears becomes AUDIO_DOWNLOAD_REFUSED, not WHISPER_FAILED', async () => {
+  let attempts = 0;
+  await assert.rejects(
+    () => withDownloadRetry(async () => {
+      attempts++;
+      throw ytdlpFail('ERROR: unable to download video data: HTTP Error 403: Forbidden');
+    }, { downloadRetryDelaysMs: [1, 1] }),
+    (err) => {
+      assert.equal(err.echoCode, 'AUDIO_DOWNLOAD_REFUSED');
+      assert.match(err.hint, /temporar|try again/i);
+      assert.match(err.detail, /403/);
+      return true;
+    }
+  );
+  assert.equal(attempts, 3, 'two delays means three attempts');
+});
+
+// Retrying a private video just makes the user wait three times as long.
+test('a permanent failure is not retried and keeps its original error', async () => {
+  let attempts = 0;
+  await assert.rejects(
+    () => withDownloadRetry(async () => {
+      attempts++;
+      throw ytdlpFail('ERROR: Private video. Sign in if you have been granted access.');
+    }, { downloadRetryDelaysMs: [1, 1] }),
+    (err) => err.echoCode === undefined && /Private video/.test(err.stderr)
+  );
+  assert.equal(attempts, 1, 'must not retry a fact about the video');
+});
+
+test('passing [] disables retries entirely', async () => {
+  let attempts = 0;
+  await assert.rejects(
+    () => withDownloadRetry(async () => { attempts++; throw ytdlpFail('HTTP Error 403: Forbidden'); },
+      { downloadRetryDelaysMs: [] }),
+    (err) => err.echoCode === 'AUDIO_DOWNLOAD_REFUSED'
+  );
+  assert.equal(attempts, 1);
 });
