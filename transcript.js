@@ -464,6 +464,10 @@ function whisperFailureHeadline(code) {
     case 'FFMPEG_MISSING':  return 'Automatic transcription needs ffmpeg';
     case 'WHISPER_MISSING': return "Whisper transcription isn't set up";
     case 'WHISPER_TIMEOUT': return 'Whisper transcription timed out';
+    // Not a fact about the video, so it must not read like one: in `fallback`
+    // mode this is the headline the user sees, and "couldn't transcribe this
+    // video" would tell them to give up on something that works on a retry.
+    case 'AUDIO_DOWNLOAD_REFUSED': return 'YouTube refused the audio download';
     default:                return "Whisper couldn't transcribe this video";
   }
 }

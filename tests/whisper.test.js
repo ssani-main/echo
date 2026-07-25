@@ -440,3 +440,30 @@ test('passing [] disables retries entirely', async () => {
   );
   assert.equal(attempts, 1);
 });
+
+// In `fallback` mode transcript.js rewrites the headline, so the retry fix has
+// to survive that path too — otherwise a transient refusal still reads as
+// "Whisper couldn't transcribe this video" and the user gives up.
+test('fetchTranscript: a refused audio download keeps a retryable headline in fallback mode', async () => {
+  const refused = Object.assign(new Error('YouTube refused the audio download.'), {
+    echoCode: 'AUDIO_DOWNLOAD_REFUSED',
+    hint: 'YouTube throttles audio downloads under load. This is usually temporary — try again in a minute.',
+  });
+  await assert.rejects(
+    () => fetchTranscript('vidRefused', {
+      transcribe: 'fallback',
+      primaryFetcher: async () => { throw new Error('Transcript is disabled on this video'); },
+      captionFallback: async () => { throw Object.assign(new Error('no subs'), { code: 'ENOENT', syscall: 'open' }); },
+      whisperResolver: () => ({}),
+      transcriber: async () => { throw refused; },
+      retryDelaysMs: [],
+    }),
+    (err) => {
+      assert.equal(err.reason, 'whisper_failed');
+      assert.match(err.message, /refused the audio download/i);
+      assert.doesNotMatch(err.message, /couldn't transcribe this video/i);
+      assert.match(err.hint, /temporar|try again/i);
+      return true;
+    }
+  );
+});
