@@ -26,5 +26,15 @@ tmp/
 # Personal library (saved transcripts)
 data/
 
+# SQLite libraries wherever they land, not just under data/. ECHO_DB_PATH can
+# point anywhere, and a stray one was committed to the repo root once already
+# (an empty `x`, removed in 8fbd6de). A real one holds every saved video, its
+# transcript and its digest — that must never reach a public remote.
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
 # Private working notes — kept out of the public repo
 docs/memory/
