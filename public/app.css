@@ -224,13 +224,19 @@ body.printing-digest::after { display: none; }
   margin: 0 auto;
 }
 
-/* Top chrome — brand header, tagline, command bar, status line and the
-   next-action nudge stay pinned to a fixed comfortable width regardless
-   of how wide the page wrapper or the reading column get. Centered on
-   the same axis as .container so nothing shifts left/right when the
-   Narrow/Medium/Wide reading control changes. */
+/* Top chrome — brand header, tagline, command bar, the local-file row, status
+   line and the next-action nudge stay pinned to a fixed comfortable width
+   regardless of how wide the page wrapper or the reading column get. Centered
+   on the same axis as .container so nothing shifts left/right when the
+   Narrow/Medium/Wide reading control changes.
+
+   Anything added between the header and the status line belongs in this list.
+   A sibling left out of it silently stretches to --col-max instead and hangs
+   (--col-max - --chrome-max) / 2 = 120px outside the column — which is what
+   .local-file-row did from the day it was added until it was enrolled here. */
 .site-header,
 .command-bar,
+.local-file-row,
 #status,
 .next-action-nudge {
   max-width: var(--chrome-max);
@@ -1738,9 +1744,12 @@ body.has-transcript .hero-landing {
     padding: var(--space-12) var(--space-9) var(--space-15);
   }
 
-  .command-bar {
-    flex-direction: column;
-  }
+  /* No .command-bar { flex-direction: column } here on purpose. It was right
+     when the bar held the input *and* a "Get transcript" button — two things
+     worth stacking on a phone. The button is gone (the field loads on paste),
+     so all stacking did was push a decorative 18px glyph onto its own centred
+     line and shrink the input to about half the bar's width. The row is the
+     correct layout at every size now. */
 
   #output,
   #digestOutput {
