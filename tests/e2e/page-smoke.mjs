@@ -305,6 +305,41 @@ try {
   `);
   check('[hidden] holds in every pane the user can open', paneLeaks.length === 0, paneLeaks.join(', '));
 
+  // The landing page is not the layout users spend their time in. Once a
+  // transcript loads, body.has-transcript hides the hero and reveals the
+  // content header and lens tabs — a different stack, and one where the
+  // local-file row misalignment was first spotted by eye. Simulated rather
+  // than fetched: CI has no network, and this asserts the CSS, not the fetch.
+  console.log('\nloaded state (has-transcript)');
+  const loaded = await evaluate(`
+    (() => {
+      document.body.classList.add('has-transcript');
+      for (const sel of ['#localFileRow', '#status', '.content-header', '.tab-bar']) {
+        const el = document.querySelector(sel);
+        if (el) { el.hidden = false; if (!el.textContent.trim()) el.textContent = '\\u200b'; }
+      }
+      const group = ['.command-bar', '#localFileRow', '#status', '.content-header', '.tab-bar'];
+      const boxes = {};
+      for (const sel of group) {
+        const el = document.querySelector(sel);
+        if (!el) { boxes[sel] = null; continue; }
+        const b = el.getBoundingClientRect();
+        boxes[sel] = { left: Math.round(b.left), width: Math.round(b.width) };
+      }
+      const hero = document.querySelector('.hero-landing');
+      return {
+        boxes,
+        heroHidden: hero ? getComputedStyle(hero).display === 'none' : null,
+        scrollWidth: document.documentElement.scrollWidth,
+        innerWidth: window.innerWidth,
+      };
+    })()
+  `);
+  check('loaded: the hero gives way to the reader', loaded.heroHidden === true);
+  assertColumn('loaded', loaded.boxes);
+  check('loaded: no horizontal overflow', loaded.scrollWidth <= loaded.innerWidth + 1,
+    `scrollWidth ${loaded.scrollWidth} > innerWidth ${loaded.innerWidth}`);
+
   check('no uncaught JS errors', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
   check('no failed requests on the landing page', badResponses.length === 0, badResponses.slice(0, 3).join(' | '));
 

@@ -3020,6 +3020,16 @@ kbd {
   transition: color var(--dur-fast), border-color var(--dur-fast);
 }
 
+/* [hidden] guard, completing the sweep that found .local-file-row and
+   .action-row. Inert today — the markup ships the gear hidden and app.js
+   reveals it unconditionally on load, so nothing currently depends on the
+   attribute working. It is here so that the day someone hides the gear for a
+   mode, it hides: `display: inline-flex` above would otherwise beat the UA
+   [hidden] rule and the change would silently do nothing. */
+.settings-toggle[hidden] {
+  display: none;
+}
+
 .settings-toggle:hover {
   color: var(--ink);
   border-color: var(--accent);
