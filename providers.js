@@ -34,11 +34,11 @@ const PRICING = {
 export const ClaudeCliProvider = {
   /**
    * @param {string} prompt
-   * @param {{ timeoutMs?: number }} [opts]
+   * @param {{ timeoutMs?: number, signal?: AbortSignal }} [opts]
    * @returns {Promise<{ result: string, usage: object }>}
    */
   async call(prompt, opts = {}) {
-    return runClaude(prompt, { timeoutMs: opts.timeoutMs });
+    return runClaude(prompt, { timeoutMs: opts.timeoutMs, signal: opts.signal });
   },
 
   /**
@@ -46,12 +46,12 @@ export const ClaudeCliProvider = {
    * the identical { result, usage } the buffered call produces.
    *
    * @param {string} prompt
-   * @param {{ timeoutMs?: number }} opts
+   * @param {{ timeoutMs?: number, signal?: AbortSignal }} opts
    * @param {(text: string) => void} onToken
    * @returns {Promise<{ result: string, usage: object }>}
    */
   async stream(prompt, opts = {}, onToken) {
-    return runClaudeStream(prompt, { timeoutMs: opts.timeoutMs }, onToken);
+    return runClaudeStream(prompt, { timeoutMs: opts.timeoutMs, signal: opts.signal }, onToken);
   },
 };
 
@@ -60,10 +60,24 @@ export const ClaudeCliProvider = {
  * shape produced by the CLI error path in digest.js, so downstream error
  * handling in server.js works unchanged regardless of provider.
  *
+ * A user-cancelled request (opts.signal aborted) must NOT come out as
+ * API_FAILED — that pairs with a "Try again" button in the error card, which
+ * is exactly wrong for something the user asked to stop. The SDK's own abort
+ * error (`Anthropic.APIUserAbortError`) is passed through unmapped, renamed
+ * to the same AbortError shape digest.js's CLI path produces, so both
+ * providers cancel identically from the caller's point of view.
+ *
  * @param {Error & { status?: number, name?: string }} err
  * @returns {Error}
  */
 function mapAnthropicError(err) {
+  if (err instanceof Anthropic.APIUserAbortError || err?.name === 'AbortError') {
+    const e = new Error('Digest generation was cancelled.');
+    e.name = 'AbortError';
+    e.code = 'ABORT_ERR';
+    return e;
+  }
+
   const status = err && err.status;
 
   if (status === 401 || err.name === 'AuthenticationError') {
@@ -129,7 +143,7 @@ function usageFromApiResponse(response, pricing, durationMs) {
 export const ApiKeyProvider = {
   /**
    * @param {string} prompt
-   * @param {{ apiKey?: string, model?: 'sonnet'|'opus' }} [opts]
+   * @param {{ apiKey?: string, model?: 'sonnet'|'opus', signal?: AbortSignal }} [opts]
    * @returns {Promise<{ result: string, usage: object }>}
    */
   async call(prompt, opts = {}) {
@@ -156,12 +170,15 @@ export const ApiKeyProvider = {
     const start = Date.now();
     let response;
     try {
-      response = await client.messages.create({
-        model: pricing.model,
-        max_tokens: 16000,
-        thinking: { type: 'disabled' },
-        messages: [{ role: 'user', content }],
-      });
+      response = await client.messages.create(
+        {
+          model: pricing.model,
+          max_tokens: 16000,
+          thinking: { type: 'disabled' },
+          messages: [{ role: 'user', content }],
+        },
+        { signal: opts.signal }
+      );
     } catch (err) {
       throw mapAnthropicError(err);
     }
@@ -185,7 +202,7 @@ export const ApiKeyProvider = {
    * available on the final message anyway.
    *
    * @param {string} prompt
-   * @param {{ apiKey?: string, model?: 'sonnet'|'opus' }} opts
+   * @param {{ apiKey?: string, model?: 'sonnet'|'opus', signal?: AbortSignal }} opts
    * @param {(text: string) => void} onToken
    * @returns {Promise<{ result: string, usage: object }>}
    */
@@ -211,12 +228,15 @@ export const ApiKeyProvider = {
     const start = Date.now();
     let final;
     try {
-      const streamed = client.messages.stream({
-        model: pricing.model,
-        max_tokens: 16000,
-        thinking: { type: 'disabled' },
-        messages: [{ role: 'user', content: prompt }],
-      });
+      const streamed = client.messages.stream(
+        {
+          model: pricing.model,
+          max_tokens: 16000,
+          thinking: { type: 'disabled' },
+          messages: [{ role: 'user', content: prompt }],
+        },
+        { signal: opts.signal }
+      );
       streamed.on('text', (text) => {
         if (typeof onToken === 'function' && text) onToken(text);
       });

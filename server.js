@@ -1068,10 +1068,10 @@ function withTimeout(promise, ms) {
   });
 }
 
-async function suggestTagsBestEffort(text, { apiKey, language, videoId } = {}) {
+async function suggestTagsBestEffort(text, { apiKey, language, videoId, signal } = {}) {
   const t0 = Date.now();
   try {
-    const result = await withTimeout(suggestTags(text, { apiKey, language }), AUTO_TAG_TIMEOUT_MS);
+    const result = await withTimeout(suggestTags(text, { apiKey, language, signal }), AUTO_TAG_TIMEOUT_MS);
     logEvent('tags-suggest', {
       videoId: videoId || null,
       chars: (text || '').length,
@@ -1141,15 +1141,30 @@ app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
   if (rejectOversizeAiPayload(res, { text })) return;
   if (requireWebKey(req, res)) return;
 
+  // Cancel the digest (and its best-effort auto-tagging sibling — it spends
+  // real tokens too) if the client goes away, e.g. the user hits Stop or
+  // closes the tab mid-digest. Without this the `claude` spawn / Anthropic
+  // API call keeps running to completion server-side for nobody.
+  // NB: listen on `res`, not `req` — see the /api/transcript comment for why
+  // (req 'close' fires as soon as the POST body is consumed).
+  const ac = new AbortController();
+  let clientGone = false;
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      clientGone = true;
+      ac.abort();
+    }
+  });
+
   const wantsStream = req.query.stream === '1' || req.query.stream === 'true';
-  if (wantsStream) return digestStreaming(req, res, { text, length, format, language, title, videoId });
+  if (wantsStream) return digestStreaming(req, res, { text, length, format, language, title, videoId, signal: ac.signal });
 
   const t0 = Date.now();
   const apiKey = readApiKey(req);
   try {
     const [result, suggestedTags] = await Promise.all([
-      generateDigest(text, { length, format, language, title, apiKey }),
-      suggestTagsBestEffort(text, { apiKey, language, videoId }),
+      generateDigest(text, { length, format, language, title, apiKey, signal: ac.signal }),
+      suggestTagsBestEffort(text, { apiKey, language, videoId, signal: ac.signal }),
     ]);
     logEvent('digest', {
       videoId: videoId || null,
@@ -1164,6 +1179,12 @@ app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
     });
     return res.json({ ...result, suggestedTags });
   } catch (err) {
+    // Client already disconnected — the abort we triggered surfaces here; there
+    // is no live response to write to, so just record it and stop.
+    if (clientGone) {
+      logEvent('digest', { videoId: videoId || null, chars: (text || '').length, length, format, ok: false, err: 'client_aborted', ms: Date.now() - t0 });
+      return;
+    }
     logEvent('digest', { videoId: videoId || null, chars: (text || '').length, length, format, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);
   }
@@ -1176,8 +1197,15 @@ app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
  * best-effort tagging, same usage log — and differs only in delivery. The
  * `done` event carries the identical payload, so a client can treat streaming
  * as a progressive rendering of a response it already knows how to handle.
+ *
+ * `signal` is the caller's AbortController.signal, wired to `res.on('close')`
+ * one level up (so it fires on Stop / tab-close / navigation exactly like the
+ * JSON path). Cancellation is detected here via `!stream.open` rather than a
+ * separate flag: openDigestStream() already tracks its own `res` 'close'
+ * listener for that, and stream.send()/stream.end() are no-ops once closed —
+ * so an abort mid-stream can never attempt to write to the dead socket.
  */
-async function digestStreaming(req, res, { text, length, format, language, title, videoId }) {
+async function digestStreaming(req, res, { text, length, format, language, title, videoId, signal }) {
   const t0 = Date.now();
   const apiKey = readApiKey(req);
   const stream = openDigestStream(res);
@@ -1185,11 +1213,11 @@ async function digestStreaming(req, res, { text, length, format, language, title
   try {
     const [result, suggestedTags] = await Promise.all([
       generateDigest(text, {
-        length, format, language, title, apiKey,
+        length, format, language, title, apiKey, signal,
         onToken: (chunk) => stream.send('token', { text: chunk }),
         onPhase: (info) => stream.send('phase', info),
       }),
-      suggestTagsBestEffort(text, { apiKey, language, videoId }),
+      suggestTagsBestEffort(text, { apiKey, language, videoId, signal }),
     ]);
 
     logEvent('digest', {
@@ -1208,6 +1236,17 @@ async function digestStreaming(req, res, { text, length, format, language, title
     stream.send('done', { ...result, suggestedTags });
     stream.end();
   } catch (err) {
+    // Client already disconnected — the abort we triggered surfaces here as
+    // the rejection; there is no live SSE connection to send an `error` event
+    // to (stream.send()/end() would already be no-ops), so just record it.
+    if (!stream.open) {
+      logEvent('digest', {
+        videoId: videoId || null, chars: (text || '').length, length, format,
+        streamed: true, ok: false, err: 'client_aborted', ms: Date.now() - t0,
+      });
+      return;
+    }
+
     logEvent('digest', {
       videoId: videoId || null, chars: (text || '').length, length, format,
       streamed: true, ok: false, err: errLabel(err), ms: Date.now() - t0,

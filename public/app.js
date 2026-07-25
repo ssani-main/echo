@@ -961,6 +961,7 @@ const findNextBtn           = document.getElementById('findNextBtn');
 // Summary panel controls
 const digestRegenBtn  = document.getElementById('digestRegenBtn');
 const digestLangInput = document.getElementById('digestLangInput');
+const digestStopBtn   = document.getElementById('digestStopBtn');
 
 /* ==============================================
    TAB SWITCHING
@@ -3078,6 +3079,11 @@ function getTranscriptText() {
 =============================================== */
 const DIGEST_LONG_PATH_THRESHOLD_CHARS = 480_000;
 let digestTimerHandle = null;
+// The AbortController for the digest currently in flight, if any — set at the
+// top of runDigest() and cleared in its `finally`. Module-level (not local to
+// runDigest) so the Stop button's click handler, which lives outside that
+// function, can reach it.
+let digestAbortController = null;
 let digestTimerStartMs = null;
 
 function formatElapsedMs(ms) {
@@ -3132,8 +3138,16 @@ function stopDigestTimer() {
  * as a payload with an `error` key, which the caller renders through the
  * classified error card — retrying it as a JSON request would just spend a
  * second AI call to be told the same thing.
+ *
+ * Nor is a user-initiated cancel (`signal` aborted) — that must NOT fall back
+ * to the buffered retry, since that would exactly undo the cancel. An abort is
+ * rethrown rather than swallowed into `null`, and the caller must check for it
+ * before treating a null return as "retry unstreamed".
+ *
+ * @param {object} body
+ * @param {AbortSignal} [signal]
  */
-async function streamDigest(body) {
+async function streamDigest(body, signal) {
   let res;
   try {
     const headers = { 'Content-Type': 'application/json', Accept: 'text/event-stream' };
@@ -3141,8 +3155,9 @@ async function streamDigest(body) {
       const k = getApiKey();
       if (k) headers['X-Echo-Api-Key'] = k;
     }
-    res = await fetch('/api/digest?stream=1', { method: 'POST', headers, body: JSON.stringify(body) });
-  } catch {
+    res = await fetch('/api/digest?stream=1', { method: 'POST', headers, body: JSON.stringify(body), signal });
+  } catch (err) {
+    if (err && err.name === 'AbortError') throw err; // user cancel — do not retry unstreamed
     return null; // network-level failure: let the caller retry unstreamed
   }
 
@@ -3221,6 +3236,7 @@ async function streamDigest(body) {
       }
     }
   } catch (err) {
+    if (err && err.name === 'AbortError') throw err; // user cancel — do not retry unstreamed
     console.error('[echo] digest stream broke mid-flight:', err);
     // Text may already be on screen. If the stream died before `done`, treat
     // it as unusable and let the caller re-run it buffered.
@@ -3230,13 +3246,48 @@ async function streamDigest(body) {
   return finalPayload;
 }
 
+/**
+ * In-app replacement for confirm() when Regenerate is clicked while a digest
+ * already exists. Shows the inline #digestReplaceConfirm row (see index.html
+ * for why a native modal was dropped in favour of this now that a run is
+ * cancellable) and resolves once the user picks Replace/Cancel or presses
+ * Escape. Fails open (resolves true) if the row isn't in the DOM, so a markup
+ * problem can never silently block digesting.
+ * @returns {Promise<boolean>}
+ */
+function confirmReplaceDigest() {
+  return new Promise(resolve => {
+    const row = document.getElementById('digestReplaceConfirm');
+    const yesBtn = document.getElementById('digestReplaceConfirmYes');
+    const noBtn  = document.getElementById('digestReplaceConfirmNo');
+    if (!row || !yesBtn || !noBtn) { resolve(true); return; }
+
+    const cleanup = (result) => {
+      row.hidden = true;
+      yesBtn.removeEventListener('click', onYes);
+      noBtn.removeEventListener('click', onNo);
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    };
+    const onYes = () => cleanup(true);
+    const onNo  = () => cleanup(false);
+    const onKey = (e) => { if (e.key === 'Escape') cleanup(false); };
+
+    row.hidden = false;
+    yesBtn.addEventListener('click', onYes);
+    noBtn.addEventListener('click', onNo);
+    document.addEventListener('keydown', onKey);
+    noBtn.focus(); // Cancel is the safe default if Enter is pressed
+  });
+}
+
 async function runDigest() {
   if (!lastSegments || lastSegments.length === 0) return;
   if (!requireApiKey()) return;
 
   // If a digest is already displayed, confirm before spending another AI call.
   if (currentDigest) {
-    const proceed = confirm('Replace the current digest? This runs a new AI call.');
+    const proceed = await confirmReplaceDigest();
     if (!proceed) return;
   }
 
@@ -3270,9 +3321,15 @@ async function runDigest() {
     videoId: (currentMeta && currentMeta.videoId) || undefined,
   };
 
+  // Own AbortController per run, reachable from the Stop button's click
+  // handler via the module-level digestAbortController.
+  const controller = new AbortController();
+  digestAbortController = controller;
+  digestStopBtn.hidden = false;
+
   try {
-    const streamed = await streamDigest(body);
-    const data = streamed || await (await aiFetch('/api/digest', body)).json();
+    const streamed = await streamDigest(body, controller.signal);
+    const data = streamed || await (await aiFetch('/api/digest', body, { signal: controller.signal })).json();
 
     if (data && data.error) {
       stopDigestTimer();
@@ -3312,6 +3369,19 @@ async function runDigest() {
     saveSession();
 
   } catch (err) {
+    if (err && err.name === 'AbortError') {
+      // User-initiated cancel (Stop button, tab close, navigation) — not a
+      // failure. Must NOT render the error card and must NOT fall back to the
+      // buffered retry, either of which would be exactly wrong for something
+      // the user asked to stop.
+      stopDigestTimer();
+      digestOutput.classList.remove('visible');
+      digestOutput.innerHTML = '';
+      digestEmptySt.classList.remove('is-hidden');
+      setDigestStatus('Digest cancelled.', false);
+      setTopIndicator('idle');
+      return;
+    }
     console.error('[echo] runDigest network error:', err);
     stopDigestTimer();
     setDigestStatus('Network error — could not reach the server.', true);
@@ -3322,8 +3392,14 @@ async function runDigest() {
     stopDigestTimer(); // safety net — idempotent, in case a branch above missed it
     digestBtn.disabled      = false;
     digestRegenBtn.disabled = false;
+    digestStopBtn.hidden    = true;
+    if (digestAbortController === controller) digestAbortController = null;
   }
 }
+
+digestStopBtn.addEventListener('click', () => {
+  if (digestAbortController) digestAbortController.abort();
+});
 
 digestBtn.addEventListener('click', runDigest);
 digestRegenBtn.addEventListener('click', runDigest);
@@ -3347,11 +3423,30 @@ function syncFidelityNote() {
   note.textContent = DIGEST_FIDELITY_NOTES[format] || '';
 }
 
-// Sync active-class + the explanatory note for digest option segments on change
+const DIGEST_FORMAT_LABELS = { bullets: 'Gist', digest: 'Digest', article: 'Everything' };
+
+/**
+ * Keeps the closed #digestOptsDetails disclosure honest: the summary always
+ * names the active step once it's not the default, so a closed panel never
+ * silently hides a non-default choice (see the comment on #digestOptsDetails
+ * in index.html for why this reads better than force-opening the panel).
+ */
+function syncDigestOptsSummary() {
+  const summary = document.getElementById('digestOptsSummary');
+  if (!summary) return;
+  const format = document.querySelector('input[name="digestFormat"]:checked')?.value || 'digest';
+  const isDefault = format === 'digest';
+  summary.textContent = isDefault ? 'Options' : `Options — ${DIGEST_FORMAT_LABELS[format] || format}`;
+  summary.classList.toggle('has-selection', !isDefault);
+}
+
+// Sync active-class + the explanatory note + the disclosure summary for
+// digest option segments on change
 document.querySelectorAll('input[name="digestFormat"]').forEach(r => {
-  r.addEventListener('change', () => { syncToggleActive(); syncFidelityNote(); });
+  r.addEventListener('change', () => { syncToggleActive(); syncFidelityNote(); syncDigestOptsSummary(); });
 });
 syncFidelityNote();
+syncDigestOptsSummary();
 
 /* ==============================================
    SAVE BUTTON HANDLER
@@ -5336,15 +5431,17 @@ if (ECHO.mode === 'desktop') {
  *
  * @param {string} url
  * @param {object} body - request body, will be JSON.stringify'd
+ * @param {{ signal?: AbortSignal }} [opts] - optional fetch options; signal
+ *   lets a caller cancel the in-flight request (see runDigest()'s Stop button).
  * @returns {Promise<Response>}
  */
-function aiFetch(url, body) {
+function aiFetch(url, body, opts = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (ECHO.mode === 'web' || ECHO.mode === 'desktop') {
     const k = getApiKey();
     if (k) headers['X-Echo-Api-Key'] = k;
   }
-  return fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+  return fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: opts.signal });
 }
 
 /**

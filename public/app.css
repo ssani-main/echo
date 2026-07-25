@@ -1999,6 +1999,53 @@ mark.find-hit.active {
   color: var(--muted);
 }
 
+/* Disclosure wrapping the "How much" dial — see the comment above it in
+   index.html for why closed-by-default + an honest summary was chosen over
+   forcing the panel open on a non-default pick. Compact and inline with the
+   Language field + Generate button while closed; once opened it claims the
+   full row width so the dial + fidelity note lay out exactly as they did
+   before this was collapsible. */
+.digest-opts-details {
+  font-family: var(--font-sans);
+}
+
+.digest-opts-details[open] {
+  flex-basis: 100%;
+}
+
+.digest-opts-summary {
+  cursor: pointer;
+  user-select: none;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.digest-opts-summary:hover { color: var(--title); }
+
+.digest-opts-summary:focus-visible {
+  outline: 2px solid var(--title);
+  outline-offset: 2px;
+}
+
+/* Set by syncDigestOptsSummary() in app.js whenever the selected step isn't
+   the default — the summary text itself names the step (e.g.
+   "Options — Gist"), so a closed panel never hides a non-default choice. */
+.digest-opts-summary.has-selection {
+  color: var(--title);
+  font-weight: 700;
+}
+
+.digest-opts-body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  margin-top: var(--space-6);
+}
+
 /* Reads out what the selected fidelity step does. Takes the whole row so it
    sits under the dial rather than beside it — flex-basis:100% is the wrap
    point in .digest-opts's flex-wrap layout. */
@@ -2050,6 +2097,13 @@ mark.find-hit.active {
 .local-file-btn:focus-visible { outline: 2px solid var(--title); outline-offset: 2px; }
 
 .local-file-note {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* Inline replace-confirm row (see #digestReplaceConfirm in index.html) — reuses
+   .action-row's flex layout and [hidden] guard, just needs its own text style. */
+.digest-replace-confirm-text {
   font-size: var(--text-sm);
   color: var(--muted);
 }
@@ -3368,6 +3422,23 @@ kbd {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   color: var(--muted);
+}
+
+/* Stop control — only rendered while a digest is in flight (see
+   setDigestRunning() in app.js). Its [hidden] guard comes from the shared
+   .mini-btn[hidden] rule above; no separate guard needed here. --warn is used
+   deliberately (see CLAUDE.md "Zero accent hue" — --warn stays chromatic
+   because it is semantic): stopping an in-flight AI call is the one action
+   in this row that isn't neutral chrome. */
+.digest-stop-btn {
+  margin-bottom: var(--space-7);
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.digest-stop-btn:hover:not(:disabled) {
+  background: var(--warn);
+  color: var(--paper);
 }
 
 /* ==============================================

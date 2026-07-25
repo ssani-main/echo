@@ -215,6 +215,22 @@ export function parseJsonLoose(str) {
  * @returns {Promise<{ result: string, usage: object }>}
  */
 /**
+ * Builds the AbortError-shaped error a cancelled digest rejects with. Named
+ * and coded like the DOM/whisper.js convention (`name: 'AbortError'`,
+ * `code: 'ABORT_ERR'`) precisely so callers can tell "the user cancelled
+ * this" apart from "the CLI/API call failed" and skip CLAUDE_FAILED/
+ * API_FAILED handling (Open Settings / Try again buttons) for it.
+ *
+ * @returns {Error}
+ */
+function makeAbortError() {
+  const e = new Error('Digest generation was cancelled.');
+  e.name = 'AbortError';
+  e.code = 'ABORT_ERR';
+  return e;
+}
+
+/**
  * Spawns the Claude CLI, feeds it a prompt, and resolves with its raw output.
  *
  * Extracted so the buffered and streaming callers share one copy of the parts
@@ -223,16 +239,27 @@ export function parseJsonLoose(str) {
  * repo's own memory into a digest, and the ENOENT-means-not-installed mapping.
  * The two differ only in what they do with stdout.
  *
+ * `signal` mirrors the idiom in whisper.js's runStreaming(): an already-aborted
+ * signal rejects before anything is spawned; an abort mid-flight kills the
+ * whole process tree via killTree() and rejects with an AbortError, never a
+ * normal exit — so callers can never mistake a cancellation for CLAUDE_FAILED.
+ * The listener is always removed on settle, whichever way settlement happens.
+ *
  * @param {{args: string[], prompt: string, timeoutMs: number,
- *          onStdoutChunk?: (chunk: string) => void}} params
+ *          onStdoutChunk?: (chunk: string) => void, signal?: AbortSignal}} params
  * @returns {Promise<{ stdout: string, stderr: string, code: number|null }>}
  */
-function spawnClaudeProcess({ args, prompt, timeoutMs, onStdoutChunk }) {
+function spawnClaudeProcess({ args, prompt, timeoutMs, onStdoutChunk, signal }) {
   const isWin = process.platform === 'win32';
   const exe = isWin ? (process.env.ComSpec || 'cmd.exe') : 'claude';
   const spawnArgs = isWin ? ['/c', 'claude', ...args] : args;
 
   return new Promise((resolve, reject) => {
+    if (signal && signal.aborted) {
+      reject(makeAbortError());
+      return;
+    }
+
     let settled = false;
 
     const child = spawn(exe, spawnArgs, {
@@ -272,15 +299,30 @@ function spawnClaudeProcess({ args, prompt, timeoutMs, onStdoutChunk }) {
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
+      cleanupAbort();
       killTree();
       reject(new Error(`claude CLI timed out after ${timeoutMs / 1000}s.`));
     }, timeoutMs);
+
+    // --- abort (client cancelled the digest) ---
+    function onAbort() {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      killTree();
+      reject(makeAbortError());
+    }
+    function cleanupAbort() {
+      if (signal) signal.removeEventListener('abort', onAbort);
+    }
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
 
     // --- spawn error (e.g. ENOENT) ---
     child.on('error', (err) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      cleanupAbort();
 
       if (err.code === 'ENOENT') {
         const e = new Error('Claude Code CLI not found on PATH. Is it installed?');
@@ -320,6 +362,7 @@ function spawnClaudeProcess({ args, prompt, timeoutMs, onStdoutChunk }) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      cleanupAbort();
       resolve({
         stdout: Buffer.concat(stdoutChunks).toString('utf8').trim(),
         stderr: Buffer.concat(stderrChunks).toString('utf8').trim(),
@@ -390,15 +433,16 @@ function resultFromParsed(parsed) {
  * plus a mapped usage object.
  *
  * @param {string} prompt
- * @param {{ timeoutMs?: number }} [opts]
+ * @param {{ timeoutMs?: number, signal?: AbortSignal }} [opts]
  * @returns {Promise<{ result: string, usage: object }>}
  */
 export async function runClaude(prompt, opts = {}) {
-  const { timeoutMs = DEFAULT_TIMEOUT_MS } = opts;
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, signal } = opts;
   const { stdout, stderr, code } = await spawnClaudeProcess({
     args: buildClaudeArgs(),
     prompt,
     timeoutMs,
+    signal,
   });
 
   if (code !== 0) throw claudeExitError(code, stderr);
@@ -427,12 +471,12 @@ export async function runClaude(prompt, opts = {}) {
  * intermittently and only under load, which is a miserable bug to find.
  *
  * @param {string} prompt
- * @param {{ timeoutMs?: number }} opts
+ * @param {{ timeoutMs?: number, signal?: AbortSignal }} opts
  * @param {(text: string) => void} onToken
  * @returns {Promise<{ result: string, usage: object }>}
  */
 export async function runClaudeStream(prompt, opts = {}, onToken = () => {}) {
-  const { timeoutMs = DEFAULT_TIMEOUT_MS } = opts;
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, signal } = opts;
 
   let pending = '';
   let finalObject = null;
@@ -463,6 +507,7 @@ export async function runClaudeStream(prompt, opts = {}, onToken = () => {}) {
     args: buildClaudeStreamArgs(),
     prompt,
     timeoutMs,
+    signal,
     onStdoutChunk: (chunk) => {
       pending += chunk;
       const lines = pending.split('\n');
@@ -495,6 +540,11 @@ export async function runClaudeStream(prompt, opts = {}, onToken = () => {}) {
  * providers.js). Defaults to the Claude CLI unless opts explicitly select
  * the API provider (opts.apiKey, or ECHO_PROVIDER=api) — see getProvider().
  *
+ * `opts` (including `opts.signal`, if the caller set one) is forwarded to
+ * the provider whole — this is what lets a cancelled digest reach all the
+ * way down to the `claude` spawn / Anthropic SDK call without every layer
+ * in between needing to know `signal` exists.
+ *
  * @param {string} prompt
  * @param {object} [opts]
  * @returns {Promise<{ result: string, usage: object }>}
@@ -512,8 +562,11 @@ async function callProvider(prompt, opts = {}) {
  * exactly the digest it produced before, so the worst case is the wait users
  * already had rather than a broken core loop.
  *
+ * `opts.signal`, like every other opts field, rides along to the provider
+ * unchanged in both branches.
+ *
  * @param {string} prompt
- * @param {{ onToken?: (text: string) => void }} [opts]
+ * @param {{ onToken?: (text: string) => void, signal?: AbortSignal }} [opts]
  * @returns {Promise<{ result: string, usage: object }>}
  */
 async function callProviderStreaming(prompt, opts = {}) {
@@ -591,6 +644,15 @@ function sanitizeTitle(s) {
  * Map-reduce for generateDigest.
  * Map: summarise each chunk into compact key-points.
  * Reduce: synthesise all chunk summaries into the final structured digest.
+ *
+ * Cancellation (`opts.signal`) needs no extra plumbing here: every map call
+ * below shares the same signal, so an abort kills every in-flight chunk's
+ * `claude` process at once — none of the "remaining" ones get a head start
+ * finishing, because they were all running concurrently in the first place —
+ * and `Promise.all` rejects with the resulting AbortError, which skips the
+ * reduce phase entirely. If the abort instead lands in the gap between map
+ * finishing and reduce starting, spawnClaudeProcess's already-aborted check
+ * stops the reduce call before it spawns anything.
  *
  * @param {string[]} chunks
  * @param {string} structureInstructions
@@ -685,8 +747,13 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
  * behaviour). For longer transcripts a map-reduce approach is used: each chunk
  * is independently summarised then reduced into the final digest.
  *
+ * `opts.signal`, if supplied, cancels the run: any in-flight `claude`
+ * spawn / Anthropic API call is aborted and this rejects with an
+ * AbortError-shaped error (name: 'AbortError', code: 'ABORT_ERR') instead
+ * of resolving or throwing CLAUDE_FAILED/API_FAILED.
+ *
  * @param {string} transcriptText
- * @param {{ length?: 'short'|'detailed', format?: 'prose'|'bullets'|'article'|'digest', language?: string }} [opts]
+ * @param {{ length?: 'short'|'detailed', format?: 'prose'|'bullets'|'article'|'digest', language?: string, signal?: AbortSignal }} [opts]
  * @returns {Promise<{ digest: string, usage: object }>}
  */
 export async function generateDigest(transcriptText, opts = {}) {
