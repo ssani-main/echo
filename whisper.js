@@ -138,9 +138,10 @@ export function mapWhisperJson(json) {
 // Best-effort progress callback: server threads this to an SSE channel so the
 // browser can show a real % + elapsed timer. Never let a progress handler throw
 // into the transcription pipeline.
-function reportProgress(opts, phase, pct) {
+function reportProgress(opts, phase, pct, extra = null) {
   if (typeof opts.onProgress === 'function') {
-    try { opts.onProgress({ phase, pct }); } catch { /* progress is best-effort */ }
+    try { opts.onProgress(extra ? { phase, pct, ...extra } : { phase, pct }); }
+    catch { /* progress is best-effort */ }
   }
 }
 
@@ -295,6 +296,35 @@ async function transcribeWav(wavPath, ctx, opts) {
   return segments;
 }
 
+/**
+ * Which model should actually run, given the model asked for and the language
+ * YouTube reports for the video?
+ *
+ * Measured 2026-07-25 (see WHISPER.md): `base` is fine on English but degrades
+ * badly on other languages — on an Indonesian video it rendered "niatnya bagus"
+ * ("their intent is good") as "nyanyi bagus" ("sings well"), among a run of
+ * mangled words. `small` renders the same passage cleanly. That is a model-size
+ * artefact, not a language limit, so the fix is to use `small` when we know the
+ * audio is not English.
+ *
+ * Deliberately conservative: it only ever upgrades `base`, never downgrades an
+ * explicit `small`, and stays put when the language is unknown ('NA', which is
+ * what yt-dlp reports when YouTube has no metadata). Guessing wrong here costs
+ * the user ~3x the runtime, so it only acts on a definite non-English answer.
+ *
+ * @param {string} requested - model the caller asked for
+ * @param {string|null} language - ISO code from yt-dlp, or null/'NA' if unknown
+ * @returns {string} the model to use
+ */
+export function chooseModelForLanguage(requested, language) {
+  if (requested !== 'base') return requested;
+  if (!language) return requested;
+  const lang = String(language).trim().toLowerCase();
+  if (!lang || lang === 'na' || lang === 'none' || lang === 'undefined') return requested;
+  if (lang === 'en' || lang.startsWith('en-')) return requested;
+  return 'small';
+}
+
 // A refusal YouTube hands out under load and withdraws moments later, versus a
 // fact about the video. Only the former is worth retrying: retrying a private
 // or members-only video just makes the user wait three times as long for the
@@ -363,13 +393,18 @@ async function runWhisperPipeline(videoId, opts) {
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
   // 1. Duration guard — cheap metadata probe; reject over-long audio up front.
+  //    The same call also yields the video's language at no extra cost, which
+  //    decides the model below.
   let durationSec = 0;
+  let videoLanguage = null;
   try {
     const { stdout } = await execFileAsync(ytdlp, [
       ...YTDLP_JS_RUNTIME_ARGS, '--skip-download', '--no-warnings',
-      '--print', '%(duration)s', videoUrl,
+      '--print', '%(duration)s|%(language)s', videoUrl,
     ], { timeout: 30000, signal });
-    durationSec = parseFloat(String(stdout).trim());
+    const [durRaw, langRaw] = String(stdout).trim().split('|');
+    videoLanguage = (langRaw || '').trim() || null;
+    durationSec = parseFloat(durRaw);
     if (Number.isFinite(durationSec) && durationSec > maxMinutes * 60) {
       const e = new Error(`Audio is too long (${Math.round(durationSec / 60)} min) for transcription; limit is ${maxMinutes} min.`);
       e.echoCode = 'WHISPER_AUDIO_TOO_LONG';
@@ -380,6 +415,29 @@ async function runWhisperPipeline(videoId, opts) {
     if (err.echoCode === 'WHISPER_AUDIO_TOO_LONG') throw err;
     if (err.code === 'ENOENT') throw err; // yt-dlp missing -> mapped to YTDLP_MISSING
     // otherwise ignore probe failure and proceed to the download
+  }
+
+  // Now that the language is known, pick the model that can actually handle it.
+  // Only ever an upgrade, only when the better model is already downloaded —
+  // never a silent 190 MB download, and never a downgrade of an explicit choice.
+  const requestedModel = opts.modelName || process.env.ECHO_WHISPER_DEFAULT_MODEL || DEFAULT_WHISPER_MODEL;
+  let modelInUse = requestedModel;
+  let modelPathInUse = modelPath;
+  const better = chooseModelForLanguage(requestedModel, videoLanguage);
+  if (better !== requestedModel) {
+    const alt = resolveWhisper({ ...opts, modelName: better });
+    // The path must actually differ before claiming an upgrade. An explicit
+    // opts.modelPath or ECHO_WHISPER_MODEL pins one file, and resolveWhisper
+    // returns it whatever modelName says — reporting "small" while running the
+    // pinned file would put a lie in the library. An explicit pin also *is* the
+    // operator's choice, so it rightly wins.
+    if (alt && alt.modelPath !== modelPath) {
+      modelInUse = better;
+      modelPathInUse = alt.modelPath;
+      reportProgress(opts, 'model', 0, { model: better, reason: `language:${videoLanguage}` });
+    }
+    // If the better model is not downloaded we proceed with what we have rather
+    // than failing — a mediocre transcript beats no transcript.
   }
 
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'echo-whisper-'));
@@ -419,7 +477,11 @@ async function runWhisperPipeline(videoId, opts) {
     reportProgress(opts, 'download', 100);
 
     // 3-4. Transcribe + map — shared with the local-file path.
-    return await transcribeWav(wavPath, { binPath, modelPath, dir, durationSec }, opts);
+    const segs = await transcribeWav(wavPath, { binPath, modelPath: modelPathInUse, dir, durationSec }, opts);
+    // Record which model actually ran, so the library stores the truth rather
+    // than whatever the client asked for. Non-enumerable, like source/langUsed.
+    Object.defineProperty(segs, 'modelUsed', { value: modelInUse, enumerable: false });
+    return segs;
   } finally {
     await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
   }
@@ -522,6 +584,8 @@ async function runFilePipeline(filePath, opts = {}) {
     ], { signal: opts.signal, timeoutMs: 15 * 60_000 });
     reportProgress(opts, 'convert', 100);
 
+    // No language probe on this path: a local file has no yt-dlp metadata, so
+    // the model is whatever the caller chose.
     return await transcribeWav(wavPath, { binPath, modelPath, dir, durationSec }, opts);
   } finally {
     await fs.rm(dir, { recursive: true, force: true }).catch(() => {});

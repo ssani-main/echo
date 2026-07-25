@@ -2469,7 +2469,11 @@ function applyTranscriptResponse(data) {
   currentMeta     = {
     videoId: data.videoId, url: data.url, title: data.title,
     channel: data.channel || null, channelUrl: data.channelUrl || null,
-    transcriptSource, whisperModel: transcriptSource === 'whisper' ? getWhisperModel() : null,
+    // Prefer the model the server says actually ran: a non-English video on
+    // `base` is upgraded to `small` server-side, so the local picker's value
+    // would record a model that never touched this audio.
+    transcriptSource,
+    whisperModel: transcriptSource === 'whisper' ? (data.whisperModel || getWhisperModel()) : null,
   };
   currentDigest   = null;
   currentSuggestedTags = [];
@@ -2735,8 +2739,13 @@ function startWhisperProgress(jobId) {
   let es = null, timerIv = null, started = 0;
   let card = null, fill = null, pctEl = null, phaseEl = null, elapsedEl = null;
 
+  // 'model' fires when the server upgrades the model because the video is not
+  // in English — the one moment worth naming, since the run is about to take
+  // roughly three times as long and an unexplained wait reads as a hang.
   const phaseLabel = (phase) =>
     phase === 'download'   ? 'Downloading audio…' :
+    phase === 'convert'    ? 'Preparing audio…' :
+    phase === 'model'      ? 'Switching to the more accurate model…' :
     phase === 'transcribe' ? 'Transcribing with Whisper…' :
     phase === 'done'       ? 'Finishing…' : 'Working…';
 

@@ -10,6 +10,7 @@ import {
   isTransientDownloadFailure,
   DEFAULT_DOWNLOAD_RETRY_DELAYS_MS,
   withDownloadRetry,
+  chooseModelForLanguage,
 } from '../whisper.js';
 import { fetchTranscript } from '../transcript.js';
 
@@ -466,4 +467,44 @@ test('fetchTranscript: a refused audio download keeps a retryable headline in fa
       return true;
     }
   );
+});
+
+// ---------------------------------------------------------------------------
+// chooseModelForLanguage — model selection from the video's language.
+//
+// Measured 2026-07-25 (WHISPER.md): `base` renders Indonesian badly enough to
+// be unusable in places ("niatnya bagus" -> "nyanyi bagus"), while `small`
+// handles the same passage cleanly. Upgrading is worth ~3x the runtime; doing
+// it when it is NOT needed is pure cost, so every branch is pinned here.
+// ---------------------------------------------------------------------------
+
+test('chooseModelForLanguage: base + a non-English language upgrades to small', () => {
+  assert.equal(chooseModelForLanguage('base', 'id'), 'small');
+  assert.equal(chooseModelForLanguage('base', 'de'), 'small');
+  assert.equal(chooseModelForLanguage('base', 'ja'), 'small');
+});
+
+test('chooseModelForLanguage: base + English stays on base', () => {
+  assert.equal(chooseModelForLanguage('base', 'en'), 'base');
+  assert.equal(chooseModelForLanguage('base', 'en-US'), 'base');
+  assert.equal(chooseModelForLanguage('base', 'EN'), 'base');
+});
+
+// yt-dlp prints "NA" when YouTube has no language metadata (verified against a
+// real video). Guessing from nothing would cost 3x runtime on a hunch.
+test('chooseModelForLanguage: an unknown language does not trigger an upgrade', () => {
+  for (const unknown of ['NA', 'na', '', null, undefined, 'none']) {
+    assert.equal(chooseModelForLanguage('base', unknown), 'base', `unknown=${unknown}`);
+  }
+});
+
+test('chooseModelForLanguage: an explicit small is never downgraded', () => {
+  assert.equal(chooseModelForLanguage('small', 'en'), 'small');
+  assert.equal(chooseModelForLanguage('small', 'id'), 'small');
+  assert.equal(chooseModelForLanguage('small', 'NA'), 'small');
+});
+
+test('chooseModelForLanguage: an unrecognised model is left alone', () => {
+  assert.equal(chooseModelForLanguage('medium', 'id'), 'medium');
+  assert.equal(chooseModelForLanguage('large-v3', 'id'), 'large-v3');
 });

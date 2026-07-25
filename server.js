@@ -800,7 +800,10 @@ app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
   // First entry is created by the first real progress tick (only when Whisper
   // actually runs) — so caption-only fetches never flash a progress card.
   const onProgress = jobId
-    ? ({ phase, pct }) => setJobProgress(jobId, { phase, pct, status: 'running' })
+    // Spread rather than destructure: the pipeline attaches extra fields to
+    // some phases (which model it switched to, and why), and a fixed
+    // {phase, pct} shape would silently drop them before the SSE channel.
+    ? (p) => setJobProgress(jobId, { ...p, status: 'running' })
     : undefined;
 
   const t0 = Date.now();
@@ -830,7 +833,14 @@ app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
     logEvent('transcript', { videoId, chars, langCode, ok: true, ms: Date.now() - t0 });
     finishJob(jobId, 'done');
     const transcriptSource = segments.source || 'captions';
-    return res.json({ videoId, url: req.body.url, title, channel, channelUrl, segments, langCode, transcriptSource });
+    // `modelUsed` is stamped by the whisper pipeline and can differ from the
+    // model the client asked for: a non-English video on `base` is upgraded to
+    // `small`, which `base` transcribes badly (see WHISPER.md). Reporting it
+    // means the library records what actually ran, not what was requested.
+    return res.json({
+      videoId, url: req.body.url, title, channel, channelUrl, segments, langCode, transcriptSource,
+      whisperModel: segments.modelUsed || null,
+    });
   } catch (err) {
     // Client already disconnected — the abort we triggered surfaces here; there
     // is no live response to write to, so just record it and stop.
@@ -915,7 +925,7 @@ app.post(
 
     const jobId = (typeof req.query.jobId === 'string' && req.query.jobId) ? req.query.jobId : null;
     const onProgress = jobId
-      ? ({ phase, pct }) => setJobProgress(jobId, { phase, pct, status: 'running' })
+      ? (p) => setJobProgress(jobId, { ...p, status: 'running' })
       : undefined;
 
     const t0 = Date.now();
