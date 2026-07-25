@@ -1829,6 +1829,15 @@ body.has-transcript .hero-landing {
   flex-wrap: wrap;
 }
 
+/* [hidden] guard, same reason as .local-file-row[hidden]: `display: flex` above
+   is an author rule and beats the UA `[hidden] { display: none }`.
+   #digestExportRow ships hidden and is only revealed once a digest exists — but
+   opening the Digest tab before generating one showed Copy / Download .md /
+   Print with nothing to export, because the attribute was doing nothing. */
+.action-row[hidden] {
+  display: none;
+}
+
 /* ==============================================
    18. FIND BAR
 =============================================== */
@@ -1998,8 +2007,25 @@ mark.find-hit.active {
   display: flex;
   align-items: baseline;
   gap: var(--space-4);
+  /* Symmetric with the command bar's own margin-bottom, so the row breathes
+     the same on both sides. Without the bottom margin it had 14px above and
+     0 below — the only block in the stack touching its neighbour. The top
+     margin collapses against the bar's, so the pair reads as one unit. */
   margin-top: var(--space-4);
+  margin-bottom: var(--space-8);
   flex-wrap: wrap;
+}
+
+/* [hidden] guard: the `display: flex` above is an author rule, so it beats the
+   UA `[hidden] { display: none }` and `row.hidden = true` does nothing. The
+   markup ships this row hidden and app.js only reveals it once Whisper has a
+   binary AND a model — so without this rule the row was ALWAYS visible,
+   including in web mode where the route is blockInWeb, and on machines with no
+   Whisper at all. Exactly the "picker is a trap that ends in download a model
+   first" that the reveal logic exists to prevent. Same fix as .mini-btn[hidden]
+   and .whisper-progress[hidden]. */
+.local-file-row[hidden] {
+  display: none;
 }
 
 .local-file-btn {
