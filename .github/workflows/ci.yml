@@ -42,6 +42,16 @@ jobs:
         run: |
           for f in *.js; do node --check "$f" || exit 1; done
 
+      # The page itself, in a real browser. Two layout regressions once shipped
+      # past a fully green suite because nothing rendered index.html — this
+      # asserts the column invariant and the command bar at desktop and phone
+      # widths. ubuntu-latest ships Chrome; ECHO_REQUIRE_BROWSER makes a missing
+      # binary a failure here rather than the silent skip it is locally.
+      - name: Page renders correctly in a real browser
+        env:
+          ECHO_REQUIRE_BROWSER: '1'
+        run: npm run test:page
+
       - name: Server boots and serves in local, desktop and web mode
         run: |
           set -e
