@@ -116,7 +116,9 @@ Opens **http://localhost:8000**. The AI features shell out to your locally-insta
 Hosting Echo on a VPS doesn't work: transcript fetches happen server-side, and
 YouTube bot-blocks datacenter IP ranges outright. A machine on a residential
 connection doesn't have that problem, and it can run the local Claude CLI too
-— so instead of deploying, run Echo where you already are and tunnel it out:
+— so instead of deploying, run Echo where you already are and tunnel it out.
+This approach has been verified end to end: a video that failed on the VPS
+with bot-blocking returned 1077 caption segments through the tunnel.
 
 ```bash
 npm run serve:public
@@ -130,7 +132,9 @@ restarts** — the underlying key is derived from a seed persisted at
 `0600`). That file **is a secret**: it's the serving capability for the
 tunnel, not a cosmetic id — don't share it, don't commit it. Pass `--attach`
 (or set `ECHO_HOLESAIL_ATTACH=1`) to tunnel an Echo you've already started
-instead of spawning a new one.
+instead of spawning a new one. **Note:** the tunnel requires a running Janus
+gateway (a separate project). See `npm run serve:public -- --help` for all
+available flags.
 
 ⚠️ **This makes Echo reachable by anyone with the link.** In `local` mode
 (the default) that means anyone with the URL can spend your Claude CLI quota
@@ -209,7 +213,14 @@ that matters.
 ### Browser extension (Chrome, Edge, Brave)
 
 Adds **Read in Echo** to YouTube watch pages, plus a toolbar button and a
-right-click item for any YouTube link. Load it unpacked from
+right-click item for any YouTube link. The extension also tries to fetch the
+transcript on your own tab (your IP, your session) and hand it to Echo in the
+URL fragment, which sidesteps the datacenter bot-block described above; if
+that fails it falls back to letting the server fetch, exactly as before. That
+scrape path is **not yet confirmed against a real signed-in browser** — see
+the headless-verification note in [`CLAUDE.md`](CLAUDE.md). **Chromium-only**:
+Firefox needs `background.scripts` rather than an MV3 service worker, so the
+extension does not load there. Load it unpacked from
 [`extension/`](extension/) — `chrome://extensions` → Developer mode → **Load
 unpacked**. Point it at your Echo in its options if it is not on
 `http://localhost:8000`.
@@ -362,7 +373,7 @@ No bookmarklet? You can also just open `http://localhost:8000/?v=VIDEO_ID` or `h
 ## 🧪 Development
 
 ```bash
-npm test                  # 424 tests, no dependencies, ~4s
+npm test                  # 511 tests, no dependencies, ~4s
 npm run digest:fidelity   # how faithfully saved digests carry the transcript's specifics
 npm run digest:aitell     # score saved digests for AI-writing tells
 ```
