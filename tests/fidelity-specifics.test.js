@@ -352,3 +352,115 @@ test('compareFidelity: an ambiguous "1.500" with no disambiguating evidence stay
     `the thousands reading must not silently match either: ${JSON.stringify(mThousand.numeric)}`
   );
 });
+
+// ---------------------------------------------------------------------------
+// Indonesian magnitude words (ribu/juta/miliar/triliun). Confirmed against
+// the real corpus: "40 miliar"/"229 triliun"/"18 juta"/"150 miliar" in
+// transcripts against a digest's correct "40 billion"/"229 trillion"/"18
+// million"/"150 billion" — all faithful translations, all previously scored
+// unsupported because MAGNITUDE_WORD didn't know the Indonesian words at
+// all. Simply recognising the words is not enough on its own — "18juta" and
+// "18million" are still two different strings unless the scale word is
+// canonicalised to a common form first (MAGNITUDE_CANON).
+// ---------------------------------------------------------------------------
+
+test('compareFidelity: Indonesian "juta" in a transcript matches a digest\'s "million"', () => {
+  const transcript = 'Sisa uang gue tinggal 18 juta buat modal awal.';
+  const digest = 'He had 18 million left as starting capital.';
+  const m = compareFidelity(transcript, digest);
+  assert.equal(m.numeric.supportedRate, 1, `unsupported: ${JSON.stringify(m.numeric.unsupported)}`);
+  assert.ok(m.numeric.retained >= 1);
+});
+
+test('compareFidelity: Indonesian "miliar" in a transcript matches a digest\'s "billion"', () => {
+  const transcript = 'Penerbitannya sebesar 40 miliar yuan tahun ini.';
+  const digest = 'The issuance totalled 40 billion yuan this year.';
+  const m = compareFidelity(transcript, digest);
+  assert.equal(m.numeric.supportedRate, 1, `unsupported: ${JSON.stringify(m.numeric.unsupported)}`);
+  assert.ok(m.numeric.retained >= 1);
+});
+
+test('compareFidelity: Indonesian "triliun" in a transcript matches a digest\'s "trillion"', () => {
+  const transcript = 'Anggarannya diturunkan jadi 229 triliun per tahunnya.';
+  const digest = 'The budget was cut to 229 trillion per year.';
+  const m = compareFidelity(transcript, digest);
+  assert.equal(m.numeric.supportedRate, 1, `unsupported: ${JSON.stringify(m.numeric.unsupported)}`);
+  assert.ok(m.numeric.retained >= 1);
+});
+
+test('compareFidelity: Indonesian "ribu" in a transcript matches a digest\'s "thousand"', () => {
+  const transcript = 'Harganya sekitar 15 ribu rupiah per porsi.';
+  const digest = 'It costs about 15 thousand rupiah per portion.';
+  const m = compareFidelity(transcript, digest);
+  assert.equal(m.numeric.supportedRate, 1, `unsupported: ${JSON.stringify(m.numeric.unsupported)}`);
+  assert.ok(m.numeric.retained >= 1);
+});
+
+test('extractSpecifics/compareFidelity: canonicalising Indonesian scale words does not collapse distinct quantities', () => {
+  // The hard constraint: "18 juta" must still not satisfy "18 miliar" — a
+  // scale-word translation table must never merge across scales.
+  const transcript = 'Modal awalnya cuma 18 juta doang waktu itu.';
+  const digest = 'His starting capital was 18 miliar rupiah.'; // wrong translation on purpose
+  const m = compareFidelity(transcript, digest);
+  assert.ok(
+    m.numeric.unsupported.some((t) => t.includes('18') && t.includes('billion')),
+    `18 miliar must not be silently satisfied by a transcript's 18 juta: ${JSON.stringify(m.numeric)}`
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Range dashes ("4.7–5.6%", "1.9–2.19%"): NUMERIC_RE attaches the unit only
+// to the SECOND number, so the first number's bare token can never match a
+// transcript's suffixed form of the same figure. A prior attempt forced the
+// suffix onto the first number and made the corpus measurably worse (see the
+// comment above RANGE_RE in specifics.mjs for the full story, including a
+// second, also-reverted attempt at an additive fix); the shipped fix lets
+// the first number's EXISTING bare token also count as matched via an
+// alternate suffixed reading, without ever adding a new token to either set.
+// ---------------------------------------------------------------------------
+
+test('compareFidelity: the first number of a dash range matches a transcript that states it WITH the unit', () => {
+  const transcript = 'Bunganya sekitar 4,7% dan bisa naik sampai 5,6% tergantung tenornya.';
+  const digest = 'The interest rate runs 4.7–5.6% depending on tenor.';
+  const m = compareFidelity(transcript, digest);
+  assert.equal(m.numeric.supportedRate, 1, `unsupported: ${JSON.stringify(m.numeric.unsupported)}`);
+  assert.ok(!m.numeric.unsupported.includes('4.7'), `"4.7" (the range's first number) should be matched: ${JSON.stringify(m.numeric.unsupported)}`);
+});
+
+test('compareFidelity: the first number of a dash range ALSO matches a transcript that states it bare (no unit)', () => {
+  const transcript = 'Rate-nya kira-kira 4.7 di awal, lalu naik.';
+  const digest = 'The interest rate runs 4.7–5.6% depending on tenor.';
+  const m = compareFidelity(transcript, digest);
+  assert.ok(!m.numeric.unsupported.includes('4.7'), `a bare transcript "4.7" should still satisfy the range's first number: ${JSON.stringify(m.numeric.unsupported)}`);
+});
+
+test('compareFidelity: fixing the range dash does not dilute an already-correct bare-to-bare match', () => {
+  // The regression the additive attempt introduced: a spoken range like
+  // "200 to $230 billion" leaves a bare "200" on BOTH sides, and that bare
+  // match already worked. The fix must not add a new "200billion" token
+  // that inflates inDigest without a matching transcript token.
+  const transcript = 'FDI is attracting about 200 to $230 billion a year.';
+  const digest = 'Annual FDI runs 200–230 billion.';
+  const before = compareFidelity(transcript, 'Annual FDI runs about 200 a year.'); // bare-only baseline
+  const after = compareFidelity(transcript, digest);
+  assert.equal(after.numeric.inDigest, before.numeric.inDigest + 1, 'only the new "230billion" token should add to the count, not a second one for "200"');
+  assert.ok(!after.numeric.unsupported.includes('200'), `the pre-existing bare "200" match must survive: ${JSON.stringify(after.numeric.unsupported)}`);
+});
+
+test('extractSpecifics: "in 2021 to 19%" does not synthesise a bogus "2021%" token — the documented false-match regression', () => {
+  // This is why "to" must never be treated as a range connector: only an
+  // explicit dash (hyphen/en dash/em dash) qualifies.
+  const { numeric } = extractSpecifics('Growth flipped in 2021 to 19% by the following year.');
+  assert.ok(!numeric.has('2021%'), `"2021%" must never be synthesised: ${[...numeric]}`);
+  assert.ok(numeric.has('2021') && numeric.has('19%'), `2021 and 19% should still be extracted separately: ${[...numeric]}`);
+});
+
+test('compareFidelity: "in 2021 to 19%" does not falsely support a fabricated "2021%" specific', () => {
+  const transcript = 'Growth flipped in 2021 to 19% by the following year.';
+  const digest = 'The report claims a bizarre 2021% growth figure.'; // deliberately absurd, must not be validated
+  const m = compareFidelity(transcript, digest);
+  assert.ok(
+    m.numeric.unsupported.some((t) => t === '2021%'),
+    `a fabricated "2021%" must be flagged, not matched via the "to" connector: ${JSON.stringify(m.numeric)}`
+  );
+});

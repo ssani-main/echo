@@ -29,9 +29,83 @@
 // leaving a bare "15" that could never match the digest's cleanly-formatted
 // "15 trillion". Any run of whitespace between a number and its unit is the
 // same unit, however it happened to wrap.
-const MAGNITUDE_WORD = '(?:%|percent|dollars?|euros?|pounds?|million|billion|trillion|thousand|k\\b|bn\\b)';
+// Indonesian scale words added alongside their English equivalents: "juta",
+// "miliar", "triliun" and "ribu" turn up throughout the corpus ("40 miliar",
+// "229 triliun", "18 juta", "150 miliar" against a digest's correct "40
+// billion"/"229 trillion"/"18 million"/"150 billion") and were previously
+// invisible to this regex, so a faithful translation could never be scored
+// as supported. "jt" and "rb" are the common informal-text abbreviations for
+// juta/ribu and are narrow enough (word-bounded, like the existing "k"/"bn")
+// to add safely; a bare "m"/"b" is NOT added — English "million" and
+// Indonesian "miliar" would both plausibly abbreviate to "M", and guessing
+// wrong would silently manufacture a false match, which is worse than
+// leaving the abbreviation unmatched.
+const MAGNITUDE_WORD = '(?:%|percent|dollars?|euros?|pounds?|million|billion|trillion|thousand|juta|miliar|triliun|ribu|k\\b|bn\\b|jt\\b|rb\\b)';
 const NUMERIC_RE = new RegExp(
   `(?:[$€£¥]\\s*\\d[\\d,.]*(?:\\s*${MAGNITUDE_WORD})?|\\d[\\d,.]*\\s*${MAGNITUDE_WORD}|\\b\\d{4}s?\\b|\\b\\d+(?:[.,]\\d+)?\\b)`,
+  'gi'
+);
+
+// Indonesian (and informal-abbreviation) scale words canonicalise to their
+// English equivalent BEFORE joining the number, so "18 juta" and "18
+// million" normalise to the exact same token ("18million") instead of two
+// tokens that can never match. This is deliberately a translation table, not
+// a numeric power-of-ten merge: every English scale word maps to itself
+// (identity), so existing tokens like "15trillion" are completely unchanged.
+// Indonesian uses the short scale, same as English (ribu=10^3, juta=10^6,
+// miliar=10^9, triliun=10^12 — verified against this corpus, not assumed),
+// so each maps to the single English word at the same power of ten and
+// nothing merges across scales: "1.5 million" still normalises differently
+// from "1.5 billion", and "18 juta" still cannot satisfy "18 miliar".
+const MAGNITUDE_CANON = {
+  ribu: 'thousand', rb: 'thousand',
+  juta: 'million', jt: 'million',
+  miliar: 'billion',
+  triliun: 'trillion',
+};
+
+// A range like "4.7–5.6%" or "1.9–2.19%" attaches the unit only to the
+// SECOND number, so on its own NUMERIC_RE extracts a bare, unmatchable first
+// number. A previous attempt fixed this by forcing the shared suffix onto
+// the first number (replacing the bare token), and it made the corpus
+// measurably WORSE: (a) the transcript side is frequently just as
+// inconsistent about attaching the suffix to a spoken range's first number
+// ("...FDI of about 200 to $230 billion..." leaves a bare "200" on BOTH
+// sides), so forcing a suffix on only one side turned a previously-correct
+// bare-to-bare match into a mismatch; and (b) a literal "to" connector
+// produced a real false match — "...in 2021 to 19%..." synthesised a bogus
+// "2021%" token that no one intended.
+//
+// A second attempt (also measured and also reverted, mid-development of
+// THIS fix) tried to fix that by keeping the bare token and ADDING a second,
+// suffixed token as a new member of the numeric set — "gain the match
+// without losing the bare one". That still made the corpus worse, for a
+// subtler reason: adding a set member changes `inDigest`/`inTranscript`
+// (the denominator), not just `retained`. Whenever the guessed suffix did
+// NOT happen to appear on the other side — exactly the "200 to $230
+// billion" shape above, which is common and was already matching fine via
+// its bare form — the new member counted as an extra "stated" specific with
+// no match, and net-diluted a specific that was already fully supported.
+//
+// The fix that actually works leaves the SET OF TOKENS untouched (so
+// `inDigest`/`inTranscript` never change) and instead only widens what
+// counts as a MATCH for a token already in that set: RANGE_RE below
+// identifies a dash-connected range's first number and records, in a
+// side-table (not the numeric Set), the suffixed form it could also
+// legitimately mean. compareFidelity() consults that table only to decide
+// whether an existing bare token should count as retained — it can turn an
+// existing unsupported token into a supported one, but it can never create
+// a new one, so it cannot dilute a match that already worked.
+//
+// Deliberately narrow: only a hyphen/en dash/em dash directly between two
+// numbers, with the unit attached to the second — never the word "to"
+// (that's the documented false-match case above; "to" is simply never
+// treated as a connector by this pattern at all, not filtered out after the
+// fact). This cannot leak into non-range numbers: it only ever adds an
+// alternate reading for the exact bare token sitting before the dash, and
+// every other number's matching is completely unaffected.
+const RANGE_RE = new RegExp(
+  `(\\d[\\d,.]*)\\s*[-–—]\\s*(\\d[\\d,.]*\\s*${MAGNITUDE_WORD})`,
   'gi'
 );
 
@@ -224,7 +298,11 @@ export function normalizeToken(token, convention = ENGLISH_FALLBACK_CONVENTION) 
   }
 
   const [, numericPart, rest] = numberMatch;
-  const suffix = rest.replace(/\s+/g, '');
+  const rawSuffix = rest.replace(/\s+/g, '');
+  // Translate a scale word to its English form (identity for English words
+  // themselves) so "juta"/"million" etc. join the number into the same
+  // token — see MAGNITUDE_CANON above.
+  const suffix = MAGNITUDE_CANON[rawSuffix] || rawSuffix;
   const split = splitNumberParts(numericPart);
   const shape = classifyNumberShape(split);
 
@@ -338,8 +416,16 @@ export function isSentenceInitial(source, index) {
 /**
  * Pull the concrete specifics out of a piece of text.
  *
+ * `numericRangeAlts` maps a bare numeric token to the OTHER forms it may
+ * legitimately mean, when it was the first number of a dash range whose
+ * second number carried a unit (see RANGE_RE above) — e.g. "4.7" -> {"4.7%"}
+ * from "4.7–5.6%". It never adds a member to `numeric` itself; it is a
+ * side-table compareFidelity() consults to decide whether a token already in
+ * `numeric` should also count as matched under an alternate reading, without
+ * ever changing how many specifics a text is considered to state.
+ *
  * @param {string} text
- * @returns {{ numeric: Set<string>, proper: Set<string> }}
+ * @returns {{ numeric: Set<string>, proper: Set<string>, numericRangeAlts: Map<string, Set<string>> }}
  */
 export function extractSpecifics(text) {
   const source = String(text || '');
@@ -355,6 +441,22 @@ export function extractSpecifics(text) {
     // Bare single digits are noise ("one of 3 things"); they carry no identity.
     if (!norm || norm.replace(/\D/g, '').length < 2) continue;
     numeric.add(norm);
+  }
+
+  // Range fix (see RANGE_RE above): record the suffixed alternate reading of
+  // a dash range's first number WITHOUT adding it to `numeric` — see the
+  // function doc for why this side-table, and not a second Set member, is
+  // what keeps the fix from diluting matches that already worked.
+  const numericRangeAlts = new Map();
+  for (const match of source.matchAll(RANGE_RE)) {
+    const [, firstRaw, secondRaw] = match;
+    const unit = secondRaw.replace(/^[\d,.\s]+/, '');
+    if (!unit) continue;
+    const bareNorm = normalizeToken(firstRaw, convention);
+    const altNorm = normalizeToken(`${firstRaw} ${unit}`, convention);
+    if (!bareNorm || !altNorm || altNorm.replace(/\D/g, '').length < 2) continue;
+    if (!numericRangeAlts.has(bareNorm)) numericRangeAlts.set(bareNorm, new Set());
+    numericRangeAlts.get(bareNorm).add(altNorm);
   }
 
   const proper = new Set();
@@ -375,7 +477,7 @@ export function extractSpecifics(text) {
     proper.add(norm);
   }
 
-  return { numeric, proper };
+  return { numeric, proper, numericRangeAlts };
 }
 
 /**
@@ -394,8 +496,26 @@ export function compareFidelity(transcript, digest) {
   const src = extractSpecifics(transcript);
   const out = extractSpecifics(digest);
 
-  const retainedNumeric = [...out.numeric].filter((t) => src.numeric.has(t));
-  const unsupportedNumeric = [...out.numeric].filter((t) => !src.numeric.has(t));
+  // A token counts as supported if it matches directly, OR if it is one of
+  // the alternate (bare/suffixed) range readings recorded on EITHER side —
+  // covers a digest range whose first number only the transcript states
+  // with a unit, and the mirror case where the transcript's own range is
+  // the one missing it. Never adds a token to either Set, so it can only
+  // turn an existing unsupported token into a supported one.
+  const isNumericSupported = (token) => {
+    if (src.numeric.has(token)) return true;
+    const outAlts = out.numericRangeAlts.get(token);
+    if (outAlts) {
+      for (const alt of outAlts) if (src.numeric.has(alt)) return true;
+    }
+    for (const altSet of src.numericRangeAlts.values()) {
+      if (altSet.has(token)) return true;
+    }
+    return false;
+  };
+
+  const retainedNumeric = [...out.numeric].filter((t) => isNumericSupported(t));
+  const unsupportedNumeric = [...out.numeric].filter((t) => !isNumericSupported(t));
 
   const caseSignal = hasCaseSignal(transcript);
   const retainedProper = [...out.proper].filter((t) => src.proper.has(t));
