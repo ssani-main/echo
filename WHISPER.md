@@ -117,7 +117,9 @@ Models live at HF repo **`ggerganov/whisper.cpp`** — **not** `ggml-org/*`, whi
 | large-v3 | 2952 MB | 1031 MB | ~3.9 GB |
 | large-v3-turbo | 1549 MB | 547 MB | *never published* |
 
-**Default: `small` q5 (181 MB). Fast tier: `base` q5 (57 MB).**
+**Default: `base` q5 (57 MB). Accuracy tier: `small` q5 (181 MB).**
+
+> This is the reverse of the original spec, which called for `small` as the default. It was flipped on the speed measurements below and is what actually ships — `GET /api/whisper/status` reports `defaultModel: "base"`. The accuracy comparison below adds one caveat to that: on **non-English** audio `base` degrades badly enough to produce unusable passages, so `small` is the right choice whenever `always` mode is used on non-English material.
 
 ### Speed (CPU, i7-11800H 8-core, per hour of audio)
 
@@ -134,6 +136,34 @@ window, with no realtime multiples** — it does not tell you how long an hour o
 takes, and people misread it constantly. Stated here so nobody re-misreads it.
 
 📏 **MEASURED (2026-07-18) — the derived table is badly optimistic.** `small` q5 on a 12-core box transcribed the 26:23 test video (`GRzaq5AHiV8`, Indonesian) in **23m 01s** — i.e. **~52 min per hour of audio (~0.87× realtime)**, roughly **6–8× slower** than the ~6–9 min/hr derived above. Implications: (1) `small` in `always` mode means a ~23-min wait on a half-hour video — impractical; (2) this argues for **`base` q5 as the sensible default**, not `small`; (3) derive the op timeout from duration, never a fixed value. `base`/`medium`/`large` on this box remain unmeasured.
+
+📏 **RE-MEASURED (2026-07-25) — and it disagrees with the note above by 3×.** Same 12-core box, same video (`GRzaq5AHiV8`, 26:23), same `q5_1` model files, VAD off, both driven end-to-end through `POST /api/transcript` (download + convert + transcribe):
+
+| model | end-to-end | per hour of audio | vs realtime |
+|---|---|---|---|
+| `base` q5 | **2m 34s** | **~5.8 min/hr** | 10.3× |
+| `small` q5 | **7m 17s** | **~16.6 min/hr** | 3.6× |
+
+So `small` came in at ~16.6 min/hr here against the **~52 min/hr** recorded on 2026-07-18 — on the same machine, with the same model file. **The cause was not identified.** Candidates, none confirmed: the perf work that landed since (CPU cap + long-video fix, the vendored CPU backends), machine load during the earlier run, or a different thread count. Recorded rather than resolved so nobody treats either number as settled — **re-measure on your own box before making a product decision from these.** What both measurements agree on: the derived table above is optimistic, and `base` is several times faster than `small`.
+
+### Accuracy: captions vs `base` vs `small` (measured 2026-07-25)
+
+The one experiment that decides whether `always` is worth its runtime. Same video, all three transcripts compared on checkable things rather than impressions:
+
+| | captions | `base` | `small` |
+|---|---|---|---|
+| proper nouns preserved (of 16) | **13** | 11 | 12 |
+| the fee: "300 euro" | ❌ garbled to `Rp300o` | ✅ | ✅ |
+| `Israel` (sensitive passage) | ✅ | ❌ | ❌ |
+| `HTW` | ✅ | ❌ | ✅ |
+| kebab price · B1 cert | ✅ | ❌ | ✅ |
+| 2016 arrival | ✅ | ✅ | ❌ |
+
+**`small` clearly beats `base` on Indonesian.** `base` collapsed in the tax/refugee passage — "niatnya bagus" (their intent is good) became **"nyanyi bagus"** (sings well), plus "prokontor", "kontor-orang perang", "Nihannya". `small` renders that passage cleanly. That collapse is a model-size artefact, not a language limit, so **if `always` runs on non-English audio, prefer `small`** — `base` produces text that is locally unusable.
+
+**But `small` does not beat captions.** It wins the numerals (captions garble `€300` into `Rp300o`, which propagated into a digest as an incoherent "around Rp300 (a few hundred thousand rupiah…)"), and loses `Israel` and the arrival date. A trade, at 7 minutes against one second.
+
+**Conclusion, unchanged by the experiment:** Whisper is the fix for videos with **no** captions. `always` is a tier for when you specifically distrust the captions — not a better default. A whole-document "common-word density" fluency proxy was also tried and is **useless as a discriminator** (40.2% / 40.0% / 39.9%): the collapses are too localised to move a document-wide average. Don't reach for it again.
 
 ### ⚠️ The turbo trap — the single biggest gotcha
 
