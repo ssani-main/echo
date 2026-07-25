@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   extractSpecifics, compareFidelity, hasCaseSignal, normalizeToken, isSentenceInitial,
+  detectNumberConvention,
 } from '../tools/fidelity/specifics.mjs';
 
 // ---------------------------------------------------------------------------
@@ -255,4 +256,99 @@ test('compareFidelity: empty digest does not divide by zero', () => {
   assert.equal(m.numeric.inDigest, 0);
   assert.equal(m.numeric.supportedRate, 1);
   assert.equal(m.digestChars, 0);
+});
+
+// ---------------------------------------------------------------------------
+// The locale bug: normalizeToken() used to strip every comma unconditionally
+// and leave every period alone — hardcoding the English convention. That
+// broke Indonesian numbers two ways: a comma-decimal like "1,9%" mangled to
+// "19%" and could never match the digest's correct "1.9%" (destroying a
+// legitimate specific), AND the same mangling let a comma-decimal collide
+// with a genuine, unrelated number sharing its digits (a false match, which
+// is worse than a miss since nobody investigates a number the tool already
+// says is fine). classifyNumberShape()/detectNumberConvention() now infer
+// the convention per text instead of assuming one.
+// ---------------------------------------------------------------------------
+
+test('compareFidelity: a comma-decimal transcript figure matches its period-decimal digest translation', () => {
+  const transcript = 'Bunganya cuma 1,9% sampai 2,19% per tahunnya.';
+  const digest = 'The interest rate runs from 1.9% to 2.19% per year.';
+  const m = compareFidelity(transcript, digest);
+  assert.equal(m.numeric.supportedRate, 1, `unsupported: ${JSON.stringify(m.numeric.unsupported)}`);
+  assert.ok(m.numeric.retained >= 2, `expected both figures to carry through: ${m.numeric.retained}`);
+});
+
+test('compareFidelity: Indonesian period-grouping ("800.000") matches the English comma-grouped form ("800,000")', () => {
+  // "800.000" only resolves as grouping (rather than staying ambiguous)
+  // because the surrounding "1,9%" gives the transcript decisive
+  // comma-decimal evidence — see detectNumberConvention() tests below for
+  // the case with no such evidence at all.
+  const transcript = 'Omsetnya sebesar 800.000 dengan margin 1,9% tahun ini.';
+  const digest = 'Revenue was 800,000 with a 1.9% margin this year.';
+  const m = compareFidelity(transcript, digest);
+  assert.equal(m.numeric.supportedRate, 1, `unsupported: ${JSON.stringify(m.numeric.unsupported)}`);
+  const found = [...extractSpecifics(digest).numeric].map((t) => t.replace(/\D/g, ''));
+  assert.ok(found.includes('800000'), `expected an 800000 token in the digest, got ${found}`);
+});
+
+test('compareFidelity: comma-grouping still works with no other evidence ("270,000" matches "$270,000")', () => {
+  const transcript = 'It eventually sold for 270,000 at the auction house.';
+  const digest = 'It sold for $270,000 at auction.';
+  const m = compareFidelity(transcript, digest);
+  assert.equal(m.numeric.supportedRate, 1, `unsupported: ${JSON.stringify(m.numeric.unsupported)}`);
+  assert.ok(m.numeric.retained >= 1);
+});
+
+test('compareFidelity: an Indonesian comma-decimal must not falsely support an unrelated fabricated "19"', () => {
+  // The dangerous direction of the bug: the old code turned the transcript's
+  // genuine "1,9" into "19", which could silently validate an entirely
+  // unrelated, fabricated "19" in the digest. Written so it FAILS against
+  // the pre-fix code (which reported full support here).
+  const transcript = 'Nilainya sekitar 1,9 juta rupiah waktu itu, sesuai laporan resmi.';
+  const digest = 'The report also claims 19 partner brands joined the platform that year.';
+  const m = compareFidelity(transcript, digest);
+  assert.ok(
+    m.numeric.unsupported.some((t) => t.replace(/\D/g, '') === '19'),
+    `the fabricated "19" must be flagged, not silently matched via the mangled "1,9": ${JSON.stringify(m.numeric)}`
+  );
+  assert.ok(m.numeric.supportedRate < 1, `supportedRate must reflect the fabrication: ${m.numeric.supportedRate}`);
+});
+
+test('detectNumberConvention: "1.234,56" (period grouping, comma decimal) is detected as comma-decimal', () => {
+  const c = detectNumberConvention('The total reached 1.234,56 units last quarter.');
+  assert.equal(c.decimalSep, ',');
+  assert.equal(c.groupingSep, '.');
+  assert.equal(c.confident, true);
+});
+
+test('detectNumberConvention: "1,234.56" (comma grouping, period decimal) is detected as period-decimal', () => {
+  const c = detectNumberConvention('The total reached 1,234.56 units last quarter.');
+  assert.equal(c.decimalSep, '.');
+  assert.equal(c.groupingSep, ',');
+  assert.equal(c.confident, true);
+});
+
+test('detectNumberConvention: no separator evidence at all falls back to English, explicitly unconfident', () => {
+  const c = detectNumberConvention('Revenue grew steadily throughout the year with no notable events.');
+  assert.equal(c.decimalSep, '.');
+  assert.equal(c.groupingSep, ',');
+  assert.equal(c.confident, false, 'the fallback must be flagged as a guess, not treated as real evidence');
+});
+
+test('compareFidelity: an ambiguous "1.500" with no disambiguating evidence stays flagged rather than matching either reading', () => {
+  const transcript = 'The estimate was roughly 1.500 units, though exact figures were not confirmed.';
+  const digestAsDecimal = 'The estimate was about 1.5 units.';
+  const digestAsThousand = 'The estimate was about 1500 units.';
+
+  const mDecimal = compareFidelity(transcript, digestAsDecimal);
+  assert.ok(
+    mDecimal.numeric.unsupported.some((t) => t.includes('1.5')),
+    `the decimal reading must not silently match: ${JSON.stringify(mDecimal.numeric)}`
+  );
+
+  const mThousand = compareFidelity(transcript, digestAsThousand);
+  assert.ok(
+    mThousand.numeric.unsupported.some((t) => t.includes('1500')),
+    `the thousands reading must not silently match either: ${JSON.stringify(mThousand.numeric)}`
+  );
 });

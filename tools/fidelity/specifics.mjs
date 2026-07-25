@@ -63,8 +63,119 @@ const PROPER_STOPWORDS = new Set([
 ]);
 
 /**
- * Normalise a token for comparison: casefold, strip separators, trailing
- * punctuation, and currency symbols.
+ * Split a digits-and-separators string into its digit groups and the
+ * separator characters between them, e.g. "1,234.56" -> parts ["1","234",
+ * "56"], seps [",","."]. Pure plumbing for classifyNumberShape() and
+ * normalizeToken() below — kept separate so both use the exact same split.
+ *
+ * @param {string} raw - digits and '.'/',' only (no currency, no magnitude word)
+ * @returns {{ parts: string[], seps: string[] }}
+ */
+function splitNumberParts(raw) {
+  const segs = String(raw).split(/([.,])/);
+  const parts = [];
+  const seps = [];
+  segs.forEach((seg, i) => {
+    if (i % 2 === 0) parts.push(seg);
+    else seps.push(seg);
+  });
+  return { parts, seps };
+}
+
+/**
+ * Classify how a single number's separator(s) should be read, using rules
+ * that hold regardless of which convention (English, Indonesian, German...)
+ * the text follows:
+ *
+ *  - two DIFFERENT separator characters in one number (e.g. "1,234.56" or
+ *    "1.234,56"): the number has one decimal point at most, so the LAST
+ *    separator must be it; anything earlier is grouping.
+ *  - the SAME separator repeated 2+ times (e.g. "7.200.000"): a number
+ *    cannot have two decimal points, so it must be pure grouping — there is
+ *    no decimal point in the number at all.
+ *  - a single separator whose trailing digit run is NOT exactly 3 digits
+ *    (e.g. "1,9", "3.50"): a grouping separator always produces exactly
+ *    3-digit groups, so this one can only be a decimal point.
+ *  - a single separator whose trailing digit run IS exactly 3 digits (e.g.
+ *    "800.000", "270,000"): genuinely ambiguous in isolation — could be a
+ *    thousands group or a (unusual) 3-digit decimal fraction. Resolved by
+ *    detectNumberConvention()/normalizeToken() using the rest of the text.
+ *
+ * @param {{ parts: string[], seps: string[] }} split
+ * @returns {null|{kind:'decisive', decimalSep: string|null, groupingSep?: string}|{kind:'ambiguous', sep: string}}
+ *   null when there is no separator to classify at all.
+ */
+function classifyNumberShape({ parts, seps }) {
+  if (seps.length === 0) return null;
+  const uniqueSeps = new Set(seps);
+  if (uniqueSeps.size === 2) {
+    return { kind: 'decisive', decimalSep: seps[seps.length - 1] };
+  }
+  if (seps.length >= 2) {
+    return { kind: 'decisive', decimalSep: null, groupingSep: seps[0] };
+  }
+  const sep = seps[0];
+  const lastLen = parts[parts.length - 1].length;
+  if (lastLen !== 3) {
+    return { kind: 'decisive', decimalSep: sep };
+  }
+  return { kind: 'ambiguous', sep };
+}
+
+/** The convention assumed when a text gives no evidence either way at all —
+ * ordinary English: period decimal, comma grouping. Every English-only
+ * transcript/digest with no large grouped numbers or foreign-style decimals
+ * looks exactly like this, so it is the only defensible default. */
+const ENGLISH_FALLBACK_CONVENTION = Object.freeze({ decimalSep: '.', groupingSep: ',', confident: false });
+
+// Loose enough to catch a full multi-separator run ("7.200.000") that
+// NUMERIC_RE itself would only partially capture — this is used purely to
+// gather text-wide evidence of which separator a text uses for what, not to
+// extract reportable specifics, so being looser here is safe.
+const RAW_NUMBER_WITH_SEPARATOR_RE = /\d[\d.,]*\d|\d/g;
+
+/**
+ * Decide, from the evidence IN THIS TEXT ALONE, whether it reads numbers in
+ * the comma-decimal convention (Indonesian, German, ...: "1,9%", "800.000")
+ * or the period-decimal convention (English: "1.9%", "800,000").
+ *
+ * Only numbers classifyNumberShape() calls decisive contribute a vote —
+ * the ambiguous group-of-3 shape ("800.000" in isolation) never votes on its
+ * own, which is exactly why a lone "1.500" stays unresolved rather than
+ * silently deciding the whole text's convention from one ambiguous number.
+ *
+ * transcript and digest must be judged independently (a translated pair can
+ * legitimately use two different conventions), so this takes one text and
+ * callers run it once per side.
+ *
+ * @param {string} text
+ * @returns {{decimalSep: string, groupingSep: string, confident: boolean}}
+ */
+export function detectNumberConvention(text) {
+  const votes = { ',': 0, '.': 0 };
+  for (const raw of String(text || '').match(RAW_NUMBER_WITH_SEPARATOR_RE) || []) {
+    const shape = classifyNumberShape(splitNumberParts(raw));
+    if (!shape || shape.kind !== 'decisive') continue;
+    if (shape.decimalSep) {
+      votes[shape.decimalSep] += 1;
+    } else if (shape.groupingSep) {
+      // Pure repeated-separator grouping implies the OTHER character is the
+      // text's decimal separator, by elimination.
+      votes[shape.groupingSep === ',' ? '.' : ','] += 1;
+    }
+  }
+  if (votes[','] > votes['.']) return { decimalSep: ',', groupingSep: '.', confident: true };
+  if (votes['.'] > votes[',']) return { decimalSep: '.', groupingSep: ',', confident: true };
+  // No decisive evidence either way, or a genuine tie — fall back to English
+  // rather than guess (see ENGLISH_FALLBACK_CONVENTION above).
+  return { ...ENGLISH_FALLBACK_CONVENTION };
+}
+
+/**
+ * Normalise a token for comparison: casefold, strip trailing punctuation and
+ * currency symbols, then — for anything that looks like a number — resolve
+ * its separators to ONE canonical form so the same quantity written under
+ * different conventions compares equal.
  *
  * Currency symbols matter here because they used to survive unstripped, so a
  * digest's "$270,000" normalised to "$270000" and could never match a
@@ -77,15 +188,87 @@ const PROPER_STOPWORDS = new Set([
  * Distinctness that actually matters (e.g. "$100" vs "100%") is preserved by
  * the magnitude/percent word staying part of the token — a percent sign is
  * not a currency symbol, so it is untouched here.
+ *
+ * The separator handling used to just strip every comma unconditionally and
+ * leave every period alone — hardcoding the English convention. That broke
+ * on Indonesian numbers two ways at once: "1,9%" (a decimal) collapsed to
+ * "19%", which could never match a transcript's correct "1.9%" AND could
+ * silently collide with a genuine, unrelated "19" elsewhere in the same
+ * text (a false match — worse than a missed one, since nobody double-checks
+ * a number the tool says is fine); and "800.000" (Indonesian thousands
+ * grouping) was read as the decimal 800 instead of 800,000. Every number
+ * that reaches this function with a separator is now classified by
+ * classifyNumberShape() first; only the genuinely ambiguous group-of-3 shape
+ * consults `convention` (from detectNumberConvention() on the whole text) or
+ * falls back to English — see there for exactly which numbers are decisive
+ * on their own versus which need that context.
+ *
+ * @param {string} token
+ * @param {{decimalSep: string, groupingSep: string, confident: boolean}} [convention]
+ *   text-wide convention from detectNumberConvention(); defaults to the
+ *   unconfident English fallback so existing single-argument callers (every
+ *   proper-noun normalisation, and any caller not tracking convention) keep
+ *   their prior behaviour.
  */
-export function normalizeToken(token) {
-  return String(token || '')
+export function normalizeToken(token, convention = ENGLISH_FALLBACK_CONVENTION) {
+  const t = String(token || '')
     .toLowerCase()
     .replace(/[’']/g, "'")
     .replace(/[.,;:!?]+$/, '')
-    .replace(/[$€£¥]/g, '')
-    .replace(/[\s,]/g, '')
-    .trim();
+    .replace(/[$€£¥]/g, '');
+
+  const numberMatch = t.match(/^(\d[\d.,]*)([\s\S]*)$/);
+  if (!numberMatch) {
+    // Not a numeric token at all (a proper-noun word, etc.) — old behaviour.
+    return t.replace(/[\s,]/g, '').trim();
+  }
+
+  const [, numericPart, rest] = numberMatch;
+  const suffix = rest.replace(/\s+/g, '');
+  const split = splitNumberParts(numericPart);
+  const shape = classifyNumberShape(split);
+
+  if (!shape) {
+    // No separator at all: nothing to disambiguate.
+    return numericPart + suffix;
+  }
+
+  if (shape.kind === 'decisive') {
+    if (shape.decimalSep === null) {
+      // Pure repeated grouping — no decimal point in this number at all.
+      return split.parts.join('') + suffix;
+    }
+    const decimalIndex = split.seps.lastIndexOf(shape.decimalSep);
+    const wholePart = split.parts.slice(0, decimalIndex + 1).join('');
+    const fractionPart = split.parts[decimalIndex + 1];
+    return `${wholePart}.${fractionPart}${suffix}`;
+  }
+
+  // Ambiguous shape: a single separator followed by exactly 3 digits, with
+  // nothing else in the number itself to resolve it.
+  const { sep } = shape;
+  if (sep === ',' && !convention.confident) {
+    // No text-wide evidence either way. A comma followed by exactly 3
+    // digits reads as thousands-grouping in essentially every real-world
+    // convention — a genuine 3-digit comma-decimal fraction ("1,900" as
+    // 1.900) is vanishingly rare — so this one ambiguous shape is safe to
+    // resolve without corroborating evidence. This preserves the
+    // long-standing behaviour of "270,000" matching "$270,000".
+    return split.parts.join('') + suffix;
+  }
+
+  if (convention.confident) {
+    return sep === convention.decimalSep
+      ? `${split.parts.join('.')}${suffix}` // only valid when exactly one separator, checked above
+      : split.parts.join('') + suffix;
+  }
+
+  // A lone period followed by exactly 3 digits with no text-wide evidence
+  // either way — genuinely ambiguous between a decimal ("1.500" = 1.5) and a
+  // thousands group ("1.500" = 1500). Flag it rather than guess: this
+  // sentinel cannot collide with any real normalised numeric token, so it
+  // shows up as unmatched (a flag for a human), never as a false match.
+  return `~ambiguous~${numericPart}${suffix}`;
 }
 
 /**
@@ -160,10 +343,15 @@ export function isSentenceInitial(source, index) {
  */
 export function extractSpecifics(text) {
   const source = String(text || '');
+  // Transcript and digest are judged independently: a faithful digest can
+  // legitimately translate Indonesian "1,9%" into English "1.9%", so each
+  // side's own separator convention is detected from its own text, not
+  // assumed to match the other side's.
+  const convention = detectNumberConvention(source);
 
   const numeric = new Set();
   for (const match of source.match(NUMERIC_RE) || []) {
-    const norm = normalizeToken(match);
+    const norm = normalizeToken(match, convention);
     // Bare single digits are noise ("one of 3 things"); they carry no identity.
     if (!norm || norm.replace(/\D/g, '').length < 2) continue;
     numeric.add(norm);
