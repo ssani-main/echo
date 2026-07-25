@@ -187,11 +187,12 @@ async function measureAt(width, height) {
         barDirection: bar ? getComputedStyle(bar).flexDirection : null,
         glyphInline: (glyph && input) ? Math.abs(mid(glyph) - mid(input)) < 6 : null,
         inputWidth: input ? Math.round(input.getBoundingClientRect().width) : 0,
-        // Boxes lining up is not the same as text lining up: the field insets
-        // its own text by border + padding + glyph, so the link below it needs
-        // a matching indent or it reads as shoved to the left.
-        textOffset: (input && fileBtn)
-          ? Math.round(input.getBoundingClientRect().left - fileBtn.getBoundingClientRect().left)
+        // The link is deliberately flush with the column edge, NOT indented to
+        // meet the URL text inside the field. Both were tried; the straight
+        // edge won. Measured against the bar's outer edge so an indent creeping
+        // back in is caught.
+        linkEdgeOffset: (bar && fileBtn)
+          ? Math.round(fileBtn.getBoundingClientRect().left - bar.getBoundingClientRect().left)
           : null,
         barWidth: bar ? Math.round(bar.getBoundingClientRect().width) : 0,
         scrollWidth: document.documentElement.scrollWidth,
@@ -262,8 +263,8 @@ try {
   assertColumn('desktop', desktop.boxes);
   check('desktop: command bar is a row', desktop.barDirection === 'row', `got ${desktop.barDirection}`);
   check('desktop: glyph sits inline with the input', desktop.glyphInline === true);
-  check('desktop: the file link starts where the URL text starts', Math.abs(desktop.textOffset) <= 2,
-    `link text is ${desktop.textOffset}px from the input text`);
+  check('desktop: the file link sits flush with the column edge', Math.abs(desktop.linkEdgeOffset) <= 2,
+    `link is indented ${desktop.linkEdgeOffset}px from the command bar's edge`);
   check('desktop: no horizontal overflow', desktop.scrollWidth <= desktop.innerWidth + 1,
     `scrollWidth ${desktop.scrollWidth} > innerWidth ${desktop.innerWidth}`);
   check('desktop: [hidden] actually hides', desktop.hiddenLeaks.length === 0,
@@ -281,8 +282,8 @@ try {
   // two-thirds means something is stacking or floating beside it again.
   check('mobile: input fills most of the command bar', mobile.inputWidth > mobile.barWidth * 0.66,
     `input ${mobile.inputWidth}px inside a ${mobile.barWidth}px bar`);
-  check('mobile: the file link starts where the URL text starts', Math.abs(mobile.textOffset) <= 2,
-    `link text is ${mobile.textOffset}px from the input text`);
+  check('mobile: the file link sits flush with the column edge', Math.abs(mobile.linkEdgeOffset) <= 2,
+    `link is indented ${mobile.linkEdgeOffset}px from the command bar's edge`);
   check('mobile: no horizontal overflow', mobile.scrollWidth <= mobile.innerWidth + 1,
     `scrollWidth ${mobile.scrollWidth} > innerWidth ${mobile.innerWidth}`);
 
