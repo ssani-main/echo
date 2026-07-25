@@ -423,6 +423,28 @@ export function classifyTranscriptFailure(primaryError, ytDlpDetail) {
     };
   }
 
+  // Must come before age_restricted: yt-dlp's bot-block message also reads
+  // "Sign in to confirm ..." (this time "you're not a bot" rather than "your
+  // age"), so it has to be checked first or it would be misread as an
+  // age gate. "Transcript is disabled on this video" (the youtube-transcript
+  // side of a bot block) is deliberately NOT matched on its own here — a
+  // genuinely disabled transcript produces that same string, so it's only
+  // treated as corroborating evidence once the yt-dlp side has already said
+  // "not a bot".
+  if (
+    /confirm you['’]re not a bot/i.test(text) ||
+    /not a bot/i.test(text) ||
+    /--cookies-from-browser/i.test(text) ||
+    /http error 429/i.test(text) ||
+    /too many requests/i.test(text)
+  ) {
+    return {
+      reason: 'bot_block',
+      message: 'YouTube is blocking requests from this server',
+      hint: "YouTube rejects automated requests from datacenter IP addresses, which is where this Echo instance is hosted. The video's captions are probably fine — the server just can't reach them. Running Echo locally, or using the browser extension, fetches from your own IP instead.",
+    };
+  }
+
   if (
     /sign in to confirm your age/i.test(text) ||
     /age.?restricted/i.test(text) ||

@@ -55,6 +55,46 @@ test('classifyTranscriptFailure: unavailable / removed', () => {
   assert.ok(hint.length > 0);
 });
 
+test('classifyTranscriptFailure: bot block (yt-dlp cookie message)', () => {
+  const { reason, message, hint } = classifyTranscriptFailure(
+    new Error('Transcript is disabled on this video'),
+    "Sign in to confirm you're not a bot. Use --cookies-from-browser or --cookies for the authentication."
+  );
+  assert.equal(reason, 'bot_block');
+  assert.ok(message.toLowerCase().includes('blocking'));
+  assert.ok(hint.length > 0);
+});
+
+test('classifyTranscriptFailure: bot block via HTTP 429', () => {
+  const { reason, message, hint } = classifyTranscriptFailure(
+    new Error('some error'),
+    'HTTP Error 429: Too Many Requests'
+  );
+  assert.equal(reason, 'bot_block');
+  assert.ok(message.toLowerCase().includes('blocking'));
+  assert.ok(hint.length > 0);
+});
+
+test('classifyTranscriptFailure: age restricted still wins over bot-block phrasing overlap', () => {
+  const { reason, message, hint } = classifyTranscriptFailure(
+    new Error('Sign in to confirm your age'),
+    ''
+  );
+  assert.equal(reason, 'age_restricted');
+  assert.ok(message.toLowerCase().includes('age-restricted'));
+  assert.ok(hint.length > 0);
+});
+
+test('classifyTranscriptFailure: plain no-captions failure is not misread as bot block', () => {
+  const { reason, message, hint } = classifyTranscriptFailure(
+    new Error('Transcript is disabled on this video'),
+    'yt-dlp: unknown error'
+  );
+  assert.equal(reason, 'no_captions');
+  assert.ok(message.toLowerCase().includes('no transcript'));
+  assert.ok(hint.length > 0);
+});
+
 test('classifyTranscriptFailure: age restricted', () => {
   const { reason, message, hint } = classifyTranscriptFailure(
     new Error('Sign in to confirm your age'),
