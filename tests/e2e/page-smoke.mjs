@@ -71,7 +71,8 @@ function check(name, ok, detail = '') {
 }
 
 // --- boot a real server, the way a user runs one ------------------------------
-const dbPath = join(mkdtempSync(join(tmpdir(), 'echo-smoke-')), 'smoke.db');
+const dbDir = mkdtempSync(join(tmpdir(), 'echo-smoke-'));
+const dbPath = join(dbDir, 'smoke.db');
 const PORT = 8731;
 const server = spawn(process.execPath, ['server.js'], {
   cwd: REPO,
@@ -98,6 +99,7 @@ function cleanup(code) {
   try { chrome?.kill(); } catch { /* already dead */ }
   try { server.kill(); } catch { /* already dead */ }
   try { rmSync(profile, { recursive: true, force: true }); } catch { /* best effort */ }
+  try { rmSync(dbDir, { recursive: true, force: true }); } catch { /* best effort */ }
   process.exit(code);
 }
 
@@ -124,6 +126,24 @@ async function measureAt(width, height) {
   await sleep(2000);
   return evaluate(`
     (() => {
+      // FIRST, before anything is force-revealed: a class that sets display
+      // beats the UA [hidden] rule, so el.hidden can silently do nothing — the
+      // local-file row was always visible that way, including in web mode where
+      // its route 503s. This must run before the reveal below, or it would mask
+      // the very leak it exists to catch.
+      // checkVisibility(), not computed display: a child of a display:none
+      // ancestor still computes its own display of flex, which would report
+      // every guard-less element inside a closed pane. This asks the question
+      // that matters — is the user seeing it?
+      // (No backticks anywhere in this block: it lives inside a template
+      // literal, and one would terminate it.)
+      const hiddenLeaks = [];
+      for (const el of document.querySelectorAll('[hidden]')) {
+        if (el.checkVisibility && el.checkVisibility()) {
+          hiddenLeaks.push(el.id ? '#' + el.id : '.' + String(el.className).split(' ')[0]);
+        }
+      }
+
       // The local-file row only reveals itself once Whisper has a binary AND a
       // model, which CI has neither of. Force every top-chrome member visible
       // before measuring: this asserts the *layout rule*, not the reveal logic,
@@ -140,6 +160,21 @@ async function measureAt(width, height) {
         const b = el.getBoundingClientRect();
         boxes[sel] = { left: Math.round(b.left), width: Math.round(b.width) };
       }
+      // Vertical rhythm: nothing in the top-chrome stack should butt directly
+      // against its neighbour. The local-file row shipped with margin-bottom: 0.
+      const stack = ['.command-bar', '#localFileRow', '#status'].map((s) => document.querySelector(s)).filter(Boolean);
+      const tightGaps = [];
+      for (let i = 1; i < stack.length; i++) {
+        const gap = stack[i].getBoundingClientRect().top - stack[i - 1].getBoundingClientRect().bottom;
+        // Plain concatenation, not a nested template literal: this whole block
+        // is itself inside one, and a nested backtick would terminate it.
+        if (gap < 4) {
+          const from = stack[i - 1].id || stack[i - 1].className;
+          const to = stack[i].id || stack[i].className;
+          tightGaps.push(from + '->' + to + '=' + Math.round(gap) + 'px');
+        }
+      }
+
       const bar = document.querySelector('.command-bar');
       const glyph = document.querySelector('.command-glyph');
       const input = document.querySelector('#urlInput');
@@ -156,6 +191,8 @@ async function measureAt(width, height) {
         barWidth: bar ? Math.round(bar.getBoundingClientRect().width) : 0,
         scrollWidth: document.documentElement.scrollWidth,
         innerWidth: window.innerWidth,
+        hiddenLeaks,
+        tightGaps,
       };
     })()
   `);
@@ -222,6 +259,10 @@ try {
   check('desktop: glyph sits inline with the input', desktop.glyphInline === true);
   check('desktop: no horizontal overflow', desktop.scrollWidth <= desktop.innerWidth + 1,
     `scrollWidth ${desktop.scrollWidth} > innerWidth ${desktop.innerWidth}`);
+  check('desktop: [hidden] actually hides', desktop.hiddenLeaks.length === 0,
+    `still visible: ${desktop.hiddenLeaks.join(', ')}`);
+  check('desktop: nothing in the top-chrome stack touches its neighbour', desktop.tightGaps.length === 0,
+    desktop.tightGaps.join(', '));
 
   console.log('\nmobile (390x844)');
   const mobile = await measureAt(390, 844);
@@ -237,6 +278,33 @@ try {
     `scrollWidth ${mobile.scrollWidth} > innerWidth ${mobile.innerWidth}`);
 
   console.log('\npage health');
+  // The landing page only exposes the elements visible at rest. Panes the user
+  // opens are where guard-less [hidden] elements actually surface: the digest
+  // export row (Copy / Download .md / Print) appeared with nothing to export
+  // the moment the Digest tab was opened, because `hidden` was doing nothing.
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await send('Page.navigate', { url: BASE });
+  await sleep(2000);
+  const paneLeaks = await evaluate(`
+    (() => {
+      const leaks = [];
+      const scan = (where) => {
+        for (const el of document.querySelectorAll('[hidden]')) {
+          if (el.checkVisibility && el.checkVisibility()) {
+            leaks.push(where + ':' + (el.id ? '#' + el.id : '.' + String(el.className).split(' ')[0]));
+          }
+        }
+      };
+      scan('landing');
+      for (const id of ['#tabDigest', '#tabTranscript', '#libraryBtn']) {
+        const tab = document.querySelector(id);
+        if (tab) { tab.click(); scan(id); }
+      }
+      return leaks;
+    })()
+  `);
+  check('[hidden] holds in every pane the user can open', paneLeaks.length === 0, paneLeaks.join(', '));
+
   check('no uncaught JS errors', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
   check('no failed requests on the landing page', badResponses.length === 0, badResponses.slice(0, 3).join(' | '));
 
