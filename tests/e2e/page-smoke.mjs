@@ -126,15 +126,13 @@ async function measureAt(width, height) {
   await sleep(2000);
   return evaluate(`
     (() => {
-      // FIRST, before anything is force-revealed: a class that sets display
-      // beats the UA [hidden] rule, so el.hidden can silently do nothing — the
-      // local-file row was always visible that way, including in web mode where
-      // its route 503s. This must run before the reveal below, or it would mask
-      // the very leak it exists to catch.
-      // checkVisibility(), not computed display: a child of a display:none
-      // ancestor still computes its own display of flex, which would report
-      // every guard-less element inside a closed pane. This asks the question
-      // that matters — is the user seeing it?
+      // Runs FIRST, before anything below is force-revealed, or it would mask
+      // the very leak it exists to catch. A class that sets display beats the
+      // UA [hidden] rule, so el.hidden can silently do nothing — the local-file
+      // row was always visible that way, including in web mode where its route
+      // 503s. checkVisibility() rather than computed display: a child of a
+      // display:none ancestor still computes its own display, which would
+      // report every guard-less element inside a closed pane.
       // (No backticks anywhere in this block: it lives inside a template
       // literal, and one would terminate it.)
       const hiddenLeaks = [];
@@ -178,6 +176,7 @@ async function measureAt(width, height) {
       const bar = document.querySelector('.command-bar');
       const glyph = document.querySelector('.command-glyph');
       const input = document.querySelector('#urlInput');
+      const fileBtn = document.querySelector('#localFileBtn');
       const mid = (el) => { const b = el.getBoundingClientRect(); return b.top + b.height / 2; };
       let sheetRules = 0;
       for (const s of document.styleSheets) { try { sheetRules += s.cssRules.length; } catch { /* cross-origin */ } }
@@ -188,6 +187,12 @@ async function measureAt(width, height) {
         barDirection: bar ? getComputedStyle(bar).flexDirection : null,
         glyphInline: (glyph && input) ? Math.abs(mid(glyph) - mid(input)) < 6 : null,
         inputWidth: input ? Math.round(input.getBoundingClientRect().width) : 0,
+        // Boxes lining up is not the same as text lining up: the field insets
+        // its own text by border + padding + glyph, so the link below it needs
+        // a matching indent or it reads as shoved to the left.
+        textOffset: (input && fileBtn)
+          ? Math.round(input.getBoundingClientRect().left - fileBtn.getBoundingClientRect().left)
+          : null,
         barWidth: bar ? Math.round(bar.getBoundingClientRect().width) : 0,
         scrollWidth: document.documentElement.scrollWidth,
         innerWidth: window.innerWidth,
@@ -257,6 +262,8 @@ try {
   assertColumn('desktop', desktop.boxes);
   check('desktop: command bar is a row', desktop.barDirection === 'row', `got ${desktop.barDirection}`);
   check('desktop: glyph sits inline with the input', desktop.glyphInline === true);
+  check('desktop: the file link starts where the URL text starts', Math.abs(desktop.textOffset) <= 2,
+    `link text is ${desktop.textOffset}px from the input text`);
   check('desktop: no horizontal overflow', desktop.scrollWidth <= desktop.innerWidth + 1,
     `scrollWidth ${desktop.scrollWidth} > innerWidth ${desktop.innerWidth}`);
   check('desktop: [hidden] actually hides', desktop.hiddenLeaks.length === 0,
@@ -274,6 +281,8 @@ try {
   // two-thirds means something is stacking or floating beside it again.
   check('mobile: input fills most of the command bar', mobile.inputWidth > mobile.barWidth * 0.66,
     `input ${mobile.inputWidth}px inside a ${mobile.barWidth}px bar`);
+  check('mobile: the file link starts where the URL text starts', Math.abs(mobile.textOffset) <= 2,
+    `link text is ${mobile.textOffset}px from the input text`);
   check('mobile: no horizontal overflow', mobile.scrollWidth <= mobile.innerWidth + 1,
     `scrollWidth ${mobile.scrollWidth} > innerWidth ${mobile.innerWidth}`);
 

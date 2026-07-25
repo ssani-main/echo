@@ -120,6 +120,16 @@
   --col-max:    1000px;
   --chrome-max: 760px;
 
+  /* Distance from the command bar's outer edge to where its text actually
+     begins: the bar's own inline padding, the 18px waveform glyph, and the
+     gap between them. Anything that should read as a continuation of the
+     field — the "or open an audio / video file" row — indents by this, so
+     its text starts on the same line as a pasted URL rather than 43px to
+     the left of it. Derived, not a magic number: change the bar's padding
+     or gap and this follows. The trailing 1px is the bar's own border, which
+     the padding sits inside of. */
+  --command-text-inset: calc(1px + var(--space-8) + 18px + var(--space-6));
+
   /* Find-in-transcript highlight tokens */
   --find-hit:        #FEF3C7;
   --find-hit-active: #FCD34D;
@@ -2013,6 +2023,11 @@ mark.find-hit.active {
      margin collapses against the bar's, so the pair reads as one unit. */
   margin-top: var(--space-4);
   margin-bottom: var(--space-8);
+  /* Line the link up with the URL text inside the field above, not with the
+     field's outer edge — it is the same offer continued ("paste a link, or
+     open a file"), so it should start where that text starts. box-sizing is
+     border-box, so this insets the text without widening the row. */
+  padding-inline-start: var(--command-text-inset);
   flex-wrap: wrap;
 }
 
