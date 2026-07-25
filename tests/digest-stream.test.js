@@ -28,6 +28,13 @@ const isWindows = process.platform === 'win32';
 const BIN_DIR = mkdtempSync(join(tmpdir(), 'echo-fake-claude-'));
 const DB = join(tmpdir(), `echo-test-stream-${process.pid}-${Date.now()}.db`);
 process.env.ECHO_DB_PATH = DB;
+// Keep this integration test's real route hits out of the real local usage
+// meter (data/usage-events.jsonl) — see usagelog.js. Belt and braces: the
+// synthetic flag alone still filters at read time, but pointing the log at a
+// throwaway path means this test never appends to the real file at all.
+process.env.ECHO_USAGE_SYNTHETIC = '1';
+const USAGE_LOG = join(tmpdir(), `echo-test-stream-usage-${process.pid}-${Date.now()}.jsonl`);
+process.env.ECHO_USAGE_LOG_PATH = USAGE_LOG;
 
 /**
  * Install a fake `claude` that prints `lines` (already-serialised NDJSON),
@@ -91,6 +98,7 @@ test.after(async () => {
   for (const suffix of ['', '-wal', '-shm']) {
     try { rmSync(DB + suffix, { force: true }); } catch { /* ignore */ }
   }
+  try { rmSync(USAGE_LOG, { force: true }); } catch { /* ignore */ }
 });
 
 /** POST a digest request and collect the SSE frames it produces. */

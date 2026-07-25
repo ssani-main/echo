@@ -21,6 +21,13 @@ const DB = join(tmpdir(), `echo-test-authroutes-${process.pid}-${Date.now()}.db`
 const SYNC_DB = join(tmpdir(), `echo-test-authsync-${process.pid}-${Date.now()}.db`);
 
 process.env.ECHO_DB_PATH = DB;
+// Keep this integration test's real route hits out of the real local usage
+// meter (data/usage-events.jsonl) — see usagelog.js. Belt and braces: the
+// synthetic flag alone still filters at read time, but pointing the log at a
+// throwaway path means this test never appends to the real file at all.
+process.env.ECHO_USAGE_SYNTHETIC = '1';
+const USAGE_LOG = join(tmpdir(), `echo-test-authroutes-usage-${process.pid}-${Date.now()}.jsonl`);
+process.env.ECHO_USAGE_LOG_PATH = USAGE_LOG;
 process.env.ECHO_SYNC_DB_PATH = SYNC_DB;
 process.env.ECHO_GOOGLE_CLIENT_ID = 'test-client-id';
 process.env.ECHO_GOOGLE_CLIENT_SECRET = 'test-client-secret';
@@ -41,6 +48,7 @@ test.after(async () => {
       try { rmSync(path + suffix, { force: true }); } catch { /* ignore */ }
     }
   }
+  try { rmSync(USAGE_LOG, { force: true }); } catch { /* ignore */ }
 });
 
 /** A session cookie for a user id, as the callback would have set. */

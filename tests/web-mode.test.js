@@ -8,6 +8,14 @@ import { rmSync } from 'node:fs';
 // DB file so this test file doesn't collide with other test files' DBs.
 const DB = join(tmpdir(), `echo-test-web-mode-${process.pid}-${Date.now()}.db`);
 process.env.ECHO_DB_PATH = DB;
+// Keep this integration test's real route hits out of the real local usage
+// meter (data/usage-events.jsonl) — see usagelog.js. (Belt-and-braces: most
+// of this file runs in local mode, which does log.) Also point the log at a
+// throwaway path so this test never appends to the real file at all, not
+// just relies on the synthetic flag being filtered out at read time.
+process.env.ECHO_USAGE_SYNTHETIC = '1';
+const USAGE_LOG = join(tmpdir(), `echo-test-web-mode-usage-${process.pid}-${Date.now()}.jsonl`);
+process.env.ECHO_USAGE_LOG_PATH = USAGE_LOG;
 
 const { rateLimitHit, buildConfigScript, ECHO_MODE, isWeb, ECHO_ERROR_STATUS } = await import('../server.js');
 
@@ -15,6 +23,7 @@ function cleanupDb() {
   for (const suffix of ['', '-wal', '-shm']) {
     try { rmSync(DB + suffix, { force: true }); } catch { /* ignore */ }
   }
+  try { rmSync(USAGE_LOG, { force: true }); } catch { /* ignore */ }
 }
 
 test.after(cleanupDb);

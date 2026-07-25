@@ -27,6 +27,14 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const SERVER_PATH = join(__dirname, '..', 'server.js');
 
 const DESKTOP_DB = join(tmpdir(), `echo-test-desktop-mode-${process.pid}-${Date.now()}.db`);
+// Keep this integration test's real route hits out of the real local usage
+// meter (data/usage-events.jsonl) — see usagelog.js. Set before bootServer()
+// so it's inherited by the spawned child process's env too. Belt and braces:
+// the synthetic flag alone still filters at read time, but pointing the log
+// at a throwaway path means this test never appends to the real file at all.
+process.env.ECHO_USAGE_SYNTHETIC = '1';
+const USAGE_LOG = join(tmpdir(), `echo-test-desktop-mode-usage-${process.pid}-${Date.now()}.jsonl`);
+process.env.ECHO_USAGE_LOG_PATH = USAGE_LOG;
 
 function cleanupDb(path) {
   for (const suffix of ['', '-wal', '-shm']) {
@@ -217,4 +225,5 @@ test('tears down the desktop-mode server', async () => {
 test.after(() => {
   cleanupDb(DESKTOP_DB);
   cleanupDb(HELPER_DB);
+  try { rmSync(USAGE_LOG, { force: true }); } catch { /* ignore */ }
 });

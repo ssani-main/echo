@@ -28,6 +28,15 @@ const SERVER_PATH = join(__dirname, '..', 'server.js');
 
 const WEB_DB = join(tmpdir(), `echo-test-web-gating-web-${process.pid}-${Date.now()}.db`);
 const LOCAL_DB = join(tmpdir(), `echo-test-web-gating-local-${process.pid}-${Date.now()}.db`);
+// Keep the local-mode instance's real route hits out of the real local usage
+// meter (data/usage-events.jsonl) — see usagelog.js. Set before bootServer()
+// so it's inherited by both spawned child processes' env. Belt and braces:
+// the synthetic flag alone still filters at read time, but pointing the log
+// at a throwaway path means neither child process ever appends to the real
+// file at all.
+process.env.ECHO_USAGE_SYNTHETIC = '1';
+const USAGE_LOG = join(tmpdir(), `echo-test-web-gating-usage-${process.pid}-${Date.now()}.jsonl`);
+process.env.ECHO_USAGE_LOG_PATH = USAGE_LOG;
 
 function cleanupDb(path) {
   for (const suffix of ['', '-wal', '-shm']) {
@@ -212,4 +221,5 @@ test('tears down the local-mode server', async () => {
 test.after(() => {
   cleanupDb(WEB_DB);
   cleanupDb(LOCAL_DB);
+  try { rmSync(USAGE_LOG, { force: true }); } catch { /* ignore */ }
 });

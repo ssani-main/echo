@@ -73,10 +73,23 @@ function check(name, ok, detail = '') {
 // --- boot a real server, the way a user runs one ------------------------------
 const dbDir = mkdtempSync(join(tmpdir(), 'echo-smoke-'));
 const dbPath = join(dbDir, 'smoke.db');
+// ECHO_USAGE_SYNTHETIC + a throwaway ECHO_USAGE_LOG_PATH keep this smoke
+// server's route hits out of the real local usage meter
+// (data/usage-events.jsonl) — see usagelog.js. Belt and braces: the
+// synthetic flag alone still filters at read time, but pointing the log at
+// a throwaway path means this run never appends to the real file at all.
+const usageLogPath = join(dbDir, 'smoke-usage.jsonl');
 const PORT = 8731;
 const server = spawn(process.execPath, ['server.js'], {
   cwd: REPO,
-  env: { ...process.env, PORT: String(PORT), ECHO_DB_PATH: dbPath, ECHO_MODE: process.env.ECHO_MODE || 'local' },
+  env: {
+    ...process.env,
+    PORT: String(PORT),
+    ECHO_DB_PATH: dbPath,
+    ECHO_MODE: process.env.ECHO_MODE || 'local',
+    ECHO_USAGE_SYNTHETIC: '1',
+    ECHO_USAGE_LOG_PATH: usageLogPath,
+  },
   stdio: 'ignore',
 });
 const BASE = `http://127.0.0.1:${PORT}`;
