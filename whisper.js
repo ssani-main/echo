@@ -380,6 +380,30 @@ export const LOCAL_MEDIA_EXTENSIONS = new Set([
  *   with a non-enumerable `source` of 'whisper' (see mapWhisperJson)
  */
 export async function transcribeFile(filePath, opts = {}) {
+  try {
+    return await runFilePipeline(filePath, opts);
+  } catch (err) {
+    // Parity with transcribeViaWhisper: the server maps errors by echoCode, and
+    // anything without one degrades to a bare 500 "unexpected server error".
+    // ffmpeg rejecting a corrupt upload used to land there — a dead end the
+    // user could neither understand nor act on.
+    if (!err.echoCode) {
+      const m = mapWhisperError(err);
+      err.echoCode = m.echoCode;
+      if (!err.hint) err.hint = m.hint;
+      // renderTranscriptError shows `message` as the headline and tucks `detail`
+      // behind "Show technical details". A decode failure's message is a 500-char
+      // ffmpeg dump, so it belongs in detail — the headline has to be readable.
+      if (m.echoCode === 'MEDIA_UNREADABLE') {
+        if (!err.detail) err.detail = err.stderr || err.message;
+        err.message = 'This file could not be read as audio or video.';
+      }
+    }
+    throw err;
+  }
+}
+
+async function runFilePipeline(filePath, opts = {}) {
   const { binPath, modelPath } = requireWhisper(opts);
   const ffmpeg = opts.ffmpegPath || process.env.ECHO_FFMPEG || 'ffmpeg';
   const maxMinutes = opts.maxMinutes || DEFAULT_MAX_MINUTES;
@@ -469,6 +493,19 @@ export function mapWhisperError(err) {
   }
   if (err.code === 'ENOENT' && /ffmpeg/i.test(blob)) {
     return { echoCode: 'FFMPEG_MISSING', message, hint: 'Install ffmpeg — required to convert audio for Whisper.' };
+  }
+  // ffmpeg ran and refused the input: the file is corrupt, truncated, or not
+  // really media. That is a fact about the *upload*, not a server fault, so it
+  // must not fall through to the generic WHISPER_FAILED/500 — the user can act
+  // on it (re-export, pick another file) once told. Ordered after the ENOENT
+  // check above so an absent binary still reports FFMPEG_MISSING, and before
+  // the timeout check so a killed conversion is still reported as a timeout.
+  if (!err.killed && err.signal !== 'SIGTERM' && /^ffmpeg exited with code/i.test(message)) {
+    return {
+      echoCode: 'MEDIA_UNREADABLE',
+      message,
+      hint: 'This file could not be decoded — it may be corrupt, truncated, or not an audio/video file.',
+    };
   }
   if (err.killed || err.signal === 'SIGTERM' || /timed?\s?out/i.test(message)) {
     return { echoCode: 'WHISPER_TIMEOUT', message, hint: 'Transcription took too long and was stopped. Try a shorter video or a faster model.' };

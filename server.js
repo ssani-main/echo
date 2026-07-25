@@ -386,6 +386,9 @@ const ECHO_ERROR_STATUS = {
   API_FAILED:             502,
   WEB_MODE_UNSUPPORTED:   503,
   FFMPEG_MISSING:  503,
+  // ffmpeg ran and could not decode the file. 422, not 500: the request is
+  // well-formed but its payload is unusable, and the fix is the user's.
+  MEDIA_UNREADABLE:       422,
   WHISPER_MISSING:        503,
   WHISPER_MODEL_MISSING:  503,
   WHISPER_FAILED:         502,

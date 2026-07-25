@@ -78,15 +78,19 @@ test('POST /api/transcript/file accepts an extensionless name rather than guessi
 });
 
 test('a valid upload reaches the Whisper stage and reports why it cannot finish', async () => {
-  // The vendored whisper-cli exists in this repo but no model is downloaded in
-  // a test environment, so the pipeline gets as far as resolving Whisper and
-  // then reports exactly that. Reaching this error proves the upload was
-  // accepted, buffered, written to disk, and handed to transcribeFile().
+  // How far the pipeline gets depends on what the machine has installed, so the
+  // assertion is on the *class* of answer, not one code. Bare CI stops at
+  // Whisper resolution (no model, no ffmpeg); a developer box with both gets
+  // further, and ffmpeg rejects these fake bytes — MEDIA_UNREADABLE. Every one
+  // of them proves the upload was accepted, buffered, written and handed to
+  // transcribeFile(); what must never appear is a bare INTERNAL, which is what
+  // an unclassified error degrades to.
   const res = await upload('?name=lecture.mp3', Buffer.from('fake mp3 bytes for the pipeline'));
 
   assert.ok(res.json && res.json.error, `expected an error envelope, got: ${res.text.slice(0, 200)}`);
   assert.ok(
-    ['WHISPER_MODEL_MISSING', 'WHISPER_MISSING', 'WHISPER_FAILED', 'FFMPEG_MISSING'].includes(res.json.error.code),
+    ['WHISPER_MODEL_MISSING', 'WHISPER_MISSING', 'WHISPER_FAILED', 'FFMPEG_MISSING', 'MEDIA_UNREADABLE']
+      .includes(res.json.error.code),
     `expected a Whisper-stage error code, got ${res.json.error.code}`
   );
   // Whatever the stage, the user must get a next step rather than a bare failure.

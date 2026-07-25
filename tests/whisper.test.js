@@ -103,6 +103,39 @@ test('mapWhisperError: ffmpeg ENOENT maps to FFMPEG_MISSING', () => {
   assert.match(mapped.hint, /ffmpeg/i);
 });
 
+// Regression: ffmpeg *running* and rejecting the input is a different failure
+// from ffmpeg being absent, and it used to have no code at all — so a corrupt
+// upload reached the user as a bare 500 "unexpected server error" with no hint.
+test('mapWhisperError: a non-zero ffmpeg exit maps to MEDIA_UNREADABLE, not FFMPEG_MISSING', () => {
+  const err = {
+    exitCode: 1,
+    message: "ffmpeg exited with code 1: Invalid data found when processing input",
+    stderr: 'Invalid data found when processing input',
+  };
+  const mapped = mapWhisperError(err);
+  assert.equal(mapped.echoCode, 'MEDIA_UNREADABLE');
+  assert.match(mapped.hint, /corrupt|truncated|not an audio/i);
+});
+
+// The decode check must not swallow a conversion we killed ourselves: a timeout
+// also exits non-zero via ffmpeg, but the cause — and the fix — is different.
+test('mapWhisperError: an ffmpeg conversion killed on timeout is still WHISPER_TIMEOUT', () => {
+  const err = {
+    killed: true, signal: 'SIGTERM', exitCode: null,
+    message: 'ffmpeg exited with code null (SIGTERM): ',
+  };
+  const mapped = mapWhisperError(err);
+  assert.equal(mapped.echoCode, 'WHISPER_TIMEOUT');
+});
+
+// An absent binary must keep reporting FFMPEG_MISSING — that one is fixable by
+// installing something, and MEDIA_UNREADABLE would send the user hunting a
+// nonexistent problem in their file.
+test('mapWhisperError: ffmpeg ENOENT still wins over the decode-failure branch', () => {
+  const err = { code: 'ENOENT', message: 'spawn ffmpeg ENOENT', path: 'ffmpeg' };
+  assert.equal(mapWhisperError(err).echoCode, 'FFMPEG_MISSING');
+});
+
 test('mapWhisperError: a killed/SIGTERM error maps to WHISPER_TIMEOUT', () => {
   const err = { killed: true, signal: 'SIGTERM', message: 'x' };
   const mapped = mapWhisperError(err);
