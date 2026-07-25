@@ -5250,6 +5250,123 @@ document.addEventListener('keydown', e => {
   }
 });
 
+/* ==============================================
+   EXTENSION TRANSCRIPT HANDOFF
+   The browser extension can scrape a transcript on the visitor's own
+   YouTube tab (their IP, their session) and hand it here instead of making
+   Echo's server fetch it — the fix for YouTube bot-blocking a hosted
+   server's IP. The payload travels in the URL FRAGMENT, never sent to the
+   server, so this is purely a client-side handoff: see
+   extension/shared.js echoEncodeTranscript() for the writer.
+=============================================== */
+
+const ECHO_TX_HASH_KEY = 'echo-tx';
+
+/**
+ * Synchronously read the raw encoded transcript out of the URL fragment
+ * (key 'echo-tx'), or '' if absent. Kept synchronous and side-effect-free so
+ * autoLoadFromQuery() can grab it before the fragment is wiped by the
+ * history.replaceState() cleanup below.
+ * @returns {string}
+ */
+function readExtensionTranscriptHash() {
+  try {
+    if (!location.hash || location.hash.length < 2) return '';
+    const params = new URLSearchParams(location.hash.slice(1)); // drop leading '#'
+    return params.get(ECHO_TX_HASH_KEY) || '';
+  } catch (e) { return ''; }
+}
+
+/**
+ * Strictly validate a decoded extension transcript payload before it's
+ * allowed to touch app state.
+ *
+ * THIS is the real trust boundary, not extension/background.js's copy of
+ * these same rules. That copy only protects payloads that actually came
+ * from Echo's own content script — but this fragment is just a URL, and a
+ * hostile page can send a visitor to `<echo>/?v=…#echo-tx=…` with a
+ * fabricated payload of its own, skipping the extension entirely. Nobody
+ * upstream of this function should be trusted to have already checked it.
+ *
+ * @param {*} payload
+ * @param {string} expectedVideoId - the ?v= id this page loaded for
+ * @returns {boolean}
+ */
+function isValidExtensionTranscript(payload, expectedVideoId) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+
+  if (!Array.isArray(payload.segments)) return false;
+  if (payload.segments.length < 1 || payload.segments.length > 50000) return false;
+  for (const seg of payload.segments) {
+    if (!seg || typeof seg !== 'object') return false;
+    if (typeof seg.text !== 'string' || seg.text.length > 5000) return false;
+    if (typeof seg.offset !== 'number' || !Number.isFinite(seg.offset)) return false;
+  }
+
+  if (typeof payload.videoId !== 'string' || !/^[A-Za-z0-9_-]{11}$/.test(payload.videoId)) return false;
+  if (payload.videoId !== expectedVideoId) return false;
+
+  for (const key of ['title', 'channel', 'channelUrl', 'langCode']) {
+    const value = payload[key];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== 'string' || value.length > 500) return false;
+  }
+
+  return true;
+}
+
+/**
+ * Decode + validate an extension-supplied transcript and, on success, apply
+ * it exactly as a normal fetch would. Returns false on ANY failure (bad
+ * base64, bad gzip, bad JSON, failed validation) so the caller can fall back
+ * to fetchTranscript() — this path must degrade to today's behaviour, never
+ * get stuck.
+ *
+ * @param {string} encoded - raw fragment value (base64url of gzip of JSON)
+ * @param {string} expectedVideoId - the ?v= id this page loaded for
+ * @returns {Promise<boolean>}
+ */
+async function applyExtensionTranscript(encoded, expectedVideoId) {
+  try {
+    if (!encoded || typeof DecompressionStream === 'undefined') return false;
+
+    // base64url -> base64 -> raw bytes
+    const b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+    const binary = atob(padded);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+    // Bound the DECOMPRESSED size, not just the encoded one: gzip reaches
+    // ~1000:1 on repetitive input, so the 1.5 MB fragment cap alone would
+    // still allow a >1 GB expansion — and any page can link a visitor here.
+    const MAX_DECOMPRESSED = 12_000_000;
+    const gunzipped = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+    const reader = gunzipped.getReader();
+    const chunks = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > MAX_DECOMPRESSED) { reader.cancel(); return false; }
+      chunks.push(value);
+    }
+    const merged = new Uint8Array(total);
+    let at = 0;
+    for (const c of chunks) { merged.set(c, at); at += c.length; }
+    const json = new TextDecoder().decode(merged);
+    const payload = JSON.parse(json);
+
+    if (!isValidExtensionTranscript(payload, expectedVideoId)) return false;
+
+    applyTranscriptResponse(payload);
+    return true;
+  } catch (e) {
+    return false; // any failure here just means "fetch it ourselves instead"
+  }
+}
+
 /** Returns true if a transcript fetch was kicked off. */
 function autoLoadFromQuery() {
   try {
@@ -5264,12 +5381,27 @@ function autoLoadFromQuery() {
     }
     if (!target) return false;
     if (typeof urlInput !== 'undefined' && urlInput) urlInput.value = target;
-    // Clean the query string so a refresh doesn't re-trigger and the bar looks tidy
+
+    // Grab the extension handoff (if any) BEFORE the cleanup below wipes it —
+    // history.replaceState() to a bare pathname clears the query string AND
+    // the fragment in one shot, so this has to happen first.
+    const txEncoded = readExtensionTranscriptHash();
+
+    // Clean the query string + fragment so a refresh doesn't re-trigger (or
+    // re-apply a stale transcript) and the bar looks tidy.
     if (window.history && history.replaceState) {
       history.replaceState({}, document.title, location.pathname);
     }
-    // Kick off the normal transcript fetch
-    fetchTranscript();
+
+    if (txEncoded && v) {
+      // Extension path: decode+validate first, fetch only if that fails.
+      applyExtensionTranscript(txEncoded, v).then((applied) => {
+        if (!applied) fetchTranscript();
+      });
+    } else {
+      // Kick off the normal transcript fetch
+      fetchTranscript();
+    }
     return true;
   } catch (e) { /* non-fatal: ignore malformed query */ return false; }
 }

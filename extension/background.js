@@ -15,10 +15,67 @@ async function openTab(url) {
   await chrome.tabs.create({ url });
 }
 
-/** Open Echo for a video id, or Echo's home page when there is no video. */
-async function openEcho(videoId) {
+/**
+ * Strictly validate a scraped transcript before it is allowed to shape a URL
+ * this worker opens. This is defense in depth, not the real trust boundary —
+ * the content script sending this message is Echo's own code. The check that
+ * actually matters lives in public/app.js, because a hostile page can hand a
+ * visitor `<echo>/?v=…#echo-tx=…` directly with a fabricated payload, and
+ * this worker never sees that path at all.
+ *
+ * @param {*} payload
+ * @param {string} videoId - the id this message also carried, independently
+ * @returns {boolean}
+ */
+function isValidTranscriptPayload(payload, videoId) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+
+  if (!Array.isArray(payload.segments)) return false;
+  if (payload.segments.length < 1 || payload.segments.length > 50000) return false;
+  for (const seg of payload.segments) {
+    if (!seg || typeof seg !== 'object') return false;
+    if (typeof seg.text !== 'string' || seg.text.length > 5000) return false;
+    if (typeof seg.offset !== 'number' || !Number.isFinite(seg.offset)) return false;
+  }
+
+  if (typeof payload.videoId !== 'string' || !/^[A-Za-z0-9_-]{11}$/.test(payload.videoId)) return false;
+  if (payload.videoId !== videoId) return false;
+
+  for (const key of ['title', 'channel', 'channelUrl', 'langCode']) {
+    const value = payload[key];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== 'string' || value.length > 500) return false;
+  }
+
+  return true;
+}
+
+/**
+ * Open Echo for a video id, or Echo's home page when there is no video.
+ *
+ * When a validated transcript is available it's folded into the URL
+ * fragment (see shared.js echoEncodeTranscript()) so the page skips its own
+ * server fetch entirely. Any failure along that path — invalid payload,
+ * encode failure, oversized result — falls back to the plain ?v= URL exactly
+ * as before this feature existed.
+ *
+ * @param {string|null} videoId
+ * @param {object} [transcript] - optional scraped payload from content.js
+ */
+async function openEcho(videoId, transcript) {
   const server = await echoGetServer();
-  await openTab(videoId ? echoReadUrl(server, videoId) : `${server}/`);
+  if (!videoId) {
+    await openTab(`${server}/`);
+    return;
+  }
+  if (transcript && isValidTranscriptPayload(transcript, videoId)) {
+    const encoded = await echoEncodeTranscript(transcript);
+    if (encoded) {
+      await openTab(echoReadUrlWithTranscript(server, videoId, encoded));
+      return;
+    }
+  }
+  await openTab(echoReadUrl(server, videoId));
 }
 
 // --- Toolbar button --------------------------------------------------------
@@ -58,9 +115,11 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
 // itself from its own stored setting, so nothing a page could influence ever
 // reaches chrome.tabs.create — a URL assembled in the content script's world
 // would be worth distrusting, and a bare id validated against the YouTube id
-// shape cannot express a scheme at all.
+// shape cannot express a scheme at all. It may also send a scraped
+// transcript payload alongside the id; that's validated separately in
+// openEcho() before it's allowed to touch the URL.
 chrome.runtime.onMessage.addListener((message) => {
   if (!message || message.type !== 'echo:open') return;
   if (typeof message.videoId !== 'string' || !/^[A-Za-z0-9_-]{11}$/.test(message.videoId)) return;
-  openEcho(message.videoId);
+  openEcho(message.videoId, message.transcript);
 });

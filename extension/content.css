@@ -37,6 +37,15 @@
   outline-offset: 2px;
 }
 
+/* Shown while the transcript scrape (two round trips) is in flight, so the
+   click has somewhere to land instead of looking dead until the new tab
+   opens. */
+#echo-read-button.echo-read-button.echo-read-button-busy {
+  opacity: 0.6;
+  cursor: default;
+  pointer-events: none;
+}
+
 #echo-read-button.echo-read-button svg {
   flex: none;
 }
