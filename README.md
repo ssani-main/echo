@@ -5,88 +5,23 @@
   <img alt="Echo" src="public/echo-logo-light.png" width="210">
 </picture>
 
-### _Paste a YouTube link. Read what was actually said._
+### Paste a YouTube link. Read what was actually said.
 
-Echo pulls the transcript out of any YouTube video, reflows the messy auto-captions into something you'd actually want to read, and — if you like — hands it to AI for a clean digest.
-
-<br>
+Echo pulls the transcript out of a video, reflows the two-second caption fragments
+into paragraphs you'd actually read, and hands it to AI for a digest.
+Runs on your machine. No API key needed.
 
 ![Node](https://img.shields.io/badge/Node-%E2%89%A522.5-3c873a?style=flat-square&logo=node.js&logoColor=white)
-![Express](https://img.shields.io/badge/Express-4-16181D?style=flat-square&logo=express&logoColor=white)
 ![Runs locally](https://img.shields.io/badge/runs-100%25%20local-0B6B4F?style=flat-square)
 ![No API key](https://img.shields.io/badge/AI%20digest-no%20API%20key%20needed-0B6B4F?style=flat-square)
+![No build step](https://img.shields.io/badge/build%20step-none-0B6B4F?style=flat-square)
+![License](https://img.shields.io/badge/license-MIT-16181D?style=flat-square)
 
 </div>
 
 ---
 
-## ✨ What it does
-
-You've been there: you find a great video, but you'd rather *read* it than sit through 40 minutes. YouTube has the captions — they're just locked behind the player and chopped into unreadable two-second fragments. Echo fixes that.
-
-```
-   🔗  paste a link
-        │
-        ▼
-   📥  fetch the caption track          (youtube-transcript → yt-dlp → Whisper)
-        │
-        ▼
-   🧹  reflow into readable paragraphs   (sentence + pause aware)
-        │
-        ▼
-   🤖  optional: AI digest               (via your local Claude Code CLI)
-```
-
-## 🌟 Features
-
-| | Feature | Notes |
-|---|---|---|
-| 📥 | **Transcript fetching** | Works with `watch?v=`, `youtu.be/`, `/shorts/`, `/embed/`, or a bare video ID; pick your caption language from available tracks |
-| 📋 | **Paste-to-fetch** | Paste a YouTube link into the input field and it auto-loads the transcript—no click needed |
-| 🧹 | **Readable mode** | Glues captions into proper sentences & paragraphs; find-in-transcript with live match counter and Prev/Next navigation; copy/download as Markdown — all persists across sessions |
-| 🎛️ | **Shared reading controls** | Font size (A−/A+) and column width (Narrow/Medium/Wide: ~620 / 760 / 940 px) apply to both Transcript and Digest lenses, share one preference, and scale the reading column responsively. Digest AI output is typeset as a readable article |
-| ⏱️ | **Timecoded mode** | Subtitle-editor style with monospace timecode gutter; every timestamp deep-links YouTube (`&t=<sec>s`) |
-| 💾 | **Session restore** | Refreshing the page restores the current transcript, digest, view mode, lens, and Library state via sessionStorage—no re-fetch |
-| 🤖 | **AI Digest** | Switch to the Digest lens for an AI-generated read: **Digest** (synthesized, reorganized by idea), **Article** (full-fidelity rewrite, nothing dropped), or **Bullets** — plus an output-language picker. **Streams as it is written**, so you start reading in about a second instead of waiting for the whole thing. Very long transcripts fall back to map-reduce automatically |
-| 🎙️ | **Whisper transcription** | No captions? Local speech-to-text via whisper.cpp fills the gap (**Fallback**), or transcribes everything for accuracy (**High-accuracy**). Off by default; configured in Settings with a `base`/`small` model picker and on-demand download. Local/desktop only, needs `ffmpeg` on `PATH` |
-| 🎧 | **Local audio & video** | Not just YouTube — open a podcast download, a lecture recording or a meeting capture and Echo transcribes it with Whisper, then digests it like anything else. Local/desktop, needs `ffmpeg` |
-| 🧩 | **Browser extension** | A **Read in Echo** button on YouTube watch pages, a toolbar button, and a right-click item for links. See [`extension/`](extension/) |
-| 🪨 | **Obsidian plugin** | Paste a link inside Obsidian and get a note — transcript, digest, frontmatter — filed in your vault. See [`obsidian-plugin/`](obsidian-plugin/) |
-| 📑 | **Reader & Library** | Transcript and Digest are lens tabs—two views of the current video. Saved videos open from a **Library** button in the header (with count) |
-| 🟢 | **Live status indicator** | Fixed pill shows "AI is digesting…" → "Digest ready ✓" as it processes; click to jump to the Digest pane |
-| 💾 | **Library & tagging** | Save videos; search by keyword (SQLite FTS5), sort (Recently saved / Title A–Z), tag with auto-suggestions; export whole library as ZIP of Markdown files or JSON backup; sync to Obsidian vault |
-| 🔐 | **Accounts & sync** _(hosted, optional)_ | Sign in with Google so your library follows you between devices. Off unless the operator configures it — and it never changes where your API key lives: keys stay in your browser either way |
-| ⌨️ | **Keyboard shortcuts** | Press `?` for the overlay; `/` focus find, `1`/`2` switch Transcript & Digest lenses, `3` open Library, `t` toggle dark mode, `Esc` close — all paused while typing |
-| 🎨 | **Light & dark themes** | The "Plaintext" theme: one system monospace family, no webfonts, no accent hue, hierarchy carried by weight rather than size. Loading skeletons respect reduced-motion |
-| 🛟 | **Automatic fallback** | If the transcript library hiccups, `yt-dlp` steps in |
-| 🏠 | **Fully local** | Your own machine, your own browser — nothing leaves the room |
-
-## 🤖 About the AI Digest
-
-The AI digest **doesn't need an Anthropic API key or any billing setup** when running locally. Echo shells out to your locally-installed [**Claude Code**](https://claude.com/claude-code) CLI in headless mode, reusing your existing login and subscription quota.
-
-Switch to the **Digest** lens and Echo generates it directly. Three formats:
-
-- **Digest** _(default)_ — the video's real substance, synthesized and reorganized by idea rather than in the order it was said. Not a summary of what the video "covers"; the point itself.
-- **Article** — a full-fidelity rewrite you read *instead of* watching. Nothing substantive is dropped, only the noise of speech.
-- **Bullets** — a short TL;DR plus the key takeaways.
-
-Pick your output language too (default English). Transcripts past ~120k tokens are chunked, summarized in parallel, and synthesized in a final pass automatically — while that is happening the pane reports which part it is reading, since no digest text exists yet.
-
-The digest **streams**: text appears as the model writes it rather than after the whole call returns. If streaming is unavailable for any reason, Echo silently falls back to the single-response request it used before, so the worst case is the wait you already had.
-
-The prompts live in [`digest.js`](./digest.js) — tweak them if you'd rather have a different model, tone, or analysis approach.
-
-## 🚀 Getting started
-
-### Prerequisites
-
-- **[Node.js](https://nodejs.org/) ≥ 22.5**
-- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** _(optional)_ — the reliability fallback. `winget install yt-dlp` or `pip install yt-dlp`, and make sure it's on your `PATH`.
-- **[Claude Code](https://claude.com/claude-code)** _(optional)_ — only needed for the **AI features** (the digest and Explain/Background lookups). Desktop mode can use BYOK (Bring Your Own Key) from Anthropic as a fallback.
-- **[ffmpeg](https://ffmpeg.org/)** _(optional)_ — only needed for **Whisper transcription**, to extract audio. The `whisper-cli` binary itself ships with Echo on Linux x64 and Windows x64; macOS has no prebuilt binary, so Whisper stays off there.
-
-### Install & run
+## Quickstart
 
 ```bash
 git clone https://github.com/ssani-main/echo.git
@@ -95,333 +30,395 @@ npm install
 npm start
 ```
 
-Then open **http://localhost:8000** 🎉
+Open **http://localhost:8000**, paste a link. That's it — the transcript loads the
+moment a valid URL hits the field.
 
-> 💡 On Windows PowerShell, if `npm start` trips the execution policy, run `npm.cmd start` or launch it from `cmd`.
+**Node ≥ 22.5** is the only hard requirement (Echo uses the built-in `node:sqlite`,
+so there is nothing to compile). Three optional extras, each unlocking one thing:
 
-## 🚀 Running Echo — Deployment modes
+| Install | Unlocks |
+|---|---|
+| [Claude Code](https://claude.com/claude-code) | the AI digest, using your existing login — **no API key, no billing setup** |
+| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | the caption-fetch fallback when YouTube shifts its internals |
+| [ffmpeg](https://ffmpeg.org/) | Whisper transcription for videos with no captions, and local audio/video files |
 
-Echo is one codebase that runs three ways—same core, different shells.
+> On Windows PowerShell, if `npm start` trips the execution policy, use `npm.cmd start`.
 
-### Local (default)
+---
+
+## What it does
+
+```
+   paste a link
+        │
+        ▼
+   fetch captions ─────────► youtube-transcript → yt-dlp → Whisper
+        │
+        ▼
+   reflow into paragraphs ──► sentence- and pause-aware, not fixed-width
+        │
+        ▼
+   AI digest ──────────────► streams as it is written
+        │
+        ▼
+   save to your library ───► searchable, taggable, exportable
+```
+
+Four things carry the product, and everything else is in service of them.
+
+**Readable transcripts.** YouTube has the captions; it just chops them into
+fragments and hides them behind the player. Echo glues them back into sentences and
+paragraphs. Toggle to **Timecoded** for a subtitle-editor view where every timestamp
+deep-links back into the video. Find-in-transcript with a live match count, and the
+header states the trade you came for: `~26m watch · 23 min read`.
+
+**A digest, not a summary.** Three levels of fidelity, from a TL;DR to a rewrite that
+drops nothing but the noise of speech. It streams, so you start reading in about a
+second. See [below](#the-digest).
+
+**A library that stays yours.** Save a video and it's searchable full-text (SQLite
+FTS5 over transcripts *and* digests), taggable with AI-suggested tags, and exportable
+as Markdown — or synced straight into an Obsidian vault. It lives in `data/library.db`,
+gitignored, on your disk.
+
+**Whisper when there are no captions.** Local speech-to-text via whisper.cpp fills the
+dead end, either as a **Fallback** (only when captions are missing) or **High-accuracy**
+(always). Off by default; the binary ships with Echo on Linux x64 and Windows x64. It
+also means Echo reads things that were never on YouTube — a podcast download, a lecture
+recording, a meeting capture.
+
+<details>
+<summary><b>Everything else it does</b></summary>
+
+- **Paste-to-fetch** — no button; a valid URL in the field starts the fetch. Accepts
+  `watch?v=`, `youtu.be/`, `/shorts/`, `/embed/`, or a bare video ID.
+- **Reading controls** — font size (A−/A+) and column width (Narrow / Medium / Wide,
+  ~620 / 760 / 940px). One control for both lenses, one saved preference.
+- **Session restore** — refresh and the transcript, digest, view mode and lens all
+  come back from sessionStorage. No re-fetch.
+- **Plain-language failures** — a scheduled premiere, a live stream, a private or
+  age-restricted or region-blocked video, a datacenter IP bot-block, or genuinely no
+  captions: Echo names which one, with the raw error one click away under *Show
+  technical details*.
+- **Keyboard** — `?` for the overlay, `/` to search, `1` / `2` for the Transcript and
+  Digest lenses, `3` for the Library, `t` for dark mode, `Esc` to close. All paused
+  while you're typing.
+- **Light and dark** — the "Plaintext" theme: one system monospace family, no
+  webfonts, no accent hue, hierarchy carried by weight rather than size. Respects
+  `prefers-reduced-motion`.
+- **Nothing from a third party** — the CSP allows no inline script, no inline style,
+  and no external script, style or font origin. JSZip is vendored. The only outbound
+  requests are YouTube's thumbnails.
+- **Accounts and cross-device sync** _(hosted, optional)_ — Google sign-in so a
+  library follows a visitor between devices. Off unless the operator sets three env
+  vars, and it never changes where an API key lives.
+
+</details>
+
+---
+
+## The digest
+
+**No Anthropic API key and no billing setup** when running locally: Echo shells out to
+your installed [Claude Code](https://claude.com/claude-code) CLI in headless mode and
+reuses your existing login and quota.
+
+One dial, ordered by how much of the video survives:
+
+| | What you get |
+|---|---|
+| **Gist** | A short TL;DR plus the key takeaways. |
+| **Digest** _(default)_ | The real substance, reorganised by idea rather than in the order it was said. Not a summary of what the video "covers" — the point itself. |
+| **Everything** | A full-fidelity rewrite you read *instead of* watching. Nothing substantive is dropped, only the noise of speech. |
+
+Pick an output language too. Transcripts past ~120k tokens are chunked, digested in
+parallel and synthesised in a final pass automatically — while that happens the pane
+reports which part it is reading, because no digest text exists yet.
+
+The digest **streams** — text appears as the model writes it. If streaming is
+unavailable for any reason Echo falls back to the single-response call it used before,
+so the worst case is the wait you already had.
+
+Prompts live in [`digest.js`](./digest.js). Change the tone, the model, the whole
+approach.
+
+---
+
+## Ways to run it
+
+### Local — the default
 
 ```bash
 npm start
 ```
 
-Opens **http://localhost:8000**. The AI features shell out to your locally-installed [Claude Code CLI](https://claude.com/claude-code) — no API key or subscription setup needed, reuses your existing quota. **This is the standard way to run Echo and requires no environment configuration.**
+Your machine, your browser, your Claude CLI. No environment configuration at all.
+**This is the way Echo is meant to be run**, and the one that never breaks.
 
-### Public tunnel (Holesail + Janus)
-
-Hosting Echo on a VPS doesn't work: transcript fetches happen server-side, and
-YouTube bot-blocks datacenter IP ranges outright. A machine on a residential
-connection doesn't have that problem, and it can run the local Claude CLI too
-— so instead of deploying, run Echo where you already are and tunnel it out.
-This approach has been verified end to end: a video that failed on the VPS
-with bot-blocking returned 1077 caption segments through the tunnel.
+### Public tunnel — share your local Echo
 
 ```bash
 npm run serve:public
 ```
 
-One command starts Echo and opens a [Holesail](https://holesail.io) tunnel
-through [Janus](https://janus.ssani.dev), then prints a public
-`https://0000<key>.janus.ssani.dev/` URL. The URL is **stable across
-restarts** — the underlying key is derived from a seed persisted at
-`.holesail-seed` in the repo root (generated on first run, gitignored, mode
-`0600`). That file **is a secret**: it's the serving capability for the
-tunnel, not a cosmetic id — don't share it, don't commit it. Pass `--attach`
-(or set `ECHO_HOLESAIL_ATTACH=1`) to tunnel an Echo you've already started
-instead of spawning a new one. **Note:** the tunnel requires a running Janus
-gateway (a separate project). See `npm run serve:public -- --help` for all
-available flags.
+Hosting Echo on a VPS **does not work**: transcript fetches happen server-side and
+YouTube bot-blocks datacenter IP ranges outright. A residential connection doesn't
+have that problem — so rather than deploy, run Echo where you already are and tunnel
+it out. Verified end to end: a video that failed on a VPS returned 1077 caption
+segments through the tunnel.
 
-⚠️ **This makes Echo reachable by anyone with the link.** In `local` mode
-(the default) that means anyone with the URL can spend your Claude CLI quota
-and read/write your whole library — there's no BYOK gate and no auth. Either
-set a per-key password on the tunnel in the Janus admin dashboard, or run
-with `ECHO_MODE=web` first (visitors bring their own Anthropic key, and the
-server-side library routes are disabled).
+One command starts Echo, opens a [Holesail](https://holesail.io) tunnel through a
+[Janus](https://janus.ssani.dev) gateway, and prints a stable public URL. The key is
+derived from a seed at `.holesail-seed` (created on first run, gitignored, mode `0600`)
+so the URL survives restarts. **That file is a secret** — it is the serving capability
+for the tunnel. `--attach` tunnels an Echo you already started; `-- --help` lists every
+flag. Requires a running Janus gateway (a separate project).
 
-### Hosted web (BYOK — Bring Your Own Key)
+> **This makes Echo reachable by anyone with the link.** In `local` mode that means
+> anyone with the URL can spend your Claude quota and read or write your library.
+> Set a per-key password in the Janus dashboard, or run with `ECHO_MODE=web` so
+> visitors bring their own key and the server-side library routes switch off.
+
+### Hosted web — bring your own key
 
 ```bash
 ECHO_MODE=web PORT=8080 node server.js
 ```
 
-Public web mode with no authentication. Each visitor:
-- **Provides their own Anthropic API key** in Settings (gear icon)
-- **First-run onboarding**: new users see a card explaining that they need to add their own API key to use the AI features
-- Key validated on save via `POST /api/validate-key` — invalid keys are rejected immediately
-- Key stored in browser's **localStorage**, sent per-request as `X-Echo-Api-Key` header — **never stored on server**
-- Library stored in browser's **IndexedDB** — each visitor's library is isolated, no user accounts
+Stateless and multi-visitor. Each visitor supplies their own Anthropic key in Settings
+(validated on save, kept in their browser's localStorage, sent per-request as
+`X-Echo-Api-Key`, **never stored server-side**) and gets a library in their own
+IndexedDB. Server-side library routes and Whisper return 503; there are per-IP rate
+limits and payload caps; nothing is persisted, so there is no volume to provision.
 
-**Optional: accounts + library sync.** Set `ECHO_GOOGLE_CLIENT_ID`,
-`ECHO_GOOGLE_CLIENT_SECRET` and `ECHO_SESSION_SECRET` and Echo offers **Sign in
-with Google**, so a library follows a visitor between devices. What the server
-then stores is two tables — one row per account (Google's `sub` → an id) and one
-row per saved video. No passwords (Google is the only way in), no sessions table
-(sessions are signed cookies), and **no API keys**: signing in does not change
-where an Anthropic key lives. Leave the three unset and none of it exists — no
-sign-in UI, no database, no volume. See [`DEPLOY.md`](DEPLOY.md).
+Add `ECHO_GOOGLE_CLIENT_ID`, `ECHO_GOOGLE_CLIENT_SECRET` and `ECHO_SESSION_SECRET` to
+offer **Sign in with Google** and cross-device library sync — two tables, no passwords,
+no sessions table, and no API keys. Leave them unset and none of it exists: no sign-in
+UI, no database, no volume. See [`DEPLOY.md`](DEPLOY.md).
 
-**Web-mode limits:**
-- Server-side library API disabled (HTTP 503): `/api/saved*`, `/api/search`, `/api/vault/sync` — library in IndexedDB only
-- Whisper transcription disabled (`/api/whisper/*`); captions only
-- Per-IP rate limiting: 20 requests / 60s on AI and transcript routes
-- Transcript and AI payload size caps
-- Nothing is persisted server-side — no volume or database to provision
+### Desktop app
 
-### Desktop app (Tauri v2)
+A native window running the same Node backend as a sidecar, via Tauri v2. Linux
+installers (AppImage / `.deb` / `.rpm`) build today; see [`DESKTOP.md`](DESKTOP.md).
 
-A native window wrapper running the same Node backend as a sidecar. Build prerequisites (Rust, VS C++ Build Tools 2022, WebView2) and commands (`npm run tauri:dev`, `npm run tauri:build`) are documented in `DESKTOP.md` — refer to that file.
-
-### Deploy with Docker
-
-A production-ready container image runs Echo in web mode with yt-dlp pre-installed.
+### Docker
 
 ```bash
-# Copy the example env file and add your settings (if any)
 cp .env.example .env
-
-# Build the image
 docker build -t echo .
-
-# Run the container
 docker run -p 8080:8080 echo
 ```
 
-Then open **http://localhost:8080**. The container:
-- Runs in `ECHO_MODE=web` (BYOK — visitors bring their own Anthropic API key)
-- Listens on `0.0.0.0:8080` for use behind a reverse proxy
-- Includes a `HEALTHCHECK` that pings `/api/health` every 30s for orchestration tools (Kubernetes, Docker Compose, etc.)
-- Uses `node:22-bookworm-slim` with yt-dlp for transcript fallback
-
-To customize, edit `.env` before building, or pass environment variables at runtime:
-```bash
-docker run -e PORT=3000 -e ECHO_MODE=web -p 3000:3000 echo
-```
+Runs web mode on `0.0.0.0:8080` behind a reverse proxy, with yt-dlp preinstalled and a
+`HEALTHCHECK` on `/api/health`. Self-hosting on your own box is covered in
+[`VPS.md`](VPS.md) — including why transcripts won't work from a datacenter.
 
 ---
 
-## 🧩 Companions
+## Companions
 
-Both talk to a running Echo over HTTP. Neither holds an API key or does any AI
-of its own — that all stays in Echo, so there is one implementation of the part
-that matters.
+Both talk to a running Echo over HTTP. **Neither holds an API key or does any AI of its
+own** — that stays in Echo, so there is one implementation of the part that matters.
 
-### Browser extension (Chrome, Edge, Brave)
+**Browser extension** ([`extension/`](extension/)) — a **Read in Echo** button on
+YouTube watch pages, a toolbar button, and a right-click item for links. It also tries
+to fetch the transcript on *your* tab, with your IP and session, and hand it to Echo in
+the URL fragment — which sidesteps the datacenter bot-block; if that fails, the server
+fetches as before. Chromium only: Firefox needs `background.scripts` rather than an MV3
+service worker. Load unpacked from `chrome://extensions` → Developer mode.
 
-Adds **Read in Echo** to YouTube watch pages, plus a toolbar button and a
-right-click item for any YouTube link. The extension also tries to fetch the
-transcript on your own tab (your IP, your session) and hand it to Echo in the
-URL fragment, which sidesteps the datacenter bot-block described above; if
-that fails it falls back to letting the server fetch, exactly as before. That
-scrape path is **not yet confirmed against a real signed-in browser** — see
-the headless-verification note in [`CLAUDE.md`](CLAUDE.md). **Chromium-only**:
-Firefox needs `background.scripts` rather than an MV3 service worker, so the
-extension does not load there. Load it unpacked from
-[`extension/`](extension/) — `chrome://extensions` → Developer mode → **Load
-unpacked**. Point it at your Echo in its options if it is not on
-`http://localhost:8000`.
+**Obsidian plugin** ([`obsidian-plugin/`](obsidian-plugin/)) — two commands, and a note
+lands in your vault with the transcript, the digest and frontmatter. Filename and format
+match `/api/vault/sync` exactly, so a vault fed by both the plugin and folder-sync gets
+one consistent set of notes.
 
-### Obsidian plugin
+> Two caveats worth stating plainly: the extension's own scrape path has **not** been
+> confirmed against a real signed-in browser (headless Chrome can't verify it — see
+> [`CLAUDE.md`](CLAUDE.md)), and the Obsidian plugin has **not** yet been run inside
+> Obsidian by its author. The logic is tested; the app integration is not.
 
-Two commands — read a URL, or read the YouTube link in your selection — and a
-note lands in your vault with the transcript, the digest, and frontmatter
-(`title`, `url`, `videoId`, `channel`, `tags`, `summary`). Copy
-`manifest.json`, `main.js` and `styles.css` from
-[`obsidian-plugin/`](obsidian-plugin/) into
-`<vault>/.obsidian/plugins/echo-reader/`.
+---
 
-Note format and filename match `/api/vault/sync` exactly, so a vault fed by both
-the plugin and folder-sync gets one consistent set of notes rather than two.
+## Reference
 
-⚠️ The plugin has not yet been run inside Obsidian by its author — the logic is
-covered by tests, the app integration is not. See its README.
-
-## ⚙️ Environment variables
+<details>
+<summary><b>Environment variables</b></summary>
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `PORT` | `8000` | Server port |
-| `ECHO_HOST` | `127.0.0.1` | Interface to bind. Localhost-only by default; set to `0.0.0.0` to expose (containers, reverse proxies) |
-| `ECHO_MODE` | `local` | `local` (Claude Code CLI), `desktop` (CLI + optional BYOK), or `web` (visitor-supplied keys) |
-| `ECHO_PROVIDER` | _(CLI)_ | Set to `api` to use Anthropic API instead of CLI. Web-mode per-request `X-Echo-Api-Key` also selects API provider. |
-| `ANTHROPIC_API_KEY` | _(unset)_ | API key used when no per-request key is supplied |
-| `ECHO_DB_PATH` | `data/library.db` | SQLite library database path (local/desktop only) |
-| `ECHO_VAULT_DIR` | _(unset)_ | Default Obsidian vault folder for `/api/vault/sync` when none is passed |
-| `ECHO_MAX_TRANSCRIPT_CHARS` | `200000` | Web-mode transcript character limit |
-| `ECHO_MAX_AI_PAYLOAD_CHARS` | `200000` | Web-mode AI payload character limit |
-| `ECHO_YTDLP_JS_RUNTIME` | `'node'` | JavaScript runtime for yt-dlp (Node >=22 supported); set to empty string to disable (required for older yt-dlp builds) |
-| `ECHO_WHISPER_DEFAULT_MODEL` | `base` | Whisper model used when none is selected (`base` or `small`) |
-| `ECHO_WHISPER_THREADS` | _(75% of cores)_ | Threads for whisper.cpp — lower it to keep the machine responsive |
-| `ECHO_WHISPER_MAX_MINUTES` | `180` | Reject Whisper transcription of audio longer than this |
-| `ECHO_GOOGLE_CLIENT_ID` | _(unset)_ | Google OAuth client ID. Set this, the secret and the session secret to enable accounts + library sync (web mode). Unset = no accounts, no database |
+| `ECHO_HOST` | `127.0.0.1` | Interface to bind. Localhost-only by default; `0.0.0.0` to expose |
+| `ECHO_MODE` | `local` | `local` (Claude CLI), `desktop` (CLI + optional BYOK), `web` (visitor keys) |
+| `ECHO_PROVIDER` | _(CLI)_ | `api` to use the Anthropic API instead of the CLI |
+| `ANTHROPIC_API_KEY` | _(unset)_ | Key used when no per-request key is supplied |
+| `ECHO_DB_PATH` | `data/library.db` | SQLite library path (local/desktop) |
+| `ECHO_VAULT_DIR` | _(unset)_ | Default Obsidian vault folder for `/api/vault/sync` |
+| `ECHO_MAX_TRANSCRIPT_CHARS` | `200000` | Web-mode transcript cap |
+| `ECHO_MAX_AI_PAYLOAD_CHARS` | `200000` | Web-mode AI payload cap |
+| `ECHO_YTDLP_JS_RUNTIME` | `node` | JS runtime for yt-dlp; empty string omits the flag (older yt-dlp) |
+| `ECHO_WHISPER_DEFAULT_MODEL` | `base` | `base` or `small` |
+| `ECHO_WHISPER_THREADS` | _(75% of cores)_ | Lower it to keep the machine responsive |
+| `ECHO_WHISPER_MAX_MINUTES` | `180` | Reject audio longer than this |
+| `ECHO_WHISPER_VAD_MODEL` | _(unset)_ | Silero VAD model path — skips non-speech. Opt-in, see [`WHISPER.md`](./WHISPER.md) |
+| `ECHO_GOOGLE_CLIENT_ID` | _(unset)_ | With the two below, enables accounts + sync. Unset = no accounts, no database |
 | `ECHO_GOOGLE_CLIENT_SECRET` | _(unset)_ | Google OAuth client secret |
 | `ECHO_SESSION_SECRET` | _(unset)_ | Signs session cookies. Changing it signs everyone out |
 | `ECHO_PUBLIC_URL` | _(request origin)_ | Public origin, used to build the OAuth redirect URI |
-| `ECHO_SYNC_DB_PATH` | `/data/echo-sync.db` | SQLite file for accounts + synced libraries — the only server-side state |
+| `ECHO_SYNC_DB_PATH` | `/data/echo-sync.db` | Accounts + synced libraries — the only server-side state |
 | `ECHO_MAX_SYNC_BYTES` | `100000000` | Per-account synced-library size cap |
-| `ECHO_WHISPER_VAD_MODEL` | _(unset)_ | Path to a Silero VAD model. Setting it makes Whisper skip non-speech (faster on audio with pauses); unset = today's behaviour. Opt-in — see [`WHISPER.md`](./WHISPER.md) |
 
-See [`.env.example`](./.env.example) for the common variables with detailed documentation for each; the Whisper knobs above are documented in [`WHISPER.md`](./WHISPER.md). **Node version requirement:** ≥ 22.5 (for `node:sqlite` support).
+[`.env.example`](./.env.example) documents the common ones in more detail.
 
-## 🕹️ How to use
+</details>
 
-1. **Paste** a YouTube URL, optionally pick a caption language, and hit **Get transcript** — it lands in the **Transcript** tab. Or use **or open an audio / video file** to read something that was never on YouTube (local/desktop, with Whisper set up).
-2. **Read** — toggle between Readable and Timecoded views. Adjust font size (A−/A+) and column width (Narrow/Medium/Wide). Use `/` to search and Prev/Next to navigate.
-3. **Digest** — switch to the **Digest** lens and Echo generates the digest directly. A fixed status pill shows "AI is digesting…" and "Digest ready ✓" when done _(takes ~10–30s while Claude reads the transcript)._ Once generated, highlight any passage in the Digest to Explain or get Background — results render in an ephemeral floating popover.
-4. **Copy or download** the transcript or digest as Markdown using the download button.
-5. **Save** — click **Save** to store the video in your library; access saved videos via the **Library** button in the header (keyboard: `3`). Search, sort, tag, and manage your collection. Export your whole library as a ZIP of Markdown files or JSON backup.
-6. **Keyboard help** — press `?` for all shortcuts.
+<details>
+<summary><b>HTTP API</b></summary>
 
-## 🧩 Project structure
+| Method | Route | Body | Returns |
+|---|---|---|---|
+| `GET` | `/api/health` | — | `{ status, mode }` |
+| `POST` | `/api/validate-key` | _(key in `X-Echo-Api-Key`)_ | `{ valid }` or an error envelope (web/desktop) |
+| `POST` | `/api/transcript` | `{ url, lang?, transcribe?, whisperModel?, jobId? }` | `{ videoId, url, title, channel, channelUrl, segments, langCode, transcriptSource }` |
+| `POST` | `/api/transcript/file` | raw bytes, `?name=&jobId=` | same envelope, for a local file (local/desktop) |
+| `GET` | `/api/transcript/progress` | `?jobId=` | SSE — live Whisper progress |
+| `GET` | `/api/whisper/status` | — | `{ binaryPresent, defaultModel, cacheDir, models }` (local/desktop) |
+| `POST` | `/api/whisper/model` | `{ model }` | download state for that model (local/desktop) |
+| `GET` | `/api/languages` | `?videoId=` | `{ tracks: [{ code, name, auto }] }` |
+| `GET` | `/api/video-meta` | `?videoId=` | `{ videoId, title, channel, channelUrl }` |
+| `POST` | `/api/digest` | `{ text, format?, language?, title?, videoId? }` | `{ digest, usage, strategy, suggestedTags }` |
+| `POST` | `/api/digest?stream=1` | _(same)_ | `text/event-stream` — `phase` / `token` / `done` / `error`; `done` carries the payload above |
+| `GET` | `/api/saved` | — | every saved entry's metadata |
+| `GET` | `/api/saved?limit=&offset=` | — | `{ entries, total, hasMore }` |
+| `GET` | `/api/saved/export` | — | `{ entries: [ ...full entries... ] }` |
+| `GET` | `/api/saved/:videoId` | — | one full entry |
+| `GET` | `/api/saved/:videoId/export.md` | — | Markdown export |
+| `POST` | `/api/saved` | `{ url, videoId, title, segments, digest, tags? }` | saved metadata (upsert by `videoId`) |
+| `DELETE` | `/api/saved/:videoId` | — | `{ ok }` |
+| `PATCH` | `/api/saved/:videoId/tags` | `{ tags }` | updated entry |
+| `GET` | `/api/search` | `?q=` | FTS5 keyword search (local/desktop) |
+| `POST` | `/api/vault/sync` | `{ dir?, includeTranscript? }` | `{ dir, total, written, unchanged, failed, index }` (local/desktop) |
+| `GET` | `/api/auth/me` | — | `{ enabled, user }` |
+| `GET` | `/api/auth/google` · `/api/auth/callback` | — | Google sign-in redirect chain (accounts only) |
+| `POST` | `/api/auth/logout` · `/api/auth/signout-everywhere` | — | end this session, or every session |
+| `DELETE` | `/api/auth/account` | — | delete the account and its synced library |
+| `GET` | `/api/sync/pull` | `?since=` | entries changed since a timestamp, incl. tombstones |
+| `POST` | `/api/sync/push` | `{ entries }` | `{ applied, skipped, serverTime }` — last write wins |
+
+Web mode returns 503 for every library, search, vault and Whisper route.
+
+</details>
+
+<details>
+<summary><b>Project layout</b></summary>
 
 ```
 echo/
-├── server.js         # Express server: all API routes + serves the UI
-├── transcript.js     # video-ID parsing + caption fetch (library → yt-dlp) + error classification
-├── whisper.js        # local whisper.cpp speech-to-text (local/desktop only)
-├── whisperModel.js   # Whisper model registry + on-demand download/cache
-├── digest.js         # digest generation (incl. map-reduce), auto-tagging
-├── providers.js      # AI provider seam: local `claude` CLI vs Anthropic API (BYOK)
-├── common/text.js    # shared with the page, the extension AND the plugin — one definition
-├── auth.js           # Google sign-in + stateless signed-cookie sessions (hosted, optional)
-├── syncStore.js      # accounts + synced libraries — the only server-side state
-├── store.js          # SQLite library (local/desktop); web mode uses IndexedDB in the browser
-├── markdown.js       # Markdown export + Obsidian vault index note
+├── server.js         # Express: every route, and serves the UI
+├── transcript.js     # video-ID parsing, caption fetch, failure classification
+├── whisper.js        # local whisper.cpp speech-to-text (local/desktop)
+├── whisperModel.js   # model registry + on-demand download/cache
+├── digest.js         # digest generation (incl. map-reduce) + auto-tagging
+├── providers.js      # provider seam: local `claude` CLI vs Anthropic API
+├── common/text.js    # shared with the page, the extension AND the plugin
+├── store.js          # SQLite library (local/desktop); web uses IndexedDB
+├── auth.js           # Google sign-in, stateless signed-cookie sessions
+├── syncStore.js      # accounts + synced libraries
+├── markdown.js       # Markdown export + Obsidian index note
 ├── vault.js          # Obsidian vault folder sync
-├── data/             # (gitignored, local/desktop only) persistent video library
-│   └── library.db    # SQLite database of saved videos, transcripts, digests, tags
-├── vendor/whisper/   # prebuilt whisper-cli binaries (linux-x64, win32-x64)
-├── extension/        # Chrome extension (MV3) — Read in Echo from YouTube
-├── obsidian-plugin/  # Obsidian plugin — a vault note per video
-├── tools/            # dev-only: AI-writing eval, digest-fidelity eval, vendoring helper
 ├── public/
-│   ├── index.html    # markup only (~680 lines)
+│   ├── index.html    # markup only
 │   ├── app.css       # the Plaintext theme, fully tokenised
 │   ├── app.js        # the whole client — a classic script, no build step
-│   ├── theme-init.js # sets the theme token before first paint
-│   └── vendor/       # JSZip, vendored — no CDN, no external script origin
-├── package.json
-└── README.md
+│   └── vendor/       # JSZip, vendored — no CDN, no external origin
+├── extension/        # Chrome MV3 extension
+├── obsidian-plugin/  # a vault note per video
+├── vendor/whisper/   # prebuilt whisper-cli (linux-x64, win32-x64)
+├── tools/            # public tunnel, digest evals, vendoring helpers
+└── data/library.db   # gitignored — your library never leaves the machine
 ```
 
-### API
+</details>
 
-| Method | Route | Body | Returns |
-|--------|-------|------|---------|
-| `GET` | `/api/health` | _(none)_ | `{ status: 'ok', mode }` |
-| `POST` | `/api/validate-key` | _(key goes in the `X-Echo-Api-Key` header)_ | `{ valid: true }`, or a structured error envelope (web/desktop only) |
-| `POST` | `/api/transcript` | `{ url, lang?, transcribe?, whisperModel?, jobId? }` | `{ videoId, url, title, channel, channelUrl, segments, langCode, transcriptSource }` |
-| `POST` | `/api/transcript/file` | raw file bytes, `?name=&jobId=` | same envelope as `/api/transcript`, for a local audio/video file (local/desktop only) |
-| `GET` | `/api/transcript/progress` | `?jobId=` | Server-sent events with live Whisper progress |
-| `GET` | `/api/whisper/status` | _(none)_ | `{ binaryPresent, defaultModel, cacheDir, models }` (local/desktop only) |
-| `POST` | `/api/whisper/model` | `{ model }` (`base`\|`small`) | download state for that model (local/desktop only) |
-| `GET` | `/api/languages` | `?videoId=` | `{ tracks: [{ code, name, auto }] }` |
-| `GET` | `/api/video-meta` | `?videoId=` | `{ videoId, title, channel, channelUrl }` (oEmbed metadata) |
-| `POST` | `/api/digest` | `{ text, length?, format?, language?, title?, videoId? }` | `{ digest, usage, strategy, suggestedTags }` |
-| `POST` | `/api/digest?stream=1` | _(same body)_ | `text/event-stream` — `phase` / `token` / `done` / `error` events; `done` carries the same payload as above |
-| `GET` | `/api/auth/google` | _(none)_ | redirect into Google sign-in (accounts only) |
-| `GET` | `/api/auth/callback` | `?code=&state=` | completes sign-in, sets the session cookie |
-| `GET` | `/api/auth/me` | _(none)_ | `{ enabled, user }` — who is signed in, if anyone |
-| `POST` | `/api/auth/logout` | _(none)_ | `{ ok: true }` |
-| `POST` | `/api/auth/signout-everywhere` | _(none)_ | ends every session for the account, on every device |
-| `DELETE` | `/api/auth/account` | _(none)_ | deletes the account and its synced library |
-| `GET` | `/api/sync/pull` | `?since=` | entries changed since a timestamp, incl. tombstones |
-| `POST` | `/api/sync/push` | `{ entries }` | `{ applied, skipped, serverTime }` — last write wins |
-| `GET` | `/api/saved` | _(none)_ | list of saved entries (metadata incl. tags) |
-| `GET` | `/api/saved?limit=&offset=` | _(none)_ | `{ entries, total, hasMore }` — one page of the same |
-| `GET` | `/api/saved/export` | _(none)_ | `{ entries: [ ...full entries... ] }` |
-| `GET` | `/api/saved/:videoId` | _(none)_ | one full entry (transcript, digest, tags) |
-| `GET` | `/api/saved/:videoId/export.md` | _(none)_ | markdown export of entry |
-| `POST` | `/api/saved` | `{ url, videoId, title, segments, digest, tags? }` | saved entry metadata (upsert by `videoId`) |
-| `DELETE` | `/api/saved/:videoId` | _(none)_ | `{ ok: true }` |
-| `PATCH` | `/api/saved/:videoId/tags` | `{ tags }` | updated entry |
-| `GET` | `/api/search` | `?q=` (query string) | FTS5 keyword search over the library (local/desktop only) |
-| `POST` | `/api/vault/sync` | `{ dir?, includeTranscript? }` | `{ dir, total, written, unchanged, failed, index }` (local/desktop only) |
+<details>
+<summary><b>Send to Echo (bookmarklet)</b></summary>
 
-## ⚠️ Good to know
-
-- When a transcript can't be fetched, Echo tells you **why in plain language** — whether the video is a **scheduled premiere** ("hasn't aired yet"), a **live stream in progress**, **private**, **age-restricted**, **region-blocked**, **removed/unavailable**, or simply **has no captions** — instead of dumping a raw error. The underlying technical detail is one click away under **"Show technical details"**, and for a captionless video (local/desktop) it points you to **Whisper transcription** in Settings.
-- YouTube occasionally shifts its internals; that's exactly what the `yt-dlp` fallback is there to cover.
-- The **AI digest** needs Claude Code installed and logged in (local mode) or an Anthropic API key (web/desktop modes). Without AI, transcript reading, search, and library features work just fine. If a digest can't be generated — CLI not installed or signed in, or an API key/rate-limit issue — Echo shows a clear card explaining what to do (with an **Open Settings** or **Try again** button), not a cryptic error.
-- Your **saved library** (`data/library.db`) is **gitignored** — it never leaves your machine and doesn't get pushed to any repo (local/desktop modes only; web mode uses client-side IndexedDB).
-- **Whisper transcription** is off by default and local/desktop only. Turn it on in Settings as a **Fallback** (only when captions are missing) or **High-accuracy** (always). It needs `ffmpeg` on your `PATH`, runs entirely on your machine, and takes real time on long videos — a live progress bar shows where it's at, and closing the tab cancels it.
-- **Nothing on the page comes from a third party.** The Content-Security-Policy allows no inline script, no inline style, and no external script or style origin at all (`script-src 'self'; style-src 'self'; font-src 'self'`) — JSZip is vendored, and the theme uses system fonts. The only outbound requests are YouTube thumbnails.
-- **Signing in never moves your API key.** Accounts exist for one reason — a library that follows you between devices. The key stays in your browser's localStorage and is sent per-request; the server stores transcripts and digests, never credentials.
-- Library **export to ZIP** uses a vendored copy of JSZip, fetched on first use rather than on every page load. Nothing on the page comes from a third-party origin, so the export works offline; a JSON backup remains as a fallback.
-- Per-digest stats (tokens, cost, duration) are always shown when available; these are real billing data from your AI provider.
-
-## 🔖 Send to Echo (bookmarklet)
-
-> The [browser extension](extension/) does this better — a real button on the
-> page, and it follows YouTube's in-app navigation. The bookmarklet stays for
-> browsers where an extension is not an option.
-
-Drag this bookmarklet to your bookmarks bar, then click it on any YouTube video page — Echo opens in a new tab with that video's transcript already loading. Requires Echo running locally at `http://localhost:8000`.
+The [extension](extension/) does this better — a real button, and it follows YouTube's
+in-app navigation. The bookmarklet stays for browsers where an extension isn't an option.
 
 ```
 javascript:(function(){var u=location.href;var m=u.match(/[?&]v=([\w-]{11})/)||u.match(/youtu\.be\/([\w-]{11})/)||u.match(/\/(?:shorts|embed|live)\/([\w-]{11})/);var t=m?('http://localhost:8000/?v='+m[1]):('http://localhost:8000/?url='+encodeURIComponent(u));window.open(t,'_blank');})();
 ```
 
-**How to install:** most browsers block dragging a code block straight into the bookmarks bar, so the reliable way is to create a new bookmark manually, paste the code above into its URL/address field, and give it a name like "Send to Echo".
+Most browsers block dragging a code block into the bookmarks bar, so create a bookmark
+manually and paste the code into its URL field. Or just open
+`http://localhost:8000/?v=VIDEO_ID` directly.
 
-No bookmarklet? You can also just open `http://localhost:8000/?v=VIDEO_ID` or `http://localhost:8000/?url=<full YouTube URL>` directly.
+</details>
 
-## 🧪 Development
+---
+
+## Development
 
 ```bash
 npm test                  # 511 tests, no dependencies, ~4s
-npm run digest:fidelity   # how faithfully saved digests carry the transcript's specifics
-npm run digest:aitell     # score saved digests for AI-writing tells
+npm run test:page         # renders the real page in Chrome and asserts layout invariants
+npm run digest:fidelity   # how faithfully digests carry the transcript's specifics
+npm run digest:aitell     # score digests for AI-writing tells
 ```
 
-Three things a unit test structurally cannot reach have their own harnesses.
-They need Playwright, which is deliberately **not** a dependency, so they are
-not part of `npm test`:
+Two harnesses need Playwright, which is deliberately **not** a dependency:
 
 ```bash
 npm i --no-save playwright && npx playwright install chromium
 node tests/e2e/oauth-flow.mjs    # the whole Google sign-in flow, against a mock provider
-node extension/test/e2e.mjs      # the extension in a real browser, incl. YouTube's SPA navigation
+node extension/test/e2e.mjs      # the extension in a real browser, incl. SPA navigation
 ```
 
-CI runs the suite plus a boot job that checks every backend module parses and
-the server actually starts in all three modes.
+CI runs the suite plus a boot job checking that every module parses and the server
+starts in all three modes.
 
-> ⚠️ **Two things to know before changing the frontend.** `public/app.css` and
-> `public/app.js` are read and compressed at boot, so edits need a server
-> restart. (Brotli is preferred over gzip when the browser offers it; it is
-> built in the background after startup, so neither boot nor the first request
-> waits on it.) And the CSP forbids inline
-> `<script>`, inline `<style>`, `style=""` **and inline event handlers like
-> `onerror=`** — all of which fail silently in a browser and are invisible to
-> the test suite. Put code in `app.js`, CSS in `app.css`, and reach for a class
-> or a real listener rather than an attribute. The last one is not theoretical:
-> two thumbnail fallbacks used `onerror=""` and had quietly not worked since the
-> policy was tightened.
->
-> ⚠️ **And one about the library.** Anything touching "the whole library" needs
-> bounding, and ten test entries will never show you the problem — seven bugs of
-> that shape have been found so far, every one with a green suite. **Seed a few
-> hundred entries before believing a library-wide path is fine.** The list
-> itself renders a window at a time with delegated listeners, so never add a
-> per-card `addEventListener` in the render path.
+**Three things to know before changing the frontend.**
 
-## 🛠️ Built with
+1. **Restart the server.** `index.html`, `app.css` and `app.js` are read and compressed
+   at boot. Editing without restarting shows you the old page and sends you chasing a
+   bug you already fixed.
+2. **The CSP forbids inline everything** — `<script>`, `<style>`, `style=""` and event
+   handler attributes like `onerror=`. All fail *silently* in a browser and are
+   invisible to `node --test`. Put code in `app.js`, CSS in `app.css`, and use a class
+   or a real listener. Not theoretical: two thumbnail fallbacks used `onerror=""` and
+   had quietly not worked for months.
+3. **A screenshot is not proof.** Headless Chrome reports `hover: none`, matches neither
+   `pointer: fine` nor `pointer: coarse`, and never loads `loading="lazy"` images below
+   the fold — so hover styles, touch sizing and thumbnails all look broken when they
+   aren't. [`CLAUDE.md`](CLAUDE.md) collects these traps; read it before trusting an
+   instrument.
 
-**Node.js** · **Express** · **`node:sqlite`** · **[youtube-transcript](https://www.npmjs.com/package/youtube-transcript)** · **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** · **[whisper.cpp](https://github.com/ggml-org/whisper.cpp)** · **[Claude Code](https://claude.com/claude-code)** · **[Tauri](https://tauri.app/)** · plain HTML/CSS/JS on a system monospace stack — no webfonts, no build step
+**And one about the library.** Anything touching "the whole library" needs bounding, and
+ten test entries will never show you the problem — seven bugs of that shape have been
+found so far, every one with a green suite. **Seed a few hundred entries before
+believing a library-wide path is fine.** The list renders a window at a time with
+delegated listeners, so never add a per-card `addEventListener` in the render path.
 
-## 📄 License
+---
 
-Released under the [MIT License](LICENSE) © 2026 ssani-main.
+## Built with
+
+**Node.js** · **Express** · **`node:sqlite`** ·
+[youtube-transcript](https://www.npmjs.com/package/youtube-transcript) ·
+[yt-dlp](https://github.com/yt-dlp/yt-dlp) ·
+[whisper.cpp](https://github.com/ggml-org/whisper.cpp) ·
+[Claude Code](https://claude.com/claude-code) ·
+[Tauri](https://tauri.app/) · plain HTML/CSS/JS on a system monospace stack — no
+webfonts, no build step
+
+## License
+
+[MIT](LICENSE) © 2026 ssani-main.
 
 ---
 
 <div align="center">
 
-_Made for reading, not scrubbing._ 🎧 → 📖
+_Made for reading, not scrubbing._
 
 </div>
