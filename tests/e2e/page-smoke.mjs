@@ -337,11 +337,16 @@ try {
   const loaded = await evaluate(`
     (() => {
       document.body.classList.add('has-transcript');
-      for (const sel of ['#localFileRow', '#status', '.content-header', '.tab-bar']) {
+      // The pane scan above finishes on #libraryBtn, so the Library is still the
+      // active pane — and the chrome column is deliberately WIDER there (it
+      // matches the card grid; see body.pane-library in app.css). A reader lens
+      // is the state this block is about, so put the page back in one.
+      document.body.classList.remove('pane-library');
+      for (const sel of ['#localFileRow', '#status', '.content-header', '#lensRow']) {
         const el = document.querySelector(sel);
         if (el) { el.hidden = false; if (!el.textContent.trim()) el.textContent = '\\u200b'; }
       }
-      const group = ['.command-bar', '#localFileRow', '#status', '.content-header', '.tab-bar'];
+      const group = ['.command-bar', '#localFileRow', '#status', '.content-header', '#lensRow'];
       const boxes = {};
       for (const sel of group) {
         const el = document.querySelector(sel);
@@ -362,6 +367,30 @@ try {
   assertColumn('loaded', loaded.boxes);
   check('loaded: no horizontal overflow', loaded.scrollWidth <= loaded.innerWidth + 1,
     `scrollWidth ${loaded.scrollWidth} > innerWidth ${loaded.innerWidth}`);
+
+  // The Library grid is intentionally wider than the reader column. That is only
+  // legible as intent if the chrome moves WITH it — a 760px command bar sitting
+  // above a 1000px grid put two different left edges on screen at once and read
+  // as breakage. So the invariant here is not "one fixed width" but "one edge at
+  // a time": in the Library, the chrome must match the grid, not the reader.
+  console.log('\nlibrary pane (chrome follows the grid)');
+  const library = await evaluate(`
+    (() => {
+      document.querySelector('#libraryBtn').click();
+      const group = ['.command-bar', '#localFileRow', '.site-footer', '#savedOutput'];
+      const boxes = {};
+      for (const sel of group) {
+        const el = document.querySelector(sel);
+        if (!el) { boxes[sel] = null; continue; }
+        if (sel === '#localFileRow') { el.hidden = false; }
+        const b = el.getBoundingClientRect();
+        boxes[sel] = { left: Math.round(b.left), width: Math.round(b.width) };
+      }
+      return { boxes, paneClass: document.body.classList.contains('pane-library') };
+    })()
+  `);
+  check('library: body.pane-library is set while the Library is open', library.paneClass === true);
+  assertColumn('library', library.boxes);
 
   check('no uncaught JS errors', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
   check('no failed requests on the landing page', badResponses.length === 0, badResponses.slice(0, 3).join(' | '));

@@ -112,7 +112,9 @@
   --radius:    0px;
   --radius-sm: 0px;
   --radius-lg: 0px;
-  --control-h: 34px;  /* shared height for header + reader toolbar controls so they align */
+  --control-h: 34px;  /* shared height for header + reader toolbar controls so they align.
+                         34px is a mouse target; see the (pointer: coarse) block
+                         at the end of this file for the touch-sized override. */
   /* Outer page wrapper — wide enough to hold the widest reading
      column (Wide = 940px) plus breathing room. The top chrome
      (brand header, tagline, command bar, status, nudge) is pinned
@@ -178,6 +180,12 @@
 
 html {
   background: var(--paper);
+  /* Reserve the scrollbar's width whether or not the page currently overflows.
+     The empty state now fits inside one viewport while a loaded transcript does
+     not, so without this the whole reading column jumps sideways by the
+     scrollbar's width every time content arrives or clears — the one straight
+     left edge the layout is built around, moving. */
+  scrollbar-gutter: stable;
 }
 
 /* Native form controls adopt the brand accent (checkboxes, radios, etc.)
@@ -238,9 +246,31 @@ body.printing-digest::after { display: none; }
 .command-bar,
 .local-file-row,
 #status,
-.next-action-nudge {
-  max-width: var(--chrome-max);
+.next-action-nudge,
+.site-footer {
+  /* max(), not a flat --chrome-max: the reading column can be widened to 940px
+     by the Wide setting, and a 760px command bar above a 940px reader put two
+     left edges on screen — the same break the Library pane had. Growing with
+     the reader fixes that; the max() floor keeps the original intent, which was
+     that the chrome must not SHRINK to 620px when the reader goes Narrow. */
+  max-width: max(var(--chrome-max), var(--reading-measure, var(--chrome-max)));
   margin-inline: auto;
+}
+
+/* The Library grid is deliberately wider than the reader column (note below).
+   That is defensible on its own, but with the chrome pinned to --chrome-max it
+   put two different left edges on screen simultaneously — a 760px command bar
+   above a 1000px card grid — which reads as a layout bug rather than a change
+   of gear. While the Library is the active pane, the chrome widens to the grid
+   so exactly one left edge exists at any moment. body.pane-library is toggled
+   in updateReaderChromeVisibility(). */
+body.pane-library .site-header,
+body.pane-library .command-bar,
+body.pane-library .local-file-row,
+body.pane-library #status,
+body.pane-library .next-action-nudge,
+body.pane-library .site-footer {
+  max-width: var(--col-max);
 }
 
 /* Reader column — content header, lens tabs and both reader panes
@@ -249,7 +279,7 @@ body.printing-digest::after { display: none; }
    every width. The Library pane deliberately does NOT get this — it
    uses the full width of .container so the card grid can breathe. */
 .content-header,
-.tab-bar,
+.lens-row,
 #paneTranscript,
 #paneDigest {
   max-width: var(--reading-measure, 760px);
@@ -491,9 +521,21 @@ body.printing-digest::after { display: none; }
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--muted);
-  white-space: nowrap;
+  /* Wraps rather than ellipsing: the line now carries url · watch · read · source
+     badge, and a single nowrap line silently cut the transcript-source badge off
+     the end. Only the URL itself needs truncating. */
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 var(--space-3);
+  min-width: 0;
+}
+
+.content-header-meta .content-header-url {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 
 .content-header-url {
@@ -648,6 +690,10 @@ body.has-transcript .hero-landing {
 /* ==============================================
    6. STATUS LINE
 =============================================== */
+#status:empty {
+  display: none;
+}
+
 #status {
   min-height: 1.4em;
   font-family: var(--font-sans);
@@ -666,19 +712,38 @@ body.has-transcript .hero-landing {
    Underlined lens switch attached to the current video —
    visually distinct from the Library destination button in the header.
 =============================================== */
-.tab-bar {
-  /* Hidden by default — [hidden] attribute alone is overridden by display:flex,
-     so we set display:none here and expose via :not([hidden]) below (same
-     pattern used by .content-header). */
+/* The lens row carries the baseline rule and the bottom margin that used to sit
+   on .tab-bar, because the reading controls now share the row: tabs at the left
+   edge, display controls pinned right, one rule under both. That is a whole row
+   of chrome removed from above the reader — the digest previously stacked five
+   control rows between the tabs and the first sentence.
+
+   Hidden by default — the [hidden] attribute alone loses to display:flex, so
+   display:none here and expose via :not([hidden]) (same pattern as
+   .content-header). */
+.lens-row {
   display: none;
-  align-items: center;
-  gap: var(--space-11);
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-8);
   border-bottom: 1px solid var(--rule);
   margin-bottom: var(--space-10);
+  flex-wrap: wrap;
 }
 
-.tab-bar:not([hidden]) {
+.lens-row:not([hidden]) {
   display: flex;
+}
+
+.tab-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-11);
+}
+
+/* Sits on the row's baseline rule, clear of it. */
+.lens-row .reading-controls {
+  padding-bottom: var(--space-4);
 }
 
 .tab-btn {
@@ -815,41 +880,6 @@ body.has-transcript .hero-landing {
   outline-offset: -2px;
 }
 
-/* --- AI Digest button --- */
-#digestBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--control-h);
-  padding: 0 var(--space-9);
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--accent);
-  background: transparent;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  white-space: nowrap;
-  outline: none;
-  transition: background var(--dur), color var(--dur);
-}
-
-#digestBtn:hover:not(:disabled) {
-  background: var(--accent-soft);
-}
-
-#digestBtn:focus-visible {
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
-#digestBtn:disabled {
-  color: var(--muted);
-  border-color: var(--rule);
-  opacity: 0.6;
-  cursor: default;
-}
-
 /* --- Save button — lives in the content header, reachable from every lens --- */
 .header-save-btn {
   flex-shrink: 0;
@@ -935,6 +965,32 @@ body.has-transcript .hero-landing {
 #output.visible {
   display: block;
   animation: fade-slide-in var(--dur-slow) ease;
+}
+
+/* First run: the onboarding card IS the empty state, so the panel stops drawing
+   a second frame around it (a bordered box inside a bordered box) and the
+   "Nothing loaded yet — drop a link above" line stands down rather than
+   repeating the card's own instruction directly beneath it.
+
+   Derived with :has() rather than a class toggled from JS. The class version
+   went stale on its first run: #output's content is replaced from several paths
+   and opening a saved entry does not pass through showTranscriptSkeleton(), so
+   the panel kept its frameless empty-state look while displaying a transcript.
+   The card is destroyed by any innerHTML replacement, so this cannot desync.
+   Browsers without :has() simply keep the old double-frame — the same thing
+   they render today, which is an acceptable floor for a cosmetic rule. */
+#output:has(#onboardCard:not([hidden])) {
+  background: none;
+  border-color: transparent;
+  padding: 0;
+  min-height: 0;
+}
+
+/* :not(.empty-state-saved-hint) — the duplicate is the generic "Nothing loaded
+   yet" line, which the card already says. "Or open one from your Library →" is
+   a different, useful sentence and stays. */
+#output:has(#onboardCard:not([hidden])) .empty-state:not(.empty-state-saved-hint) {
+  display: none;
 }
 
 @keyframes fade-slide-in {
@@ -1158,6 +1214,12 @@ body.has-transcript .hero-landing {
 }
 
 /* Digest status line */
+/* Same as #status: it held "Digest ready." permanently, so the reserved line was
+   free. Now that it only speaks on a real event, silence should cost nothing. */
+#digestStatus:empty {
+  display: none;
+}
+
 #digestStatus {
   min-height: 1.4em;
   font-family: var(--font-sans);
@@ -1186,16 +1248,9 @@ body.has-transcript .hero-landing {
   animation: fade-slide-in var(--dur-slow) ease;
 }
 
-/* Eyebrow label — injected before markdown content */
-.digest-eyebrow {
-  font-family: var(--font-sans);
-  font-size: var(--text-2xs);
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--accent);
-  margin-bottom: var(--space-9);
-}
+/* .digest-eyebrow is gone: an "AI DIGEST" caption above the digest, inside the
+   pane whose tab reads Digest, under a button that reads Generate digest. It
+   named the thing it was sitting on and pushed it further down the page. */
 
 /* ==============================================
    11b. AI READING TYPOGRAPHY (shared)
@@ -1669,7 +1724,10 @@ body.has-transcript .hero-landing {
 }
 
 /* On hover-capable devices, keep secondary actions calm until the card is
-   hovered or focused — this is what removes the "wall of buttons" feel. */
+   hovered or focused — this is what removes the "wall of buttons" feel.
+   (Headless Chrome reports hover:none, so this block does not apply in a
+   screenshot harness and the buttons appear permanently visible there. That is
+   the harness, not the page.) */
 @media (hover: hover) {
   .saved-card-actions {
     opacity: 0;
@@ -1679,6 +1737,41 @@ body.has-transcript .hero-landing {
   .saved-card:focus-within .saved-card-actions {
     opacity: 1;
   }
+
+  /* Same treatment for the per-tag × — it is tag EDITING chrome, and it was
+     the only thing on a browsing surface that was always armed: five tags per
+     card times sixty cards is 300 permanently-visible remove buttons. Kept
+     focusable (opacity, not display) so keyboard users reach it via the card's
+     own :focus-within, and pointer-events are withheld until then so an
+     invisible × cannot be clicked by accident. */
+  .saved-tag-remove {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--dur), color 0.1s;
+  }
+  .saved-card:hover .saved-tag-remove,
+  .saved-card:focus-within .saved-tag-remove {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* Channel name standing in for a missing thumbnail. Local media files (and
+   entries whose URL failed the safe-URL check) have no thumbnail at all, and an
+   empty 16:9 box was the largest, emptiest element on the card. */
+.saved-card-thumb-channel {
+  padding: 0 var(--space-7);
+  font-family: var(--font-stack);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* ==============================================
@@ -1829,6 +1922,13 @@ body.has-transcript .hero-landing {
   flex-wrap: wrap;
 }
 
+/* Nested in .controls-row (see index.html): pinned right, opposite the view
+   toggle, with no margin of its own — the parent row owns the spacing. */
+.controls-row #transcriptActionRow {
+  margin-left: auto;
+  margin-bottom: 0;
+}
+
 /* [hidden] guard, same reason as .local-file-row[hidden]: `display: flex` above
    is an author rule and beats the UA `[hidden] { display: none }`.
    #digestExportRow ships hidden and is only revealed once a digest exists — but
@@ -1924,7 +2024,6 @@ body.has-transcript .hero-landing {
    sense once text is on screen is hidden until then.
 =============================================== */
 body:not(.has-transcript) .controls-row .view-toggle,
-body:not(.has-transcript) .controls-row .reading-controls,
 body:not(.has-transcript) #langPickerWrap,
 body:not(.has-transcript) #transcriptActionRow,
 body:not(.has-transcript) #findBar {
@@ -1985,7 +2084,11 @@ mark.find-hit.active {
 .digest-opts {
   display: flex;
   align-items: center;
-  gap: var(--space-6);
+  /* Wider than it was: with the "How much" dial collapsed to a one-word
+     disclosure, "▸ Options" and the "Language" field label ended up two words
+     apart and read as one run-on label ("OPTIONS LANGUAGE"). Two separate
+     controls need to look like two. */
+  gap: var(--space-9);
   margin-bottom: var(--space-9);
   flex-wrap: wrap;
 }
@@ -2273,6 +2376,23 @@ mark.find-hit.active {
   color: var(--warn);
 }
 
+/* Responsive button labels — see #transcriptActionRow in index.html. Two spans,
+   one shown at a time; the aria-label carries the full wording regardless.
+   A class swap rather than text substitution because CSS cannot change text and
+   the CSP refuses anything inline. */
+.btn-label-short {
+  display: none;
+}
+
+@media (max-width: 520px) {
+  .btn-label-full {
+    display: none;
+  }
+  .btn-label-short {
+    display: inline;
+  }
+}
+
 /* [hidden] guard: .mini-btn sets `display` via a class in some contexts,
    which overrides the UA `[hidden]{display:none}` rule. Restore the
    expected hide behavior. */
@@ -2474,7 +2594,12 @@ mark.find-hit.active {
   font-weight: 600;
   color: var(--muted);
   background: transparent;
-  border: 1px solid var(--rule);
+  /* Borderless on purpose. A− / A+ are momentary actions sitting immediately
+     left of a segmented control whose SELECTED state is a bordered, filled
+     box — so a bordered A−/A+ read as two permanently-selected segments in the
+     same group. The box now means "this is the current setting" and nothing
+     else; hover supplies the affordance these two need. */
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   cursor: pointer;
   outline: none;
@@ -2548,28 +2673,20 @@ mark.find-hit.active {
   outline-offset: -2px;
 }
 
+/* Below ~700px the narrowest setting (620px) is already wider than the
+   viewport, so all three segments produce the identical layout — the control
+   was offering a choice it could not deliver. The font-size buttons stay:
+   those work at any width. */
+@media (max-width: 700px) {
+  .reading-measure-seg {
+    display: none;
+  }
+}
+
 /* Digest lens toolbar — houses the shared reading controls above the
    AI sub-panels. Kept slim so it doesn't compete with the sub-nav. */
-.digest-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: var(--space-8);
-}
-
-.reading-controls-compact {
-  gap: var(--space-2);
-}
-
-.reading-controls-compact .reading-scale-btn {
-  width: 25px;
-  height: 25px;
-  font-size: var(--text-sm);
-}
-
-.reading-controls-compact .reading-measure-seg label {
-  padding: var(--space-2) var(--space-4);
-  font-size: var(--text-2xs);
-}
+/* .digest-toolbar and .reading-controls-compact are gone along with the
+   duplicated reading-controls cluster they styled — see #lensRow. */
 
 /* ==============================================
    36. LOADING SKELETON
@@ -2862,6 +2979,15 @@ kbd {
   justify-content: center;
 }
 
+/* Settings is the one dialog here that is mostly explanatory prose — three
+   sections of it. At the shared .shortcuts-modal width (400px) that prose ran
+   ~40 characters wide in a 1280px window, turning every paragraph into a long
+   thin ribbon and pushing the vault controls under an internal scrollbar. The
+   shortcuts and legal dialogs keep 400px; they are short lists. */
+#settingsOverlay .shortcuts-modal {
+  max-width: 560px;
+}
+
 #settingsOverlay[hidden] {
   display: none;
 }
@@ -2942,12 +3068,37 @@ kbd {
 }
 .settings-toggle-text { display: flex; flex-direction: column; gap: 2px; }
 .settings-toggle-title { font-weight: 600; font-size: var(--text-lg); }
+
+/* One class per level of the settings hierarchy.
+   Sections (Account / Transcription / Markdown vault) used to be marked up with
+   .digest-opt-label — the SAME uppercase micro-label used for the fields inside
+   them, so "TRANSCRIPTION" and "MODE" were visually identical and the group
+   containing a control looked like a sibling of it. "Markdown vault" then used a
+   third treatment borrowed from the checkbox rows. Sections read as headings
+   (weight + --title, per the theme's no-larger-type rule); .digest-opt-label
+   stays the field label it always was. */
+.settings-section-title {
+  display: block;
+  margin-bottom: var(--space-5);
+  font-family: var(--font-stack);
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--title);
+}
 .settings-toggle-row .settings-note { margin: 0; }
 
 .settings-actions {
   display: flex;
   gap: var(--space-5);
   justify-content: flex-end;
+}
+
+/* Inside a labelled block the button belongs under its own label, not flung to
+   the opposite margin: "Pick a folder" on the left with its button on the right
+   read as two unrelated things. The key section keeps flex-end — Clear/Save are
+   a dialog-style pair with no label of their own. */
+.settings-block .settings-actions {
+  justify-content: flex-start;
 }
 
 .settings-block {
@@ -3399,3 +3550,48 @@ kbd {
 
 .legal-modal-body p { margin: 0 0 var(--space-8); }
 .legal-modal-body p:last-child { margin-bottom: 0; }
+
+/* ==============================================
+   44. TOUCH TARGETS
+   Every control in the app sized to --control-h (34px) and the two underlined
+   text buttons (the local-file link, the footer links) measured 34x34, 223x15
+   and 50x14 — all under the 44px minimum a finger needs, on a layout that is
+   otherwise perfectly usable on a phone. Scoped to (pointer: coarse) so the
+   desktop density the design is tuned for is untouched.
+
+   Note headless Chrome reports pointer:coarse === false, so a screenshot
+   harness cannot see this block at all; verify it with an emulated touch
+   device or by overriding the token.
+=============================================== */
+@media (pointer: coarse) {
+  :root {
+    --control-h: 44px;
+  }
+
+  /* Underlined text buttons: pad the row rather than the glyph, so the
+     underline stays tight to the words while the hit area grows. */
+  .local-file-btn,
+  .site-footer-link {
+    padding-block: var(--space-9);
+  }
+
+  /* Two controls size themselves rather than reading --control-h: the lens tabs
+     (padding-tuned to sit on the row's baseline rule) and the Save button. Both
+     are primary — the tabs are the only way between transcript and digest. */
+  .tab-btn {
+    padding-top: var(--space-8);
+    padding-bottom: var(--space-9);
+  }
+
+  .header-save-btn {
+    min-height: 44px;
+  }
+
+  /* Tag chips are text-sized by design; give the two halves a real height
+     without changing how the pill reads. */
+  .saved-tag-filter,
+  .saved-tag-remove,
+  .saved-tag-add-btn {
+    min-height: 36px;
+  }
+}

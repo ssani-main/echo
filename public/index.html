@@ -161,24 +161,59 @@
       </button>
     </div>
 
-    <!-- LENS TABS (Transcript | Digest) -->
-    <div class="tab-bar" id="tabBar" role="tablist" aria-label="Content lens" hidden>
-      <button
-        class="tab-btn"
-        id="tabTranscript"
-        role="tab"
-        aria-selected="true"
-        aria-controls="paneTranscript"
-        tabindex="0"
-      >Transcript</button>
-      <button
-        class="tab-btn"
-        id="tabDigest"
-        role="tab"
-        aria-selected="false"
-        aria-controls="paneDigest"
-        tabindex="-1"
-      >Digest <span id="digestDot" class="digest-dot is-hidden" aria-hidden="true"></span></button>
+    <!-- LENS ROW — tabs on the left, reading display controls pinned right.
+         The reading controls live HERE, once, rather than once per pane. Two
+         copies (one in .controls-row, one in a .digest-toolbar) shared a single
+         `name="readingMeasure"` radio group, and radios with one name are ONE
+         group document-wide: only the last `checked` in document order could
+         win, so the Transcript pane's segmented control showed no selection at
+         all and the two panes fought over one state. One cluster outside both
+         panes also removes a whole row of chrome above the reader and stops the
+         same control being left-aligned in one tab and right-aligned in the
+         other. #lensRow (not #tabBar) is what gets hidden — keeping the
+         non-tab controls out of the role="tablist" element. -->
+    <div class="lens-row" id="lensRow" hidden>
+      <div class="tab-bar" id="tabBar" role="tablist" aria-label="Content lens">
+        <button
+          class="tab-btn"
+          id="tabTranscript"
+          role="tab"
+          aria-selected="true"
+          aria-controls="paneTranscript"
+          tabindex="0"
+        >Transcript</button>
+        <button
+          class="tab-btn"
+          id="tabDigest"
+          role="tab"
+          aria-selected="false"
+          aria-controls="paneDigest"
+          tabindex="-1"
+        >Digest <span id="digestDot" class="digest-dot is-hidden" aria-hidden="true"></span></button>
+      </div>
+      <!-- Reading controls: font scale + line width. Applies to whichever
+           lens is showing — both panes read --reading-scale/--reading-measure
+           off #pageContainer. -->
+      <div class="reading-controls" id="readingControls" role="group" aria-label="Reading display controls">
+        <button class="reading-scale-btn" id="fontDecBtn" data-reading-action="dec"
+                aria-label="Decrease font size" title="Smaller text">A−</button>
+        <button class="reading-scale-btn" id="fontIncBtn" data-reading-action="inc"
+                aria-label="Increase font size" title="Larger text">A+</button>
+        <div class="reading-measure-seg" role="group" aria-label="Line width">
+          <label title="Narrow line width">
+            <input type="radio" name="readingMeasure" value="620px" />
+            Narrow
+          </label>
+          <label title="Medium line width">
+            <input type="radio" name="readingMeasure" value="760px" checked />
+            Medium
+          </label>
+          <label title="Wide line width">
+            <input type="radio" name="readingMeasure" value="940px" />
+            Wide
+          </label>
+        </div>
+      </div>
     </div>
 
     <!-- TRANSCRIPT PANE -->
@@ -195,28 +230,37 @@
             Timecoded
           </label>
         </div>
-        <!-- Reading controls: font scale + line width -->
-        <div class="reading-controls" role="group" aria-label="Reading display controls">
-          <button class="reading-scale-btn" id="fontDecBtn" data-reading-action="dec"
-                  aria-label="Decrease font size" title="Smaller text">A−</button>
-          <button class="reading-scale-btn" id="fontIncBtn" data-reading-action="inc"
-                  aria-label="Increase font size" title="Larger text">A+</button>
-          <div class="reading-measure-seg" role="group" aria-label="Line width">
-            <label title="Narrow line width">
-              <input type="radio" name="readingMeasure" value="620px" />
-              Narrow
-            </label>
-            <label title="Medium line width">
-              <input type="radio" name="readingMeasure" value="760px" checked />
-              Medium
-            </label>
-            <label title="Wide line width">
-              <input type="radio" name="readingMeasure" value="940px" />
-              Wide
-            </label>
-          </div>
+        <!-- The reading controls (A−/A+ + line width) moved up to #lensRow so
+             one cluster serves both panes — see the note there. No "AI digest"
+             button here either: it duplicated the Digest tab directly above it
+             AND the Digest pane's own Generate button — three routes to one
+             action, this one styled as the loudest thing on the row.
+
+             TRANSCRIPT ACTION ROW (copy / download) — moved INTO this row
+             rather than sitting on its own line below it. The view toggle is two
+             ghost words and left a 34px row almost empty; pairing the two puts
+             "what am I looking at" and "take it with me" on one line and gives
+             the reader back a row. Labelled by OBJECT, not by verb: these read
+             "Download .md" and "Export .md" before — two words for the same file
+             type, side by side, where the only real difference is what goes in
+             the file. -->
+        <div class="action-row" id="transcriptActionRow">
+          <button class="mini-btn" id="transcriptCopyBtn"
+                  aria-label="Copy transcript to clipboard" disabled>Copy</button>
+          <!-- Two labels each: the explicit one, and a short form for narrow
+               screens. The explicit labels are what make the pair legible, but
+               at 390px they wrapped the row in two — so the phone gets the short
+               form, and the aria-label (unchanged, always full) is what
+               assistive tech reads either way. -->
+          <button class="mini-btn" id="transcriptDownloadBtn"
+                  aria-label="Download the transcript as a Markdown file" disabled
+            ><span class="btn-label-full">Download transcript</span
+            ><span class="btn-label-short">Transcript</span></button>
+          <button class="mini-btn" id="entryExportBtn"
+                  aria-label="Download the transcript and digest together as one Markdown file" disabled
+            ><span class="btn-label-full">Download transcript + digest</span
+            ><span class="btn-label-short">Both</span></button>
         </div>
-        <button id="digestBtn" disabled>AI digest</button>
       </div>
 
       <!-- LANGUAGE PICKER — hidden until tracks load -->
@@ -228,16 +272,6 @@
           aria-label="Caption language"
         ></select>
         <span id="langPickerStatus" class="lang-picker-status" aria-live="polite"></span>
-      </div>
-
-      <!-- TRANSCRIPT ACTION ROW (copy / download) -->
-      <div class="action-row" id="transcriptActionRow">
-        <button class="mini-btn" id="transcriptCopyBtn"
-                aria-label="Copy transcript to clipboard" disabled>Copy</button>
-        <button class="mini-btn" id="transcriptDownloadBtn"
-                aria-label="Download transcript as a Markdown file" disabled>Download .md</button>
-        <button class="mini-btn" id="entryExportBtn"
-                aria-label="Export saved entry as a Markdown file" disabled>Export .md</button>
       </div>
 
       <!-- FIND BAR -->
@@ -281,7 +315,7 @@
              showTranscriptSkeleton()/fetchTranscript()). -->
         <div id="onboardCard" class="onboard-card" hidden>
           <button type="button" id="onboardDismissBtn" class="onboard-dismiss"
-                  aria-label="Dismiss welcome message">✕</button>
+                  aria-label="Dismiss welcome message">×</button>
           <p class="onboard-card-title">Welcome to Echo</p>
           <p class="onboard-card-text">Read what a YouTube video actually said — paste a link above to
             get the transcript and an AI digest. No account needed.</p>
@@ -305,30 +339,9 @@
     <!-- DIGEST PANE / AI WORKSPACE -->
     <div id="paneDigest" role="tabpanel" aria-labelledby="tabDigest" hidden>
 
-      <!-- Reading controls (shared with Transcript pane) — same state + localStorage keys,
-           so changing size/width here updates the Transcript controls too and vice versa. -->
-      <div class="digest-toolbar">
-        <div class="reading-controls reading-controls-compact" role="group" aria-label="Reading display controls">
-          <button class="reading-scale-btn" data-reading-action="dec"
-                  aria-label="Decrease font size" title="Smaller text">A−</button>
-          <button class="reading-scale-btn" data-reading-action="inc"
-                  aria-label="Increase font size" title="Larger text">A+</button>
-          <div class="reading-measure-seg" role="group" aria-label="Line width">
-            <label title="Narrow line width">
-              <input type="radio" name="readingMeasure" value="620px" />
-              Narrow
-            </label>
-            <label title="Medium line width">
-              <input type="radio" name="readingMeasure" value="760px" checked />
-              Medium
-            </label>
-            <label title="Wide line width">
-              <input type="radio" name="readingMeasure" value="940px" />
-              Wide
-            </label>
-          </div>
-        </div>
-      </div>
+      <!-- The reading controls used to be duplicated here in a .digest-toolbar.
+           They now live once in #lensRow, above both panes — see the note there
+           for why two copies could never both show their state. -->
 
       <!-- SUMMARY PANEL — existing digest feature + options -->
       <div id="aiPanelSummary">
@@ -419,7 +432,7 @@
           <button class="mini-btn" id="digestCopyBtn"
                   aria-label="Copy digest to clipboard">Copy</button>
           <button class="mini-btn" id="digestDownloadBtn"
-                  aria-label="Download digest as a Markdown file">Download .md</button>
+                  aria-label="Download the digest as a Markdown file">Download digest</button>
           <button class="mini-btn" id="digestPrintBtn"
                   aria-label="Print digest or save as PDF">Print / Save as PDF</button>
         </div>
@@ -480,7 +493,7 @@
     <div class="shortcuts-modal">
       <div class="shortcuts-modal-header">
         <span class="shortcuts-modal-title" id="legalModalTitle">Privacy</span>
-        <button class="shortcuts-close-btn" id="legalClose" aria-label="Close">✕</button>
+        <button class="shortcuts-close-btn" id="legalClose" aria-label="Close">×</button>
       </div>
       <div id="legalModalBody" class="legal-modal-body"></div>
     </div>
@@ -492,7 +505,7 @@
     <div class="shortcuts-modal">
       <div class="shortcuts-modal-header">
         <span class="shortcuts-modal-title">Keyboard shortcuts</span>
-        <button class="shortcuts-close-btn" id="shortcutsClose" aria-label="Close shortcuts">✕</button>
+        <button class="shortcuts-close-btn" id="shortcutsClose" aria-label="Close shortcuts">×</button>
       </div>
       <table class="shortcuts-table">
         <tbody>
@@ -535,14 +548,19 @@
     <div class="shortcuts-modal">
       <div class="shortcuts-modal-header">
         <span class="shortcuts-modal-title">Settings</span>
-        <button class="shortcuts-close-btn" id="settingsClose" aria-label="Close settings">✕</button>
+        <button class="shortcuts-close-btn" id="settingsClose" aria-label="Close settings">×</button>
       </div>
       <!-- ACCOUNT — hidden unless the server has accounts configured. Sign-in
            exists for one reason: a library that follows you between devices.
            It has nothing to do with the API key below, which stays in this
            browser either way. -->
       <div id="accountSection" hidden>
-        <span class="digest-opt-label">Account</span>
+        <!-- .settings-section-title, not .digest-opt-label: sections and field
+             labels used to share one uppercase micro-label style, so
+             "TRANSCRIPTION" (a section) looked exactly like "MODE" (a field
+             inside it) while "Markdown vault" used a third treatment borrowed
+             from the checkbox rows. One class per level now. -->
+        <span class="settings-section-title">Account</span>
         <div id="accountSignedOut">
           <p class="settings-note">
             Sign in to keep your saved videos in step across your devices. Your
@@ -602,7 +620,7 @@
            always (High-accuracy); web mode has no local binary to run, so
            this stays hidden there (see the ECHO.mode gate in JS below). -->
       <div id="whisperSettings" class="settings-block" hidden>
-        <span class="digest-opt-label">Transcription</span>
+        <span class="settings-section-title">Transcription</span>
         <p class="settings-note">
           Local Whisper transcribes the video's audio on-device when YouTube captions are
           missing (Fallback) or always, instead of relying on captions (High-accuracy).
@@ -639,17 +657,21 @@
       <!-- VAULT SYNC — local/desktop: sync library to a Markdown folder on disk.
            web: no filesystem access, so offer the ZIP export instead. -->
       <div id="vaultSyncSection" class="settings-block">
-        <span class="settings-toggle-title">Markdown vault</span>
+        <span class="settings-section-title">Markdown vault</span>
+        <p class="settings-note">
+          Sync your whole library into an Obsidian vault — an Obsidian vault is just a
+          folder of Markdown files. Pick an existing vault folder, or create a new
+          (empty) folder to start one.
+        </p>
 
         <!-- Folder-picker sync — all modes, Chromium only (File System Access API).
              Reads the active library (server in local/desktop, IndexedDB in web)
-             and writes each entry as Markdown into a folder you pick. -->
+             and writes each entry as Markdown into a folder you pick.
+             Sub-labelled ("Pick a folder" / "Or type a path") because up to three
+             of these blocks render at once and previously read as three
+             competing answers to "where is the vault?" rather than one choice. -->
         <div id="vaultFolderSync" hidden>
-          <p class="settings-note">
-            Sync your whole library into an Obsidian vault — an Obsidian vault is just a
-            folder of Markdown files. Pick an existing vault folder, or create a new
-            (empty) folder to start one.
-          </p>
+          <label class="digest-opt-label">Pick a folder</label>
           <p id="vaultWebSyncStatus" class="settings-note" aria-live="polite"></p>
           <div class="settings-actions">
             <button class="mini-btn" id="vaultFolderSyncBtn">Sync to vault folder…</button>
@@ -657,7 +679,7 @@
         </div>
 
         <div id="vaultSyncLocal">
-          <label class="digest-opt-label" for="vaultDirInput">Vault folder path</label>
+          <label class="digest-opt-label" for="vaultDirInput">Or type a path</label>
           <input
             id="vaultDirInput"
             type="text"
@@ -684,7 +706,7 @@
         <!-- Obsidian vault name — used by the per-note "Send to Obsidian" deep-link
              on each saved entry. Shared across all modes (not gated). -->
         <div id="obsidianDeepLink">
-          <label class="digest-opt-label" for="obsidianVaultNameInput">Obsidian vault name (optional)</label>
+          <label class="digest-opt-label" for="obsidianVaultNameInput">Vault name for deep links (optional)</label>
           <input
             id="obsidianVaultNameInput"
             type="text"

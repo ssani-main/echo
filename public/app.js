@@ -913,7 +913,6 @@ let autoFetchTimer   = null;
 const statusEl        = document.getElementById('status');
 const outputEl        = document.getElementById('output');
 const radios          = document.querySelectorAll('input[name="viewMode"]');
-const digestBtn       = document.getElementById('digestBtn');
 const saveBtn         = document.getElementById('saveBtn');
 const saveBtnLabel    = document.getElementById('saveBtnLabel');
 const digestStatus    = document.getElementById('digestStatus');
@@ -922,7 +921,9 @@ const topIndicator    = document.getElementById('topIndicator');
 const paneTranscript  = document.getElementById('paneTranscript');
 const paneDigest      = document.getElementById('paneDigest');
 const paneSaved       = document.getElementById('paneSaved');
-const tabBarEl        = document.getElementById('tabBar');
+// #lensRow wraps the tab bar AND the shared reading controls; it is the element
+// that gets hidden, so the non-tab controls stay outside the role="tablist".
+const lensRowEl       = document.getElementById('lensRow');
 const tabTranscript   = document.getElementById('tabTranscript');
 const tabDigest       = document.getElementById('tabDigest');
 const digestDot       = document.getElementById('digestDot');
@@ -1012,8 +1013,14 @@ function updateReaderChromeVisibility() {
                     : !paneDigest.hidden     ? 'digest'
                     : 'saved';
   const show = !!currentMeta && activePane !== 'saved';
-  tabBarEl.hidden       = !show;
+  lensRowEl.hidden       = !show;
   contentHeaderEl.hidden = !show;
+  // The Library grid is deliberately wider than the reader column (see the
+  // layout note in app.css) — but with the top chrome still pinned to
+  // --chrome-max, opening it put two different left edges on screen at once,
+  // which reads as breakage rather than intent. While the Library is showing,
+  // the chrome widens to match the grid so there is only ever one edge.
+  document.body.classList.toggle('pane-library', activePane === 'saved');
 }
 
 tabTranscript.addEventListener('click', () => switchTab('transcript'));
@@ -1389,7 +1396,7 @@ function setTopIndicator(state) {
 
   } else if (state === 'done') {
     topIndicator.classList.add('done');
-    topIndicator.innerHTML = 'Digest ready ✓';
+    topIndicator.innerHTML = 'Digest ready';
     topIndicator.setAttribute('tabindex', '0');
     topIndicator.setAttribute('role', 'button');
     const activate = () => {
@@ -1482,6 +1489,58 @@ function formatDurationHuman(totalSeconds) {
 
 function getMode() {
   return [...radios].find(r => r.checked)?.value ?? 'plain';
+}
+
+/* ==============================================
+   READING TIME
+   Echo's pitch is a time trade — "read in minutes what would take an hour to
+   watch" — so the two numbers belong next to each other wherever a video is
+   described. 220 wpm is the conventional silent-prose rate; segment counts,
+   which these replaced, told the reader nothing.
+=============================================== */
+const WORDS_PER_MINUTE = 220;
+
+/** Flatten { text } segments to one plain string. Tolerates junk entries. */
+function segmentsToText(segments) {
+  if (!Array.isArray(segments)) return '';
+  return segments.map(s => (s && typeof s.text === 'string' ? s.text : '')).join(' ');
+}
+
+function countWords(text) {
+  if (typeof text !== 'string') return 0;
+  const trimmed = text.trim();
+  return trimmed ? trimmed.split(/\s+/).length : 0;
+}
+
+/**
+ * Words → "12 min" / "1 hr 4 min". Returns '' for nothing to read, so callers
+ * can drop the whole clause rather than print "0 min".
+ */
+function formatReadingTime(words) {
+  if (!Number.isFinite(words) || words <= 0) return '';
+  const mins = Math.max(1, Math.round(words / WORDS_PER_MINUTE));
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m ? `${h} hr ${m} min` : `${h} hr`;
+}
+
+/**
+ * Estimate reading time from a caption segment count, for library list rows.
+ * The list metadata deliberately carries no transcript (see the "anything that
+ * touches the whole library needs bounding" note in CLAUDE.md — hydrating 500
+ * transcripts to label 500 cards is exactly the bug that keeps recurring), so
+ * this approximates from the one size signal that IS in the row. ~7.5 words per
+ * caption segment, measured across this library; the label says "~" and rounds
+ * to 5-minute steps above 20 min so it never reads as a precise figure.
+ */
+const WORDS_PER_SEGMENT = 7.5;
+
+function estimateReadingTimeFromSegments(segmentCount) {
+  if (!Number.isFinite(segmentCount) || segmentCount <= 0) return '';
+  const mins = Math.max(1, Math.round(segmentCount * WORDS_PER_SEGMENT / WORDS_PER_MINUTE));
+  const rounded = mins > 20 ? Math.round(mins / 5) * 5 : mins;
+  return `~${formatReadingTime(rounded * WORDS_PER_MINUTE)} read`;
 }
 
 /**
@@ -1662,13 +1721,23 @@ function updateNowReading() {
 
   // Duration — reuse the same humanized calc as the status line, derived
   // from the currently-loaded segments (mirrors lastSegments).
+  //
+  // Paired with the reading time of the text that replaced it. Echo's whole
+  // claim is "read in minutes what would take an hour to watch", and until
+  // now no surface anywhere in the app stated the trade — the header reported
+  // a duration and the library cards reported segment counts, which is a
+  // machine's unit, not a reader's.
   const segs = currentSegments || lastSegments;
   const lastSeg = Array.isArray(segs) && segs.length ? segs[segs.length - 1] : null;
   const durationStr = lastSeg && typeof lastSeg.offset === 'number'
     ? formatDurationHuman(lastSeg.offset)
     : '';
-  contentHeaderDuration.textContent = durationStr
-    ? (contentHeaderUrl.textContent ? ' · ' + durationStr : durationStr)
+  const readStr = formatReadingTime(countWords(segmentsToText(segs)));
+  const parts   = [];
+  if (durationStr) parts.push(`${durationStr} watch`);
+  if (readStr)     parts.push(`${readStr} read`);
+  contentHeaderDuration.textContent = parts.length
+    ? (contentHeaderUrl.textContent ? ' · ' + parts.join(' · ') : parts.join(' · '))
     : '';
 
   // Source badge — reflects how this transcript was obtained (YouTube
@@ -1687,14 +1756,14 @@ function updateNowReading() {
    COPY / DOWNLOAD HELPERS  (Feature 1)
 =============================================== */
 /**
- * Write `text` to the clipboard and briefly change btn label to "Copied ✓".
+ * Write `text` to the clipboard and briefly change btn label to "Copied".
  * `origLabel` is the stable label to restore; guards against overlapping timers.
  */
 function copyToClipboard(btn, text, origLabel) {
   if (!navigator.clipboard) return;
   clearTimeout(copyTimers.get(btn));
   navigator.clipboard.writeText(text).then(() => {
-    btn.textContent = 'Copied ✓';
+    btn.textContent = 'Copied';
     const t = setTimeout(() => { btn.textContent = origLabel; }, 1500);
     copyTimers.set(btn, t);
   }).catch(() => { /* clipboard access denied — silently skip */ });
@@ -2157,7 +2226,6 @@ function applyTranscriptResponse(data) {
       .catch(() => {});
   })(data.videoId);
 
-  digestBtn.disabled              = false;
   saveBtn.disabled                = false;
   syncSaveButton(); // reflect whether this video is already in the library
   transcriptCopyBtn.disabled      = false;
@@ -2300,7 +2368,6 @@ async function fetchTranscript() {
   entryExportBtn.disabled        = true;
 
   // Reset digest / AI workspace completely on a new fetch
-  digestBtn.disabled      = true;
   digestRegenBtn.disabled = true;
   digestRegenBtn.textContent = 'Generate digest'; // reset label for new video
   saveBtn.disabled        = true;
@@ -2765,9 +2832,8 @@ function stopDigestTimer() {
 }
 
 /* ==============================================
-   DIGEST HANDLER (extracted for reuse by both
-   digestBtn in Transcript pane and digestRegenBtn
-   in Summary panel)
+   DIGEST HANDLER (runs for digestRegenBtn in the
+   Summary panel, and for auto-digest)
 =============================================== */
 /**
  * Run a digest over the SSE transport, rendering text as it arrives.
@@ -2828,7 +2894,7 @@ async function streamDigest(body, signal) {
   const paint = () => {
     paintQueued = false;
     digestOutput.innerHTML =
-      '<div class="digest-eyebrow">AI Digest</div>' + renderMarkdown(markdown);
+      renderMarkdown(markdown);
   };
   const schedulePaint = () => {
     if (paintQueued) return;
@@ -2943,7 +3009,6 @@ async function runDigest() {
   const lengthOpt = formatOpt === 'bullets' ? 'short' : 'detailed';
   const langOpt   = digestLangInput.value.trim() || 'English';
 
-  digestBtn.disabled      = true;
   digestRegenBtn.disabled = true;
   digestOutput.classList.remove('visible');
   digestOutput.innerHTML   = '';
@@ -2986,7 +3051,7 @@ async function runDigest() {
     // this final pass replaces the partial render with the authoritative result
     // (the server's `done` payload), which also settles any Markdown that was
     // mid-construction when the last token arrived.
-    digestOutput.innerHTML = '<div class="digest-eyebrow">AI Digest</div>' + renderMarkdown(data.digest);
+    digestOutput.innerHTML = renderMarkdown(data.digest);
     digestOutput.classList.add('visible');
 
     // Capture digest text so Save can include it
@@ -3000,7 +3065,7 @@ async function runDigest() {
     // Show ready dot on tab, update status, set indicator
     digestDot.classList.remove('is-hidden');
     stopDigestTimer();
-    setDigestStatus('Digest ready.', false);
+    setDigestStatus(''); // the digest itself is the "ready" signal
     setTopIndicator('done');
 
     // Usage readouts
@@ -3034,7 +3099,6 @@ async function runDigest() {
     showToast('error', 'Network error: ' + err.message);
   } finally {
     stopDigestTimer(); // safety net — idempotent, in case a branch above missed it
-    digestBtn.disabled      = false;
     digestRegenBtn.disabled = false;
     digestStopBtn.hidden    = true;
     if (digestAbortController === controller) digestAbortController = null;
@@ -3045,7 +3109,6 @@ digestStopBtn.addEventListener('click', () => {
   if (digestAbortController) digestAbortController.abort();
 });
 
-digestBtn.addEventListener('click', runDigest);
 digestRegenBtn.addEventListener('click', runDigest);
 
 /* ==============================================
@@ -3439,15 +3502,27 @@ function buildSavedCard(entry) {
       ' · ' +
       d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 
+  // Badge is now the EXCEPTION, not the rule. "Digest" sat on every card in a
+  // library where practically everything has one — 28 of 28 here — so it cost
+  // a badge's worth of attention to say nothing. Flagging the odd entry that
+  // has only a transcript is the version that carries information.
   const hasDigest   = entry.digest != null || entry.hasDigest;
-  const digestBadge = hasDigest ? '<span class="saved-thumb-badge">Digest</span>' : '';
+  const digestBadge = hasDigest
+    ? ''
+    : '<span class="saved-thumb-badge">Transcript only</span>';
 
-  // Meta line: saved date + segment count (replaces the noisy repeated URL).
+  // Meta line: saved date + estimated reading time. "722 segments" was a
+  // machine's unit; the reading estimate is the one the product is selling.
   const segCount = entry.segmentCount || entry.segment_count || 0;
-  const segStr   = segCount ? `${segCount.toLocaleString()} segments` : '';
-  const metaSep  = (dateStr && segStr)
+  const readStr  = estimateReadingTimeFromSegments(segCount);
+  const metaSep  = (dateStr && readStr)
     ? '<span class="saved-meta-sep" aria-hidden="true">·</span>'
     : '';
+
+  // Channel — already in the list metadata and never shown. It is the most
+  // useful thing about a card after the title, and it is what a card with no
+  // thumbnail (local media files have none) has instead of an empty grey box.
+  const channelStr = typeof entry.channel === 'string' ? entry.channel.trim() : '';
 
   // Tag chips
   const tags     = Array.isArray(entry.tags) ? entry.tags : [];
@@ -3465,7 +3540,7 @@ function buildSavedCard(entry) {
   const tagAddBtn =
     `<button class="saved-tag-add-btn"
              data-videoid="${escapeAttr(entry.videoId)}"
-             aria-label="Add a tag to ${escapeAttr(title)}">＋ tag</button>`;
+             aria-label="Add a tag to ${escapeAttr(title)}">+ tag</button>`;
   const tagsRow =
     `<div class="saved-tags-row" id="tags-row-${escapeAttr(entry.videoId)}">${chipsHtml}${tagAddBtn}</div>`;
 
@@ -3474,7 +3549,7 @@ function buildSavedCard(entry) {
     `<button class="saved-export-btn"
              data-videoid="${escapeAttr(entry.videoId)}"
              data-title="${escapeAttr(title)}"
-             aria-label="Export ${escapeAttr(title)} as Markdown">⬇ .md</button>`;
+             aria-label="Export ${escapeAttr(title)} as Markdown">↓ .md</button>`;
 
   // "Send to Obsidian" deep-link button — shown in all modes. Opens the
   // entry as a new note in Obsidian via the obsidian://new URI (digest-only,
@@ -3503,12 +3578,19 @@ function buildSavedCard(entry) {
                role="button"
                aria-label="Open ${escapeAttr(title)}">
     <div class="saved-card-thumb-wrap">
+      <!-- No-thumbnail fallback: the channel name if we have one, the play
+           glyph if we don't. An empty 16:9 box was the largest, emptiest thing
+           on the card. (Note the boxes visible in a full-page screenshot are
+           usually loading="lazy" images that never entered the viewport — not
+           missing thumbnails; see the lazy-loading note in CLAUDE.md.) -->
       <div class="saved-card-thumb-fallback" aria-hidden="true">
-        <svg width="34" height="34" viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
-          <rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/>
-          <path d="M10 8.75 15 12l-5 3.25z" fill="currentColor" stroke="none"/>
-        </svg>
+        ${channelStr
+          ? `<span class="saved-card-thumb-channel">${escapeHtml(channelStr)}</span>`
+          : `<svg width="34" height="34" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+               <rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/>
+               <path d="M10 8.75 15 12l-5 3.25z" fill="currentColor" stroke="none"/>
+             </svg>`}
       </div>
       ${thumbHtml}
       ${digestBadge}
@@ -3520,7 +3602,7 @@ function buildSavedCard(entry) {
       <div class="saved-card-meta">
         ${dateStr ? `<span class="saved-meta-item">${escapeHtml(dateStr)}</span>` : ''}
         ${metaSep}
-        ${segStr ? `<span class="saved-meta-item">${escapeHtml(segStr)}</span>` : ''}
+        ${readStr ? `<span class="saved-meta-item">${escapeHtml(readStr)}</span>` : ''}
       </div>
       ${entry.snippet ? `<p class="saved-snippet">${escapeHtml(entry.snippet)}</p>` : ''}
       ${tagsRow}
@@ -3529,7 +3611,7 @@ function buildSavedCard(entry) {
         ${obsidianBtn}
         <button class="saved-delete-btn"
                 data-videoid="${escapeAttr(entry.videoId)}"
-                aria-label="Delete ${escapeAttr(title)}">✕ Delete</button>
+                aria-label="Delete ${escapeAttr(title)}">× Delete</button>
       </div>
     </div>
   </div>`;
@@ -3873,20 +3955,18 @@ async function openSavedEntry(videoId) {
     // Restore digest content if it was saved
     if (entry.digest) {
       digestOutput.innerHTML =
-        '<div class="digest-eyebrow">AI Digest</div>' +
         renderMarkdown(entry.digest);
       digestOutput.classList.add('visible');
       digestEmptySt.classList.add('is-hidden');
       digestDot.classList.remove('is-hidden');
-      setDigestStatus('Digest ready.', false);
+      setDigestStatus(''); // the digest itself is the "ready" signal
     }
 
     // Render transcript and enable action buttons
     resetFind();
     renderSegments(lastSegments);
     reApplyOverlays();
-    digestBtn.disabled              = false;
-    saveBtn.disabled                = false;
+      saveBtn.disabled                = false;
     syncSaveButton(); // this entry is in the library → shows the "Saved" state
     transcriptCopyBtn.disabled      = false;
     transcriptDownloadBtn.disabled  = false;
@@ -3894,7 +3974,10 @@ async function openSavedEntry(videoId) {
     syncDigestExportRow();
     syncDigestRegenBtn(); // update label + enable state
 
-    setStatus(`Loaded ${entry.segments.length} segments for video ${entry.videoId}.`);
+    // No "Loaded N segments for video ID" line: the content header directly
+    // below already names the video, its length and its transcript source, in
+    // reader terms rather than segment counts.
+    setStatus('');
 
     // Land on Transcript tab
     switchTab('transcript');
@@ -4203,7 +4286,7 @@ langSelect && langSelect.addEventListener('change', async () => {
     resetFind();
     renderSegments(lastSegments);
     reApplyOverlays();
-    setStatus(`Loaded ${data.segments.length} segments (${code}).`);
+    setStatus(`Switched transcript language to ${code}.`);
 
   } catch (err) {
     console.error('[echo] langSelect network error:', err);
@@ -5005,7 +5088,7 @@ settingsSaveKeyBtnEl?.addEventListener('click', async () => {
 
     if (res.ok && data.valid) {
       setApiKey(trimmed);
-      setKeyStatus('Key verified ✓', 'success');
+      setKeyStatus('Key verified', 'success');
       showToast('success', 'API key saved and verified.');
       closeSettingsModal();
     } else {
@@ -5524,8 +5607,7 @@ function restoreSession() {
     syncDigestExportRow();
     markOnboarded(); // a restored transcript session means the user is past first-run
 
-    digestBtn.disabled              = false;
-    saveBtn.disabled                = false;
+      saveBtn.disabled                = false;
     syncSaveButton(); // reflect library membership after a session restore
     transcriptCopyBtn.disabled      = false;
     transcriptDownloadBtn.disabled  = false;
@@ -5535,12 +5617,11 @@ function restoreSession() {
     // Restore digest pane
     if (snap.digest) {
       digestOutput.innerHTML =
-        '<div class="digest-eyebrow">AI Digest</div>' +
         renderMarkdown(snap.digest);
       digestOutput.classList.add('visible');
       digestEmptySt.classList.add('is-hidden');
       digestDot.classList.remove('is-hidden');
-      setDigestStatus('Digest ready.', false);
+      setDigestStatus(''); // the digest itself is the "ready" signal
       if (snap.digestUsageLine) {
         usageStatsEl.innerHTML = snap.digestUsageLine;
         usageStatsEl.classList.add('visible');
