@@ -419,7 +419,7 @@ installer bloats the artifact ~180 MB for a feature most users may never trigger
   /whisper/i.test((err.path || '') + message)`) → `{ echoCode, message, hint }`, so
   `sendCaughtError` (`:250`) handles them unchanged.
 
-## Frontend (`public/index.html`)
+## Frontend (`src/components/SettingsModal.astro` + `src/client/main.js`)
 
 - **Settings → "Transcription (advanced)"** (local/desktop only, hidden in web): mode
   select (Off / Fallback / High-accuracy), model select (small / base), model

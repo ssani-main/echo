@@ -12,7 +12,7 @@ import { join, dirname } from 'node:path';
 // file guards both:
 //
 //  1. The sentinel must be written as an escape sequence, not as a raw byte.
-//     It used to be a literal NUL in the source, which made public/app.js read
+//     It used to be a literal NUL in the source, which made src/client/main.js read
 //     as a *binary* file to grep, git and every diff viewer — the file silently
 //     dropped out of content searches.
 //
@@ -21,19 +21,19 @@ import { join, dirname } from 'node:path';
 //     text is HTML-escaped first) but it either steals a <code> element or
 //     renders the literal string "undefined".
 //
-// app.js is a classic script that touches the DOM at load, so it cannot be
+// src/client/main.js is a classic script that touches the DOM at load, so it cannot be
 // imported here. The functions are lifted out by brace matching instead — the
 // same approach tests/shared-parity.test.js uses, and it fails loudly if any
 // of them is renamed.
 // ---------------------------------------------------------------------------
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const SOURCE = readFileSync(join(ROOT, 'public', 'app.js'), 'utf8');
+const SOURCE = readFileSync(join(ROOT, 'src', 'client', 'main.js'), 'utf8');
 
 /** Slice one top-level `function name(...) { ... }` out of the source. */
 function sliceFunction(name) {
   const start = SOURCE.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name}() not found in public/app.js — was it renamed?`);
+  assert.notEqual(start, -1, `${name}() not found in src/client/main.js — was it renamed?`);
   let depth = 0;
   let i = SOURCE.indexOf('{', start);
   for (; i < SOURCE.length; i++) {
@@ -52,7 +52,7 @@ const NUL = String.fromCharCode(0);
 
 // ---------------------------------------------------------------------------
 
-test('public/app.js contains no literal control characters', () => {
+test('src/client/main.js contains no literal control characters', () => {
   // A single raw NUL is enough to make the whole file "binary" to grep.
   const offenders = [];
   for (let i = 0; i < SOURCE.length; i++) {
@@ -62,7 +62,7 @@ test('public/app.js contains no literal control characters', () => {
     if (offenders.length > 4) break;
   }
   assert.deepEqual(offenders, [],
-    'write control characters as \\uXXXX escapes — a raw one makes app.js unsearchable');
+    'write control characters as \\uXXXX escapes — a raw one makes src/client/main.js unsearchable');
 });
 
 test('inline code spans survive the other inline transforms', () => {

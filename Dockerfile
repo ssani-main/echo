@@ -1,9 +1,32 @@
 # Echo — hosted web mode (BYOK) container image.
 #
 # node:22-bookworm-slim tracks the latest Node 22.x patch release, which is
-# well above the >=22.5 floor required by node:sqlite (see package.json
-# "engines"). Pin to a specific patch (e.g. node:22.9-bookworm-slim) if you
-# need reproducible builds.
+# well above the >=22.12 floor required by Astro / node:sqlite (see
+# package.json "engines"). Pin to a specific patch (e.g.
+# node:22.12-bookworm-slim) if you need reproducible builds.
+
+# --- Stage 1: builder ---
+# Installs all dependencies (including devDependencies such as astro) and
+# produces the static frontend in dist/.  astro is a devDependency, so this
+# stage must use a full `npm ci` rather than `--omit=dev`.
+FROM node:22-bookworm-slim AS builder
+
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN if [ -f package-lock.json ]; then \
+      npm ci; \
+    else \
+      npm install; \
+    fi
+
+COPY . .
+RUN npm run build
+
+# --- Stage 2: runtime ---
+# Production image.  Receives only the built dist/ from the builder stage —
+# the host filesystem's dist/ is excluded via .dockerignore so the builder
+# output is always authoritative.
 FROM node:22-bookworm-slim
 
 WORKDIR /app
@@ -18,7 +41,8 @@ RUN apt-get update \
   && apt-get purge -y --auto-remove python3-pip \
   && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies first so this layer is cached across source changes.
+# Install production dependencies first so this layer is cached across source
+# changes.
 COPY package.json package-lock.json* ./
 RUN if [ -f package-lock.json ]; then \
       npm ci --omit=dev; \
@@ -27,6 +51,10 @@ RUN if [ -f package-lock.json ]; then \
     fi
 
 COPY . .
+
+# Bring in the Astro-built frontend from the builder stage.  This must come
+# after `COPY . .` so it is never overwritten by a stale host dist/.
+COPY --from=builder /app/dist ./dist
 
 ENV ECHO_MODE=web \
     ECHO_HOST=0.0.0.0 \

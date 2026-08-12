@@ -4,15 +4,16 @@ import http from 'node:http';
 import { gunzipSync, brotliDecompressSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { rmSync } from 'node:fs';
+import { rmSync, readFileSync } from 'node:fs';
 
 // ---------------------------------------------------------------------------
 // Two guards on how server.js serves the app shell and the Whisper progress
 // stream:
 //
 //   1. GET / is pre-gzipped once at boot and served with Content-Encoding when
-//      (and only when) the client actually accepts gzip. The page is a ~316 KB
-//      inline monolith, so shipping it uncompressed is a 4x cost on every visit.
+//      (and only when) the client actually accepts gzip. The page and the two
+//      hashed bundles it pulls in are all served from memory, so shipping them
+//      uncompressed is a multiple-x cost on every visit.
 //   2. GET /api/transcript/progress bounds how many streams can be open at
 //      once. Each one holds a socket and a repeating timer, and nothing about
 //      the route requires a stream to ever be closed by its client.
@@ -75,6 +76,28 @@ function rawGet(path, headers = {}) {
   });
 }
 
+// The bundler names its output with a content hash — /_astro/index.<hash>.css —
+// so these tests cannot hard-code asset paths the way they could when the
+// frontend was public/app.js and public/app.css served under their own names.
+// Resolve them once from the page the server actually serves. Insisting on
+// exactly one match of each is itself a guard: a second stylesheet or a second
+// entry chunk would mean the build had started code-splitting, which changes
+// the request waterfall these compression tests are written about.
+const SHELL_HTML = (await rawGet('/', { 'Accept-Encoding': 'identity' })).body.toString('utf8');
+
+function soleAsset(pattern, what) {
+  const found = [...SHELL_HTML.matchAll(pattern)].map((m) => m[1]);
+  assert.equal(found.length, 1, `expected exactly one ${what} in the page, found ${found.length}`);
+  return found[0];
+}
+
+const BUNDLE_JS = soleAsset(/<script type="module" src="(\/_astro\/[^"]+\.js)"/g, 'entry script');
+const BUNDLE_CSS = soleAsset(/<link rel="stylesheet" href="(\/_astro\/[^"]+\.css)"/g, 'stylesheet');
+
+/** The bytes the build wrote, to check against the bytes the server returns. */
+const onDisk = (assetPath) =>
+  readFileSync(join(import.meta.dirname, '..', 'dist', assetPath), 'utf8');
+
 // ---------------------------------------------------------------------------
 // GET / — compression
 // ---------------------------------------------------------------------------
@@ -88,10 +111,12 @@ test('GET / serves gzip when the client accepts it, and it decompresses to the p
 
   const html = gunzipSync(res.body).toString('utf8');
   assert.match(html, /<!doctype html>/i);
-  // The page now pulls its script and CSS from real files, which is what lets
-  // the CSP refuse inline script.
-  assert.match(html, /<script src="\/app\.js">/);
-  assert.match(html, /<link rel="stylesheet" href="\/app\.css"/);
+  // The page pulls its script and CSS from real files, which is what lets the
+  // CSP refuse inline script. The gzipped copy has to reference the same two
+  // bundles as the identity copy — if the two representations were built from
+  // different snapshots of the page, this is where it would show.
+  assert.ok(html.includes(`src="${BUNDLE_JS}"`), `gzipped page should reference ${BUNDLE_JS}`);
+  assert.ok(html.includes(`href="${BUNDLE_CSS}"`), `gzipped page should reference ${BUNDLE_CSS}`);
 });
 
 test('GET / advertises Vary: Accept-Encoding so caches keep the two representations apart', async () => {
@@ -155,10 +180,11 @@ test('brotli wins over gzip when the client offers both', async () => {
 
 test('a request arriving before the warm-up finishes is served immediately, not blocked', async () => {
   // The property that matters: the request path never compresses, it only
-  // serves a buffer the background warm-up already produced. Compressing app.js
-  // at q=11 takes ~430 ms, so if a cold request ever blocked on it that would
-  // show up here as an enormous first response. Whichever encoding comes back
-  // is fine — gzip during the warm-up, brotli after — as long as nobody waits.
+  // serves a buffer the background warm-up already produced. Compressing the
+  // entry bundle at q=11 takes hundreds of ms, so if a cold request ever
+  // blocked on it that would show up here as an enormous first response.
+  // Whichever encoding comes back is fine — gzip during the warm-up, brotli
+  // after — as long as nobody waits.
   const fresh = await import(`../server.js?cold=${Date.now()}`);
   const coldServer = fresh.app.listen(0);
   const coldPort = coldServer.address().port;
@@ -166,7 +192,7 @@ test('a request arriving before the warm-up finishes is served immediately, not 
     const started = Date.now();
     const res = await new Promise((resolve, reject) => {
       const req = http.get(
-        { host: '127.0.0.1', port: coldPort, path: '/app.js', headers: { 'Accept-Encoding': 'br, gzip' } },
+        { host: '127.0.0.1', port: coldPort, path: BUNDLE_JS, headers: { 'Accept-Encoding': 'br, gzip' } },
         (r) => {
           const chunks = [];
           r.on('data', (c) => chunks.push(c));
@@ -181,15 +207,17 @@ test('a request arriving before the warm-up finishes is served immediately, not 
     const encoding = res.headers['content-encoding'];
     assert.ok(encoding === 'gzip' || encoding === 'br', `unexpected encoding ${encoding}`);
     const decoded = encoding === 'br' ? brotliDecompressSync(res.body) : gunzipSync(res.body);
-    assert.match(decoded.toString('utf8'), /function renderMarkdown/);
+    // Minification renames everything inside the bundle, so there is no stable
+    // source token to grep for. Compare against the bytes the build wrote.
+    assert.equal(decoded.toString('utf8'), onDisk(BUNDLE_JS));
   } finally {
     await new Promise((resolve) => coldServer.close(resolve));
   }
 });
 
 test('brotli is smaller than gzip for the same asset', async () => {
-  const br = await rawGet('/app.js', { 'Accept-Encoding': 'br' });
-  const gz = await rawGet('/app.js', { 'Accept-Encoding': 'gzip' });
+  const br = await rawGet(BUNDLE_JS, { 'Accept-Encoding': 'br' });
+  const gz = await rawGet(BUNDLE_JS, { 'Accept-Encoding': 'gzip' });
 
   assert.equal(br.headers['content-encoding'], 'br');
   assert.equal(gz.headers['content-encoding'], 'gzip');
@@ -208,8 +236,8 @@ test('brotli is smaller than gzip for the same asset', async () => {
 test('the warmed brotli buffer is stable across requests', async () => {
   // It is computed once and cached. If the cache were keyed or reset wrongly,
   // the second response would differ from the first.
-  const first = await rawGet('/app.css', { 'Accept-Encoding': 'br' });
-  const second = await rawGet('/app.css', { 'Accept-Encoding': 'br' });
+  const first = await rawGet(BUNDLE_CSS, { 'Accept-Encoding': 'br' });
+  const second = await rawGet(BUNDLE_CSS, { 'Accept-Encoding': 'br' });
 
   assert.equal(first.headers['content-encoding'], 'br');
   assert.deepEqual(first.body, second.body);
@@ -233,16 +261,18 @@ test('an encoding token that merely starts with "br" is not read as brotli', asy
 });
 
 // ---------------------------------------------------------------------------
-// The split assets
+// The built bundles and the boot scripts
 // ---------------------------------------------------------------------------
 
-test('app.css, app.js and the boot scripts are served, gzipped, with the right types', async () => {
+test('the bundles and the boot scripts are served, gzipped, with the right types', async () => {
   // These are served from memory and compressed at boot, exactly like the page.
   // If they ever fall through to express.static instead they would still work —
-  // just uncompressed — which is the kind of regression nobody notices.
+  // just uncompressed — which is the kind of regression nobody notices. The two
+  // hashed bundles are discovered at boot by scanning dist/_astro, so this also
+  // covers that scan having found them.
   for (const [path, type] of [
-    ['/app.css', /text\/css/],
-    ['/app.js', /javascript/],
+    [BUNDLE_CSS, /text\/css/],
+    [BUNDLE_JS, /javascript/],
     ['/theme-init.js', /javascript/],
     ['/echo-config.js', /javascript/],
   ]) {
@@ -251,6 +281,15 @@ test('app.css, app.js and the boot scripts are served, gzipped, with the right t
     assert.match(res.headers['content-type'], type, path);
     assert.equal(res.headers['content-encoding'], 'gzip', `${path} must be compressed`);
     assert.match(String(res.headers.vary || ''), /accept-encoding/i, path);
+  }
+});
+
+test('the served bundles are byte-identical to what the build wrote', async () => {
+  // The boot-time cache reads dist/ once and never re-reads it. A stale or
+  // truncated read would still serve 200s, so compare the bytes.
+  for (const asset of [BUNDLE_JS, BUNDLE_CSS]) {
+    const res = await rawGet(asset, { 'Accept-Encoding': 'identity' });
+    assert.equal(res.body.toString('utf8'), onDisk(asset), asset);
   }
 });
 

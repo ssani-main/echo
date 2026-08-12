@@ -1,7 +1,7 @@
 import express from 'express';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import { writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
@@ -44,6 +44,7 @@ import { validateApiKey } from './providers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const DIST_DIR = join(__dirname, 'dist');
 
 // ---------------------------------------------------------------------------
 // Mode flag — 'local' (default: npm start) vs 'web' (hosted) vs 'desktop'
@@ -110,17 +111,17 @@ app.use(express.json({ limit: '5mb' }));
 // ---------------------------------------------------------------------------
 // Security headers
 // ---------------------------------------------------------------------------
-// The page's script and CSS live in real files (app.js / app.css /
-// theme-init.js / echo-config.js) and it carries no inline <script>, <style>
-// or style="" attribute, so NEITHER script-src nor style-src needs
-// 'unsafe-inline' — the weakness the inline monolith forced is gone.
+// The page's script and CSS live in real files (content-hashed bundles under
+// dist/_astro/, plus theme-init.js and echo-config.js) and it carries no
+// inline <script>, <style> or style="" attribute, so NEITHER script-src nor
+// style-src needs 'unsafe-inline' — the weakness the inline monolith forced is gone.
 //
 // Note what this does and does not cover: `el.style.width = x` is the CSSOM
 // and is not governed by style-src, so dynamic styling still works. What is
 // blocked is a style attribute in parsed markup, including one arriving
 // through innerHTML — which is exactly the injection path worth closing.
 // It also blocks framing, MIME-sniffing, and restricts every origin to self:
-// JSZip is vendored (public/vendor/) rather than pulled from a CDN, and the
+// JSZip is vendored (dist/vendor/) rather than pulled from a CDN, and the
 // Plaintext theme loads no webfont, so the policy names no external host at
 // all. The only remaining outbound origins are images from YouTube's thumbnail
 // CDNs.
@@ -144,12 +145,13 @@ app.use((_req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
-// Step 1 — inject window.__ECHO__ into index.html
+// Step 1 — read dist/index.html (the Astro build output) at startup
 // ---------------------------------------------------------------------------
-// index.html is read ONCE at startup and the injected HTML is cached in
-// memory, rather than re-reading + re-injecting on every request. Trade-off:
-// editing public/index.html during local development requires a server
-// restart to pick up changes (it did not before this change).
+// index.html is read ONCE at startup and cached in memory, rather than
+// re-reading on every request. Trade-off: the page is a build artifact, so
+// a frontend edit needs `npm run build` and a server restart (or `npm run dev`,
+// which runs the Astro dev server on :4321 and proxies `/api` and
+// `/echo-config.js` to this server on :8000).
 // The page's mode flag used to be injected as an inline <script> into the HTML.
 // It is served as a real file instead, because that was the last inline script
 // on the page — and with it gone, the CSP above can refuse inline script
@@ -158,8 +160,19 @@ function buildConfigScript(mode) {
   return `window.__ECHO__=${JSON.stringify({ mode })};\n`;
 }
 
-const INDEX_HTML_PATH = join(__dirname, 'public', 'index.html');
-const CACHED_INDEX_HTML = readFileSync(INDEX_HTML_PATH, 'utf8');
+// The page is a build artifact now. Fail loudly and early if it is missing:
+// the alternative is an ENOENT stack trace from readFileSync, or worse, a
+// server that boots and serves an unstyled page because only the bundles are
+// absent. Both are the operator's problem to fix and neither says how.
+const ASTRO_DIR = join(DIST_DIR, '_astro');
+if (!existsSync(join(DIST_DIR, 'index.html')) || !existsSync(ASTRO_DIR)) {
+  throw new Error(
+    'dist/ is missing or incomplete — the frontend has not been built. ' +
+    'Run `npm run build` before starting the server.'
+  );
+}
+
+const CACHED_INDEX_HTML = readFileSync(join(DIST_DIR, 'index.html'), 'utf8');
 
 /**
  * True when the client actually accepts `coding`. Honours an explicit `q=0`
@@ -188,11 +201,11 @@ function acceptsGzip(req) {
 }
 
 // Brotli at maximum quality, which is worth 17% over gzip -9 on this app's
-// assets (81.2 KB → 67.3 KB across index.html + app.css + app.js).
+// assets (index.html + the content-hashed bundles in dist/_astro/).
 //
 // Compressed in the BACKGROUND, just after this module finishes loading —
 // neither at boot nor on demand, because both of those make somebody wait.
-// q=11 costs ~455 ms for the three files: doing it inline more than doubles a
+// q=11 costs ~455 ms for the page shell files: doing it inline more than doubles a
 // 208 ms startup, on every dev restart, every Tauri sidecar launch and in CI's
 // boot job, none of which ever ask for brotli. Doing it on first request
 // instead just moves the same cost onto whoever loads the page first, which
@@ -216,7 +229,8 @@ const brotliWarmups = [];
 /**
  * Serve a boot-time-cached, pre-compressed asset.
  *
- * index.html, app.css and app.js are all read once and gzipped once, for the
+ * index.html, the content-hashed bundles in dist/_astro/, theme-init.js, and
+ * vendor/jszip.min.js are all read once from dist/ and gzipped once, for the
  * same reason: they are byte-identical on every request, so per-response
  * compression would burn CPU to produce the same bytes. That is also why this
  * is a hand-rolled Content-Encoding rather than a compression middleware —
@@ -224,8 +238,8 @@ const brotliWarmups = [];
  * small hosted VM is real CPU for an identical result, and in local mode is CPU
  * spent compressing loopback traffic that never hits a network.
  *
- * The trade-off is the one index.html always had — editing any of them in dev
- * needs a server restart.
+ * The trade-off: the page is a build artifact, so a frontend edit needs
+ * `npm run build` and a server restart to take effect.
  *
  * Registered BEFORE express.static so these win over the on-disk copies, which
  * would otherwise be served uncompressed.
@@ -270,18 +284,38 @@ function serveCached(path, contentType, text) {
   });
 }
 
-const APP_CSS = readFileSync(join(__dirname, 'public', 'app.css'), 'utf8');
-const APP_JS = readFileSync(join(__dirname, 'public', 'app.js'), 'utf8');
-const THEME_INIT_JS = readFileSync(join(__dirname, 'public', 'theme-init.js'), 'utf8');
-const JSZIP_JS = readFileSync(join(__dirname, 'public', 'vendor', 'jszip.min.js'), 'utf8');
+const THEME_INIT_JS = readFileSync(join(DIST_DIR, 'theme-init.js'), 'utf8');
+const JSZIP_JS = readFileSync(join(DIST_DIR, 'vendor', 'jszip.min.js'), 'utf8');
 const CONFIG_JS = buildConfigScript(ECHO_MODE);
 
 serveCached('/', 'text/html; charset=utf-8', CACHED_INDEX_HTML);
-serveCached('/app.css', 'text/css; charset=utf-8', APP_CSS);
-serveCached('/app.js', 'text/javascript; charset=utf-8', APP_JS);
 serveCached('/theme-init.js', 'text/javascript; charset=utf-8', THEME_INIT_JS);
 serveCached('/echo-config.js', 'text/javascript; charset=utf-8', CONFIG_JS);
 serveCached('/vendor/jszip.min.js', 'text/javascript; charset=utf-8', JSZIP_JS);
+
+// Scan dist/_astro/ and register each entry for cached serving. The
+// filenames carry a content hash chosen by the bundler (e.g.
+// _astro/main.Abc123.js), so the server cannot know them ahead of time —
+// a static list would break on every rebuild. The hash is also what makes
+// these files safe to cache: a new build produces a new name, so CDNs and
+// browsers never serve stale bytes from a previous deploy.
+// (ASTRO_DIR and its existence are established above, next to index.html.)
+for (const name of readdirSync(ASTRO_DIR)) {
+  const ext = name.slice(name.lastIndexOf('.'));
+  let contentType;
+  if (ext === '.js') {
+    contentType = 'text/javascript; charset=utf-8';
+  } else if (ext === '.css') {
+    contentType = 'text/css; charset=utf-8';
+  } else {
+    // Fonts, images, and other binary assets that Astro may emit under
+    // _astro/ are already compressed and binary — skip them and let
+    // express.static serve them from dist/.
+    continue;
+  }
+  serveCached('/_astro/' + name, contentType,
+    readFileSync(join(ASTRO_DIR, name), 'utf8'));
+}
 
 /**
  * Resolves once every cached asset has its brotli buffer.
@@ -363,7 +397,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.static(join(__dirname, 'public')));
+app.use(express.static(DIST_DIR));
 
 // ---------------------------------------------------------------------------
 // Structured error helpers

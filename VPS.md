@@ -104,6 +104,15 @@ The `-d` flag runs in the background; `-f` on `logs` streams in real-time.
 Leave the logs running for the first deploy so you can spot any errors at
 startup.
 
+**The image builds the frontend for you.** Since the Astro migration the
+`Dockerfile` is two-stage: the first stage installs the full dependency tree
+(Astro is a `devDependency`) and runs `npm run build`; the second copies only
+`dist/` and a production-only `node_modules` into the runtime image. You never
+build on the host, and `dist/` is listed in `.dockerignore`, so a stale local
+build can't leak into the image. The build stage is the memory-hungry part —
+on a 512 MB VPS, build the image elsewhere and push it to a registry rather
+than running `--build` on the box.
+
 ## TLS with Caddy
 
 Caddy handles HTTPS provisioning and renewal automatically — once your A record
@@ -232,7 +241,7 @@ existing `Dockerfile` and `fly.toml`:
 
 | | `Dockerfile` | `compose.yaml` |
 |---|---|---|
-| Image | `FROM node:22-bookworm-slim` | (same, built from `Dockerfile`) |
+| Image | `FROM node:22-bookworm-slim` (twice — builder + runtime) | (same, built from `Dockerfile`) |
 | Internal port | `EXPOSE 8080`, `PORT=8080` | `ports: 127.0.0.1:8080:8080` |
 | Health check path | `HEALTHCHECK` → `/api/health` | (used in curl verify) |
 | Mode | `ECHO_MODE=web` | `environment: ECHO_MODE: web` |

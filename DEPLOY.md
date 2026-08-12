@@ -172,9 +172,14 @@ intentionally brief.
 ## Node version
 
 The `Dockerfile` already pins `node:22-bookworm-slim`, which satisfies the
-`>= 22.5` requirement (`node:sqlite`, per `package.json`'s `engines` field)
-that the rest of the app depends on. No action needed here for either Fly
-or Railway.
+`>= 22.12` requirement (`package.json`'s `engines` field). Astro's build sets
+that floor; `node:sqlite` only needs 22.5, so the build is the binding
+constraint. No action needed here for either Fly or Railway.
+
+The image is a two-stage build: the first stage installs the full dependency
+tree (Astro is a devDependency) and runs `npm run build`; the runtime stage
+installs with `--omit=dev` and copies `dist/` across. `dist/` is in
+`.dockerignore`, so a stale build on your machine can never reach the image.
 
 ## Verifying sign-in before you trust it
 

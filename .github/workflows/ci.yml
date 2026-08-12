@@ -13,14 +13,23 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # node:sqlite needs >=22.5 (package.json engines). 22.x tracks the
-          # same major the Dockerfile pins, so CI and production agree.
-          node-version: '22'
+          # Astro's build needs >=22.12, which is above the >=22.5 that
+          # node:sqlite needs, so the higher floor is the one that binds. 22.x
+          # tracks the same major the Dockerfile pins, so CI and production
+          # agree.
+          node-version: '22.12'
           cache: npm
 
       # `npm ci` needs the lockfile to be in step with package.json — which is
       # itself worth catching, so this is not `npm install`.
       - run: npm ci
+
+      # The frontend is a build artifact now, and server.js refuses to boot
+      # without it — so this is a prerequisite of the suite, not just of the
+      # boot job. tests/page-serving.test.js imports server.js directly and
+      # reads the hashed bundle names straight out of dist/.
+      - name: Build frontend
+        run: npm run build
 
       - run: npm test
 
@@ -34,13 +43,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.12'
           cache: npm
       - run: npm ci
 
+      - name: Build frontend
+        run: npm run build
+
       - name: Every backend module parses
         run: |
-          for f in *.js; do node --check "$f" || exit 1; done
+          for f in *.js src/client/main.js; do node --check "$f" || exit 1; done
 
       # The page itself, in a real browser. Two layout regressions once shipped
       # past a fully green suite because nothing rendered index.html — this

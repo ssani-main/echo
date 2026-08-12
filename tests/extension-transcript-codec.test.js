@@ -11,7 +11,7 @@ import { join, dirname } from 'node:path';
 // that live in two files which cannot import each other:
 //
 //   - extension/shared.js   echoEncodeTranscript()  — gzip + base64url
-//   - public/app.js         applyExtensionTranscript() (decode half, private)
+//   - src/client/main.js    applyExtensionTranscript() (decode half, private)
 //
 // That is exactly the "a copied function will drift, silently" trap CLAUDE.md
 // warns about — except here it isn't even a copy, it's two different
@@ -32,17 +32,17 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const require_ = createRequire(import.meta.url);
 const { echoEncodeTranscript } = require_(join(ROOT, 'extension', 'shared.js'));
 
-const APP_SOURCE = readFileSync(join(ROOT, 'public', 'app.js'), 'utf8');
+const APP_SOURCE = readFileSync(join(ROOT, 'src', 'client', 'main.js'), 'utf8');
 
 /**
- * Slice one top-level `function name(...) { ... }` out of public/app.js,
+ * Slice one top-level `function name(...) { ... }` out of src/client/main.js,
  * keeping a leading `async ` if the declaration has one — applyExtensionTranscript
  * is async, and dropping that keyword would leave a syntactically-broken
  * function full of `await` with no `async`.
  */
 function sliceFunction(name) {
   let start = APP_SOURCE.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name}() not found in public/app.js — was it renamed?`);
+  assert.notEqual(start, -1, `${name}() not found in src/client/main.js — was it renamed?`);
   const asyncPrefix = 'async ';
   if (APP_SOURCE.slice(start - asyncPrefix.length, start) === asyncPrefix) {
     start -= asyncPrefix.length;
@@ -85,7 +85,7 @@ const SAMPLE_PAYLOAD = {
   ],
 };
 
-test('round trip: encode with extension/shared.js, decode with public/app.js', async () => {
+test('round trip: encode with extension/shared.js, decode with src/client/main.js', async () => {
   lastApplied = null;
   const encoded = await echoEncodeTranscript(SAMPLE_PAYLOAD);
   assert.equal(typeof encoded, 'string');

@@ -1,3 +1,8 @@
+# Astro build output. The page is a build artifact now: `npm run build` writes
+# dist/, server.js serves it, and nothing in here is source.
+dist/
+.astro/
+
 # Dependencies
 node_modules/
 

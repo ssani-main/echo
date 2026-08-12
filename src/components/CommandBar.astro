@@ -1,0 +1,25 @@
+<!-- COMMAND BAR -->
+<div class="command-bar">
+  <span class="command-glyph" aria-hidden="true">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+      <path d="M4 6v12M9 4v16M14 8v8M19 6v12"/>
+    </svg>
+  </span>
+  <input
+    id="urlInput"
+    type="text"
+    placeholder="Paste a YouTube link — it loads automatically"
+    autocomplete="off"
+    spellcheck="false"
+  />
+</div>
+<!-- Local media: the same Whisper stage the YouTube path uses, pointed at a
+     file. Local/desktop only — the route is blockInWeb, so the row is
+     hidden in hosted mode rather than offering something that 503s. -->
+<div class="local-file-row" id="localFileRow" hidden>
+  <input type="file" id="localFileInput" accept="audio/*,video/*" hidden />
+  <button type="button" id="localFileBtn" class="local-file-btn">
+    or open an audio / video file
+  </button>
+  <span class="local-file-note" id="localFileNote"></span>
+</div>

@@ -59,8 +59,10 @@ the app to `localhost` would otherwise trip.
 the useful half of the message ("Open Settings → Transcription and download a
 model"), so a failure gives you the next step rather than a dead end.
 
-**No build step.** Plain CommonJS `main.js`, matching the rest of the repo —
-nothing to compile, nothing to keep in sync with a bundler config.
+**No build step.** Plain CommonJS `main.js` — nothing to compile, nothing to keep
+in sync with a bundler config. (Echo's own frontend moved to an Astro build in
+2026-08; the plugin deliberately did not follow. Obsidian loads `main.js`
+directly, so a bundler would buy it nothing.)
 
 ## Testing
 

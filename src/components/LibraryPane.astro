@@ -1,0 +1,28 @@
+<!-- LIBRARY PANE -->
+<div id="paneSaved" role="tabpanel" aria-labelledby="libraryBtn" hidden>
+  <!-- Toolbar: search + sort + export -->
+  <div class="saved-toolbar">
+    <div class="saved-search-wrap">
+      <input
+        id="savedSearchInput"
+        type="search"
+        placeholder="Search by title or tag…"
+        autocomplete="off"
+        spellcheck="false"
+        aria-label="Search saved videos by title or tag"
+      />
+    </div>
+    <select id="savedSortSelect" aria-label="Sort saved videos">
+      <option value="recent">Recently saved</option>
+      <option value="title">Title A–Z</option>
+    </select>
+    <button
+      id="savedExportBtn"
+      class="mini-btn"
+      aria-label="Export saved library as a ZIP of Markdown files"
+    >Export library</button>
+  </div>
+  <div id="savedResultCount" class="saved-result-count" aria-live="polite" aria-atomic="true"></div>
+  <div id="savedStatusMsg" class="saved-status-msg" aria-live="polite" aria-atomic="true"></div>
+  <div id="savedOutput"></div>
+</div>

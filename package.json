@@ -3,8 +3,12 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "test": "node --test \"tests/*.test.js\"",
+    "build": "astro build",
+    "dev": "astro dev",
+    "start": "npm run build && node server.js",
+    "serve": "node server.js",
+    "test": "npm run build && node --test \"tests/*.test.js\"",
+    "test:only": "node --test \"tests/*.test.js\"",
     "digest:aitell": "node tools/ai-tell/score-digests.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
@@ -22,9 +26,11 @@
   "devDependencies": {
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/cli": "^2.11.4",
+    "astro": "^7.2.0",
+    "cookie": "^2.0.1",
     "holesail-server": "^2.4.0"
   },
   "engines": {
-    "node": ">=22.5"
+    "node": ">=22.12"
   }
 }

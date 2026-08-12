@@ -1,0 +1,119 @@
+<!-- TRANSCRIPT PANE -->
+<div id="paneTranscript" role="tabpanel" aria-labelledby="tabTranscript">
+  <!-- CONTROLS ROW -->
+  <div class="controls-row">
+    <div class="view-toggle" role="group" aria-label="View mode">
+      <label>
+        <input type="radio" name="viewMode" value="plain" checked />
+        Readable
+      </label>
+      <label>
+        <input type="radio" name="viewMode" value="timestamps" />
+        Timecoded
+      </label>
+    </div>
+    <!-- The reading controls (A−/A+ + line width) moved up to #lensRow so
+         one cluster serves both panes — see the note there. No "AI digest"
+         button here either: it duplicated the Digest tab directly above it
+         AND the Digest pane's own Generate button — three routes to one
+         action, this one styled as the loudest thing on the row.
+
+         TRANSCRIPT ACTION ROW (copy / download) — moved INTO this row
+         rather than sitting on its own line below it. The view toggle is two
+         ghost words and left a 34px row almost empty; pairing the two puts
+         "what am I looking at" and "take it with me" on one line and gives
+         the reader back a row. Labelled by OBJECT, not by verb: these read
+         "Download .md" and "Export .md" before — two words for the same file
+         type, side by side, where the only real difference is what goes in
+         the file. -->
+    <div class="action-row" id="transcriptActionRow">
+      <button class="mini-btn" id="transcriptCopyBtn"
+              aria-label="Copy transcript to clipboard" disabled>Copy</button>
+      <!-- Two labels each: the explicit one, and a short form for narrow
+           screens. The explicit labels are what make the pair legible, but
+           at 390px they wrapped the row in two — so the phone gets the short
+           form, and the aria-label (unchanged, always full) is what
+           assistive tech reads either way. -->
+      <button class="mini-btn" id="transcriptDownloadBtn"
+              aria-label="Download the transcript as a Markdown file" disabled
+        ><span class="btn-label-full">Download transcript</span
+        ><span class="btn-label-short">Transcript</span></button>
+      <button class="mini-btn" id="entryExportBtn"
+              aria-label="Download the transcript and digest together as one Markdown file" disabled
+        ><span class="btn-label-full">Download transcript + digest</span
+        ><span class="btn-label-short">Both</span></button>
+    </div>
+  </div>
+
+  <!-- LANGUAGE PICKER — hidden until tracks load -->
+  <div id="langPickerWrap" class="lang-picker-wrap" hidden>
+    <label class="lang-picker-label" for="langSelect">Language</label>
+    <select
+      id="langSelect"
+      class="lang-picker-select"
+      aria-label="Caption language"
+    ></select>
+    <span id="langPickerStatus" class="lang-picker-status" aria-live="polite"></span>
+  </div>
+
+  <!-- FIND BAR -->
+  <div class="find-bar" id="findBar" role="search">
+    <label class="sr-only" for="findInput">Find in transcript</label>
+    <!-- find-group keeps input + counter + Prev/Next as one non-wrapping unit -->
+    <div class="find-group">
+      <div class="find-bar-input-wrap">
+        <span class="find-bar-icon" aria-hidden="true">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2.5"
+               stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </span>
+        <input
+          id="findInput"
+          type="search"
+          placeholder="Find…"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="Find in transcript"
+        />
+      </div>
+      <span id="findCounter" class="find-counter"
+            aria-live="polite" aria-atomic="true"></span>
+      <button class="mini-btn" id="findPrevBtn"
+              aria-label="Previous match">&#8593; Prev</button>
+      <button class="mini-btn" id="findNextBtn"
+              aria-label="Next match">Next &#8595;</button>
+    </div>
+  </div>
+
+  <!-- TRANSCRIPT OUTPUT -->
+  <div id="output" class="visible">
+    <!-- FIRST-RUN ONBOARDING CARD — shown once on the initial empty state
+         (before any transcript has ever loaded), dismissible, remembered
+         via localStorage "echo-onboarded". Lives inside #output so it is
+         automatically wiped out the moment a fetch starts (see
+         showTranscriptSkeleton()/fetchTranscript()). -->
+    <div id="onboardCard" class="onboard-card" hidden>
+      <button type="button" id="onboardDismissBtn" class="onboard-dismiss"
+              aria-label="Dismiss welcome message">×</button>
+      <p class="onboard-card-title">Welcome to Echo</p>
+      <p class="onboard-card-text">Read what a YouTube video actually said — paste a link above to
+        get the transcript and an AI digest. No account needed.</p>
+      <!-- Web-mode-only BYOK prompt — populated/shown by initOnboardCard() -->
+      <div id="onboardKeyNote" class="onboard-key-note" hidden>
+        <p class="onboard-card-text">AI features (digest and passage lookups) need your own Anthropic
+          API key. Your key stays in this browser — Echo only relays it to Anthropic on your behalf
+          and never stores it on our servers.</p>
+        <div class="onboard-key-actions">
+          <button type="button" id="onboardAddKeyBtn" class="mini-btn">Add API key</button>
+          <a class="onboard-key-link" href="https://console.anthropic.com/settings/keys"
+             target="_blank" rel="noopener noreferrer">Get a key from the Anthropic Console →</a>
+        </div>
+      </div>
+    </div>
+    <p class="empty-state">Nothing loaded yet — drop a link above to pull the transcript.</p>
+    <p class="empty-state empty-state-saved-hint" id="emptyStateSavedHint" hidden></p>
+  </div>
+</div>

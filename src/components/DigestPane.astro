@@ -1,0 +1,110 @@
+<!-- DIGEST PANE / AI WORKSPACE -->
+<div id="paneDigest" role="tabpanel" aria-labelledby="tabDigest" hidden>
+
+  <!-- The reading controls used to be duplicated here in a .digest-toolbar.
+       They now live once in #lensRow, above both panes — see the note there
+       for why two copies could never both show their state. -->
+
+  <!-- SUMMARY PANEL — existing digest feature + options -->
+  <div id="aiPanelSummary">
+    <!-- Compact options row -->
+    <div class="digest-opts">
+      <!-- One dial, ordered by FIDELITY: how much of the video survives.
+           This replaced a Length group (Detailed/Short) sitting beside a
+           Format group, which was doubly wrong — the two axes weren't
+           independent, and `length` is ignored by both `digest` and
+           `article` in digest.js, so the control did nothing at all under
+           the default format. Ordering the three as a spectrum is also the
+           only place the product's actual differentiator is legible: the
+           market sells compression, Echo can also hand back everything.
+
+           Tucked behind a <details> disclosure, closed by default: the
+           usage meter shows the default step covers ~80% of runs, so an
+           always-visible dial was earning its space rarely. Rather than
+           forcing the panel open on a non-default pick (which would make
+           the disclosure feel unreliable — sometimes closed, sometimes
+           not), the summary text itself always names the active step
+           (syncDigestOptsSummary() in src/client/main.js), so a closed panel never
+           silently hides a non-default choice. -->
+      <details class="digest-opts-details" id="digestOptsDetails">
+        <summary class="digest-opts-summary" id="digestOptsSummary">Options</summary>
+        <div class="digest-opts-body">
+          <span class="digest-opt-label">How much</span>
+          <div class="digest-seg" role="group" aria-label="How much of the video to keep">
+            <label>
+              <input type="radio" name="digestFormat" value="bullets" />
+              Gist
+            </label>
+            <label>
+              <input type="radio" name="digestFormat" value="digest" checked />
+              Digest
+            </label>
+            <label>
+              <input type="radio" name="digestFormat" value="article" />
+              Everything
+            </label>
+          </div>
+          <!-- Reads out what the current step actually does. Without it the
+               three words are just labels; with it the dial explains the range. -->
+          <p id="digestFidelityNote" class="digest-fidelity-note" aria-live="polite"></p>
+        </div>
+      </details>
+      <label class="digest-opt-label" for="digestLangInput">Language</label>
+      <input
+        id="digestLangInput"
+        type="text"
+        placeholder="English"
+        aria-label="Language for digest output"
+      />
+      <button
+        id="digestRegenBtn"
+        class="mini-btn"
+        disabled
+        aria-label="Generate or regenerate digest with current options"
+      >Generate digest</button>
+    </div>
+
+    <!-- In-app replacement for a native confirm() when a digest already exists
+         and Regenerate is clicked. A blocking browser dialog was jarring in a
+         page this deliberately styled; now that a run itself is cancellable
+         (see #digestStopBtn below), a full modal is heavier than the risk
+         warrants — this inline yes/no row is friction enough to catch an
+         accidental click while staying inside the page's own chrome. Wired up
+         in src/client/main.js's confirmReplaceDigest(). -->
+    <div class="action-row digest-replace-confirm" id="digestReplaceConfirm" hidden>
+      <span class="digest-replace-confirm-text">Replace the current digest? This runs a new AI call.</span>
+      <button class="mini-btn" id="digestReplaceConfirmYes">Replace</button>
+      <button class="mini-btn" id="digestReplaceConfirmNo">Cancel</button>
+    </div>
+
+    <p id="digestEmptyState" class="digest-empty-state">No digest yet — choose your options above and hit <strong>Generate digest</strong>.</p>
+    <div id="digestStatus"></div>
+    <!-- Only shown while a digest is in flight (see setDigestRunning() in
+         src/client/main.js). Cancels the request server-side too — see CLAUDE.md
+         "the digest streams" gotcha for how the abort reaches the spawn. -->
+    <button
+      id="digestStopBtn"
+      class="mini-btn digest-stop-btn"
+      hidden
+      aria-label="Stop the digest currently generating"
+    >Stop</button>
+
+    <!-- Export row (lived at pane root before; now lives here near the digest output) -->
+    <div class="action-row" id="digestExportRow" hidden>
+      <button class="mini-btn" id="digestCopyBtn"
+              aria-label="Copy digest to clipboard">Copy</button>
+      <button class="mini-btn" id="digestDownloadBtn"
+              aria-label="Download the digest as a Markdown file">Download digest</button>
+      <button class="mini-btn" id="digestPrintBtn"
+              aria-label="Print digest or save as PDF">Print / Save as PDF</button>
+    </div>
+
+    <div id="digestOutput"></div>
+    <div id="usageStats" class="usage-stats"></div>
+
+    <!-- Print-only render target — populated just before window.print() and
+         hidden on screen; see printDigestBtn handler + "@media print" CSS. -->
+    <div id="digestPrintArea" aria-hidden="true"></div>
+  </div>
+
+</div>

@@ -1,0 +1,35 @@
+---
+import '../styles/app.css';
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Echo — read what was actually said</title>
+  <!-- ?v bumped on every favicon edit: Firefox caches favicons hard and will
+       keep serving the old mark indefinitely without it. -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
+
+  <!-- No-FOUC: set theme token before first paint -->
+  <script is:inline src="/theme-init.js"></script>
+
+  <!-- Mode flag (window.__ECHO__), generated per deployment by the server. -->
+  <script is:inline src="/echo-config.js"></script>
+
+  <!-- Fonts: none. Plaintext runs on a system monospace stack (--font-stack),
+       so there is no webfont request and no render-blocking stylesheet. -->
+
+  <!-- JSZip is vendored (source in public/vendor/, copied verbatim to
+       dist/vendor/ by the build) and loaded on demand by the library export,
+       not from a CDN and not on every page load. Hashes in
+       public/vendor/README.md. -->
+
+</head>
+<body>
+
+  <slot />
+
+  <script>import '../client/main.js';</script>
+</body>
+</html>

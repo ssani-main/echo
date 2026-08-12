@@ -121,9 +121,10 @@ test('the default server is the address `npm start` prints', () => {
 
 // ---------------------------------------------------------------------------
 // echoEncodeTranscript / echoReadUrlWithTranscript — the extension side of
-// the transcript handoff. The decode+validate half lives in public/app.js
-// and can't import this file (classic script, no build step) — see
-// tests/extension-transcript-codec.test.js for the round trip between them.
+// the transcript handoff. The decode+validate half lives in `src/client/main.js`,
+// which no test can import — it touches the DOM at module top level, so loading
+// it outside a browser throws — see tests/extension-transcript-codec.test.js for
+// the round trip between them.
 // ---------------------------------------------------------------------------
 
 test('echoEncodeTranscript: produces a URL-safe string with no base64 padding', async () => {

@@ -1,0 +1,27 @@
+<!-- CONTENT HEADER — thumbnail + title/meta for the currently-loaded video.
+     Shown only while a video is loaded AND a reader lens (Transcript/Digest)
+     is active; hidden while the Library pane is active. -->
+<div id="contentHeader" class="content-header" hidden>
+  <!-- A broken thumbnail hides itself. Wired in src/client/main.js, not with an onerror
+       attribute: that is inline script, and the CSP refuses it silently. -->
+  <img id="contentHeaderThumb" class="content-header-thumb" alt="" loading="lazy" hidden>
+  <div class="content-header-main">
+    <div id="contentHeaderTitle" class="content-header-title"></div>
+    <div class="content-header-meta">
+      <a id="contentHeaderUrl" class="content-header-url" target="_blank" rel="noopener noreferrer"></a>
+      <span id="contentHeaderDuration"></span>
+      <span id="transcriptSourceBadge" class="source-badge" hidden></span>
+    </div>
+  </div>
+  <!-- Persistent Save affordance — lives in the content header so it is reachable
+       from BOTH the Transcript and Digest lenses (the header is only hidden on the
+       Library pane). Keeps id="saveBtn" so existing wiring is unchanged. -->
+  <button id="saveBtn" class="header-save-btn" type="button" disabled
+          aria-label="Save this video to your library">
+    <svg class="save-ico" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"
+         fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M6 3h12a1 1 0 0 1 1 1v16l-7-4.5L5 20V4a1 1 0 0 1 1-1z"/>
+    </svg>
+    <span id="saveBtnLabel">Save</span>
+  </button>
+</div>

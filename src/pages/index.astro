@@ -1,0 +1,39 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import TopIndicator from '../components/TopIndicator.astro';
+import ToastContainer from '../components/ToastContainer.astro';
+import SiteHeader from '../components/SiteHeader.astro';
+import LandingHero from '../components/LandingHero.astro';
+import CommandBar from '../components/CommandBar.astro';
+import StatusLine from '../components/StatusLine.astro';
+import ContentHeader from '../components/ContentHeader.astro';
+import LensRow from '../components/LensRow.astro';
+import TranscriptPane from '../components/TranscriptPane.astro';
+import DigestPane from '../components/DigestPane.astro';
+import LibraryPane from '../components/LibraryPane.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+import LegalOverlay from '../components/LegalOverlay.astro';
+import ShortcutsOverlay from '../components/ShortcutsOverlay.astro';
+import SettingsModal from '../components/SettingsModal.astro';
+---
+<BaseLayout>
+  <TopIndicator />
+  <ToastContainer />
+
+  <div class="container" id="pageContainer">
+    <SiteHeader />
+    <LandingHero />
+    <CommandBar />
+    <StatusLine />
+    <ContentHeader />
+    <LensRow />
+    <TranscriptPane />
+    <DigestPane />
+    <LibraryPane />
+    <SiteFooter />
+  </div><!-- /.container -->
+
+  <LegalOverlay />
+  <ShortcutsOverlay />
+  <SettingsModal />
+</BaseLayout>

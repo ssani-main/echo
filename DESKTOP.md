@@ -23,8 +23,11 @@ a native WebView2 window.
     5. on window close / app exit  — kill the sidecar child process
 ```
 
-The backend code is unchanged. The frontend (`public/`) is untouched — the desktop window
+The backend code is unchanged. The frontend is unchanged in behaviour — the desktop window
 simply loads it over HTTP from the local Node server, exactly like a browser tab does today.
+Since the Astro migration it is served from `dist/` rather than `public/`, so the sidecar
+needs a build present: `beforeBuildCommand` in `tauri.conf.json` runs `npm run build`, and
+`src-tauri/dist-deps/` carries the production `node_modules` (see below).
 
 **Note:** Semantic search / embeddings were removed 2026-07-06 (`embeddings.js` deleted,
 `@xenova/transformers` dep removed). The code snippet and table below are now historical.
@@ -106,12 +109,18 @@ npm run tauri:build        # cargo tauri build — produces installer(s) in src-
 
 The desktop bundle ships a production-only `node_modules` (staged into `src-tauri/dist-deps/` by the `pkg:stage-deps` npm script, run automatically by `npm run tauri:build`). The full dev `node_modules` must NOT be bundled — it contains `@tauri-apps/cli`'s musl-linked native binary, which breaks AppImage bundling via linuxdeploy.
 
+The frontend is built separately from the dependency staging: `beforeBuildCommand` in
+`tauri.conf.json` runs `npm run build`, so `dist/` is always current when Tauri copies it
+in via `bundle.resources`. That is why `tauri:build` does *not* itself run the build — it
+would run twice.
+
 AppImage bundling also requires two env vars, which `npm run tauri:build` sets automatically: `APPIMAGE_EXTRACT_AND_RUN=1` (linuxdeploy is itself an AppImage and needs this where FUSE is unavailable, e.g. CI/containers) and `NO_STRIP=1` (linuxdeploy ships an old `strip` that fails on the `.relr.dyn` sections of modern system libraries on bleeding-edge distros such as Arch). The `.deb` and `.rpm` bundles are unaffected and build without these. Verified 2026-07-06: all three Linux installers (AppImage, .deb, .rpm) build on Arch/Linux.
 
 `tauri:dev` uses `devUrl: http://localhost:8000` in `tauri.conf.json`, so
-for the dev workflow, run `npm start` in a separate terminal first (or
-extend `beforeDevCommand` in `tauri.conf.json` to launch it
-automatically) so something is listening on port 8000 when the Tauri
+for the dev workflow, run `npm start` in a separate terminal first — it builds
+the frontend, then boots the server (use `npm run serve` to skip the rebuild).
+Alternatively, extend `beforeDevCommand` in `tauri.conf.json` to launch it
+automatically, so something is listening on port 8000 when the Tauri
 window opens. `tauri:build` does not depend on this — the packaged app
 always spawns its own sidecar and picks a free port at runtime.
 

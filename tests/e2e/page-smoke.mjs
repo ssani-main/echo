@@ -1,6 +1,6 @@
 // Does the page actually render correctly? A unit test structurally cannot say.
 //
-// `node --test` never loads public/index.html in a browser, so every layout
+// `node --test` never loads the built page in a browser, so every layout
 // rule in app.css is unasserted. That is not theoretical: two regressions
 // shipped past a fully green suite and were caught by a human noticing the
 // page "looked kind of broken" —
@@ -42,7 +42,11 @@ const CHROME_CANDIDATES = process.env.ECHO_CHROME
 
 function resolveChrome() {
   for (const c of CHROME_CANDIDATES) {
-    if (c.includes('/')) {
+    // A path, not a PATH lookup — note `\` counts, or a Windows absolute path
+    // (C:\Program Files\...\msedge.exe) holds no `/`, falls through to `which`,
+    // and the harness SKIPs while reporting "no Chrome found" for a browser the
+    // caller pointed straight at. That is the opposite of authoritative.
+    if (/[/\\]/.test(c)) {
       if (existsSync(c)) return c;
       continue;
     }

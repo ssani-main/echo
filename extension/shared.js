@@ -141,7 +141,7 @@ async function echoGetServer() {
 // bot-blocks the IP. So instead of a new server route, the transcript rides
 // in the URL FRAGMENT of the tab we open: fragments are never sent to the
 // server (they don't even leave the browser on navigation), so this needs no
-// new host permission and no server change at all. public/app.js reads the
+// new host permission and no server change at all. src/client/main.js reads the
 // fragment on load in place of its own fetch. See CLAUDE.md's streaming/CSP
 // gotchas for the general shape of "the server already does X, don't build a
 // second X".

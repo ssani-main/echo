@@ -19,7 +19,7 @@ async function openTab(url) {
  * Strictly validate a scraped transcript before it is allowed to shape a URL
  * this worker opens. This is defense in depth, not the real trust boundary —
  * the content script sending this message is Echo's own code. The check that
- * actually matters lives in public/app.js, because a hostile page can hand a
+ * actually matters lives in src/client/main.js, because a hostile page can hand a
  * visitor `<echo>/?v=…#echo-tx=…` directly with a fabricated payload, and
  * this worker never sees that path at all.
  *

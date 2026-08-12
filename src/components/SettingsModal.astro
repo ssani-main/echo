@@ -1,0 +1,180 @@
+<!-- SETTINGS MODAL (web mode only — BYOK Anthropic API key) -->
+<div id="settingsOverlay" role="dialog" aria-modal="true" aria-label="Echo settings" hidden>
+  <div class="shortcuts-backdrop" id="settingsBackdrop"></div>
+  <div class="shortcuts-modal">
+    <div class="shortcuts-modal-header">
+      <span class="shortcuts-modal-title">Settings</span>
+      <button class="shortcuts-close-btn" id="settingsClose" aria-label="Close settings">×</button>
+    </div>
+    <!-- ACCOUNT — hidden unless the server has accounts configured. Sign-in
+         exists for one reason: a library that follows you between devices.
+         It has nothing to do with the API key below, which stays in this
+         browser either way. -->
+    <div id="accountSection" hidden>
+      <!-- .settings-section-title, not .digest-opt-label: sections and field
+           labels used to share one uppercase micro-label style, so
+           "TRANSCRIPTION" (a section) looked exactly like "MODE" (a field
+           inside it) while "Markdown vault" used a third treatment borrowed
+           from the checkbox rows. One class per level now. -->
+      <span class="settings-section-title">Account</span>
+      <div id="accountSignedOut">
+        <p class="settings-note">
+          Sign in to keep your saved videos in step across your devices. Your
+          library is stored in this browser; signing in adds a synced copy.
+        </p>
+        <button type="button" id="signInBtn" class="settings-btn">Sign in with Google</button>
+      </div>
+      <div id="accountSignedIn" hidden>
+        <p class="settings-note">
+          Signed in as <strong id="accountEmail"></strong> · <span id="syncStatus">library syncing</span>
+        </p>
+        <div class="account-actions">
+          <button type="button" id="syncNowBtn" class="settings-btn">Sync now</button>
+          <button type="button" id="signOutBtn" class="settings-btn secondary">Sign out</button>
+          <button type="button" id="signOutAllBtn" class="settings-btn secondary">Sign out everywhere</button>
+        </div>
+      </div>
+      <hr class="settings-rule" />
+    </div>
+
+    <div id="apiKeySection">
+      <label class="digest-opt-label" for="apiKeyInput">Anthropic API key</label>
+      <input
+        id="apiKeyInput"
+        type="password"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="sk-ant-…"
+      />
+      <p class="settings-note">
+        Your key is stored only in this browser and sent to this Echo server, which relays your
+        requests to Anthropic on your behalf. It is not stored server-side or sent anywhere else.
+      </p>
+      <p id="apiKeyStatus" class="settings-key-status" aria-live="polite"></p>
+      <div class="settings-actions">
+        <button class="mini-btn" id="settingsClearKeyBtn">Clear</button>
+        <button class="mini-btn" id="settingsSaveKeyBtn">Save</button>
+      </div>
+    </div>
+    <label class="settings-toggle-row" for="autoDigestToggle">
+      <input type="checkbox" id="autoDigestToggle" />
+      <span class="settings-toggle-text">
+        <span class="settings-toggle-title">Auto-generate AI digest</span>
+        <span class="settings-note">Run the AI digest automatically after fetching a transcript.</span>
+      </span>
+    </label>
+    <label class="settings-toggle-row" for="autoTagToggle">
+      <input type="checkbox" id="autoTagToggle" />
+      <span class="settings-toggle-text">
+        <span class="settings-toggle-title">Auto-suggest tags on save</span>
+        <span class="settings-note">Suggest tags automatically when you save an untagged entry to your library.</span>
+      </span>
+    </label>
+
+    <!-- WHISPER TRANSCRIPTION — local/desktop only. Local Whisper
+         transcribes on-device when captions are missing (Fallback) or
+         always (High-accuracy); web mode has no local binary to run, so
+         this stays hidden there (see the ECHO.mode gate in JS below). -->
+    <div id="whisperSettings" class="settings-block" hidden>
+      <span class="settings-section-title">Transcription</span>
+      <p class="settings-note">
+        Local Whisper transcribes the video's audio on-device when YouTube captions are
+        missing (Fallback) or always, instead of relying on captions (High-accuracy).
+        Nothing is uploaded — it runs entirely on your machine. Local/desktop only.
+      </p>
+      <p id="whisperBinaryNote" class="settings-key-status" aria-live="polite"></p>
+
+      <label class="digest-opt-label" for="whisperModeSelect">Mode</label>
+      <select id="whisperModeSelect">
+        <option value="off">Off — captions only</option>
+        <option value="fallback">Fallback — Whisper when captions missing</option>
+        <option value="always">High-accuracy — always Whisper</option>
+      </select>
+
+      <label class="digest-opt-label" for="whisperModelSelect">Model</label>
+      <select id="whisperModelSelect">
+        <option value="base">Base — fast · 57 MB</option>
+        <option value="small">Small — accurate · 181 MB</option>
+      </select>
+
+      <div class="whisper-model-status">
+        <span id="whisperModelStateText"></span>
+        <button class="mini-btn" id="whisperDownloadBtn">Download</button>
+      </div>
+
+      <div id="whisperProgress" class="whisper-progress" hidden>
+        <div class="whisper-progress-track">
+          <div id="whisperProgressFill" class="whisper-progress-fill"></div>
+        </div>
+        <p id="whisperProgressText" class="settings-note" aria-live="polite"></p>
+      </div>
+    </div>
+
+    <!-- VAULT SYNC — local/desktop: sync library to a Markdown folder on disk.
+         web: no filesystem access, so offer the ZIP export instead. -->
+    <div id="vaultSyncSection" class="settings-block">
+      <span class="settings-section-title">Markdown vault</span>
+      <p class="settings-note">
+        Sync your whole library into an Obsidian vault — an Obsidian vault is just a
+        folder of Markdown files. Pick an existing vault folder, or create a new
+        (empty) folder to start one.
+      </p>
+
+      <!-- Folder-picker sync — all modes, Chromium only (File System Access API).
+           Reads the active library (server in local/desktop, IndexedDB in web)
+           and writes each entry as Markdown into a folder you pick.
+           Sub-labelled ("Pick a folder" / "Or type a path") because up to three
+           of these blocks render at once and previously read as three
+           competing answers to "where is the vault?" rather than one choice. -->
+      <div id="vaultFolderSync" hidden>
+        <label class="digest-opt-label">Pick a folder</label>
+        <p id="vaultWebSyncStatus" class="settings-note" aria-live="polite"></p>
+        <div class="settings-actions">
+          <button class="mini-btn" id="vaultFolderSyncBtn">Sync to vault folder…</button>
+        </div>
+      </div>
+
+      <div id="vaultSyncLocal">
+        <label class="digest-opt-label" for="vaultDirInput">Or type a path</label>
+        <input
+          id="vaultDirInput"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="C:\Users\you\Notes\Echo"
+        />
+        <p class="settings-note">
+          Writes each library entry as a Markdown file into this folder on your machine.
+        </p>
+        <p id="vaultSyncStatus" class="settings-note" aria-live="polite"></p>
+        <div class="settings-actions">
+          <button class="mini-btn" id="vaultSyncBtn">Sync to vault</button>
+        </div>
+      </div>
+
+      <div id="vaultSyncWeb" hidden>
+        <p class="settings-note">Or download your whole library as a Markdown ZIP.</p>
+        <div class="settings-actions">
+          <button class="mini-btn" id="vaultZipBtn">Download vault (.zip)</button>
+        </div>
+      </div>
+
+      <!-- Obsidian vault name — used by the per-note "Send to Obsidian" deep-link
+           on each saved entry. Shared across all modes (not gated). -->
+      <div id="obsidianDeepLink">
+        <label class="digest-opt-label" for="obsidianVaultNameInput">Vault name for deep links (optional)</label>
+        <input
+          id="obsidianVaultNameInput"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="My Vault"
+        />
+        <p class="settings-note">
+          Used by the per-note "Send to Obsidian" button on each saved entry. Leave
+          blank to use whichever vault is currently open in the Obsidian app.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>

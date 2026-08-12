@@ -36,7 +36,7 @@ const extension = require_(join(ROOT, 'extension', 'shared.js'));
  */
 function extractFunctionFromPage(source, name) {
   const start = source.indexOf(`function ${name}(`);
-  assert.notEqual(start, -1, `${name}() not found in public/app.js — was it renamed?`);
+  assert.notEqual(start, -1, `${name}() not found in src/client/main.js — was it renamed?`);
 
   // Walk braces from the function's opening brace to its matching close.
   let depth = 0;
@@ -52,8 +52,8 @@ function extractFunctionFromPage(source, name) {
   return new Function(args, body);
 }
 
-// The page's copy lives in app.js since index.html was split into real files.
-const pageSource = readFileSync(join(ROOT, 'public', 'app.js'), 'utf8');
+// The page's copy lives in src/client/main.js since index.html was split into real files.
+const pageSource = readFileSync(join(ROOT, 'src', 'client', 'main.js'), 'utf8');
 const pageExtractSummary = extractFunctionFromPage(pageSource, 'extractSummaryClient');
 
 // --- Corpora ---------------------------------------------------------------
@@ -124,7 +124,7 @@ test('the page\'s extractSummaryClient agrees with common/text.js on every case'
     assert.equal(
       pageExtractSummary(digest),
       canonical.extractSummary(digest),
-      `public/app.js disagrees on: ${JSON.stringify(digest.slice(0, 60))}`
+      `src/client/main.js disagrees on: ${JSON.stringify(digest.slice(0, 60))}`
     );
   }
 });

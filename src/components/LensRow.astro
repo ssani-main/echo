@@ -1,0 +1,54 @@
+<!-- LENS ROW — tabs on the left, reading display controls pinned right.
+     The reading controls live HERE, once, rather than once per pane. Two
+     copies (one in .controls-row, one in a .digest-toolbar) shared a single
+     `name="readingMeasure"` radio group, and radios with one name are ONE
+     group document-wide: only the last `checked` in document order could
+     win, so the Transcript pane's segmented control showed no selection at
+     all and the two panes fought over one state. One cluster outside both
+     panes also removes a whole row of chrome above the reader and stops the
+     same control being left-aligned in one tab and right-aligned in the
+     other. #lensRow (not #tabBar) is what gets hidden — keeping the
+     non-tab controls out of the role="tablist" element. -->
+<div class="lens-row" id="lensRow" hidden>
+  <div class="tab-bar" id="tabBar" role="tablist" aria-label="Content lens">
+    <button
+      class="tab-btn"
+      id="tabTranscript"
+      role="tab"
+      aria-selected="true"
+      aria-controls="paneTranscript"
+      tabindex="0"
+    >Transcript</button>
+    <button
+      class="tab-btn"
+      id="tabDigest"
+      role="tab"
+      aria-selected="false"
+      aria-controls="paneDigest"
+      tabindex="-1"
+    >Digest <span id="digestDot" class="digest-dot is-hidden" aria-hidden="true"></span></button>
+  </div>
+  <!-- Reading controls: font scale + line width. Applies to whichever
+       lens is showing — both panes read --reading-scale/--reading-measure
+       off #pageContainer. -->
+  <div class="reading-controls" id="readingControls" role="group" aria-label="Reading display controls">
+    <button class="reading-scale-btn" id="fontDecBtn" data-reading-action="dec"
+            aria-label="Decrease font size" title="Smaller text">A−</button>
+    <button class="reading-scale-btn" id="fontIncBtn" data-reading-action="inc"
+            aria-label="Increase font size" title="Larger text">A+</button>
+    <div class="reading-measure-seg" role="group" aria-label="Line width">
+      <label title="Narrow line width">
+        <input type="radio" name="readingMeasure" value="620px" />
+        Narrow
+      </label>
+      <label title="Medium line width">
+        <input type="radio" name="readingMeasure" value="760px" checked />
+        Medium
+      </label>
+      <label title="Wide line width">
+        <input type="radio" name="readingMeasure" value="940px" />
+        Wide
+      </label>
+    </div>
+  </div>
+</div>

@@ -219,7 +219,7 @@ test('suggestTags: prompt still contains the STRICT JSON instruction', async (t)
 // and included in the response. The separate /api/tags/suggest route has
 // been removed: auto-tagging is now folded into the digest request itself
 // (never a second round-trip, never shown before Save — see CLAUDE.md /
-// public/index.html maybeAutoSuggestTags()).
+// src/client/main.js maybeAutoSuggestTags()).
 //
 // The provider is discriminated by prompt content so a single mock can
 // stand in for both the digest call and the tag-suggestion call that fire

@@ -11,10 +11,10 @@ Echo pulls the transcript out of a video, reflows the two-second caption fragmen
 into paragraphs you'd actually read, and hands it to AI for a digest.
 Runs on your machine. No API key needed.
 
-![Node](https://img.shields.io/badge/Node-%E2%89%A522.5-3c873a?style=flat-square&logo=node.js&logoColor=white)
+![Node](https://img.shields.io/badge/Node-%E2%89%A522.12-3c873a?style=flat-square&logo=node.js&logoColor=white)
 ![Runs locally](https://img.shields.io/badge/runs-100%25%20local-0B6B4F?style=flat-square)
 ![No API key](https://img.shields.io/badge/AI%20digest-no%20API%20key%20needed-0B6B4F?style=flat-square)
-![No build step](https://img.shields.io/badge/build%20step-none-0B6B4F?style=flat-square)
+![Astro](https://img.shields.io/badge/built%20with-Astro-0B6B4F?style=flat-square&logo=astro&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-16181D?style=flat-square)
 
 </div>
@@ -29,11 +29,12 @@ cd echo
 npm install
 npm start
 ```
+`npm start` builds the Astro frontend, then boots the server. For local development, run `npm run serve` and `npm run dev` in separate terminals — the latter gives HMR on :4321, proxying `/api` to the server.
 
 Open **http://localhost:8000**, paste a link. That's it — the transcript loads the
 moment a valid URL hits the field.
 
-**Node ≥ 22.5** is the only hard requirement (Echo uses the built-in `node:sqlite`,
+**Node ≥ 22.12** is the only hard requirement (Echo uses the built-in `node:sqlite`,
 so there is nothing to compile). Three optional extras, each unlocking one thing:
 
 | Install | Unlocks |
@@ -325,11 +326,16 @@ echo/
 ├── syncStore.js      # accounts + synced libraries
 ├── markdown.js       # Markdown export + Obsidian index note
 ├── vault.js          # Obsidian vault folder sync
-├── public/
-│   ├── index.html    # markup only
-│   ├── app.css       # the Plaintext theme, fully tokenised
-│   ├── app.js        # the whole client — a classic script, no build step
-│   └── vendor/       # JSZip, vendored — no CDN, no external origin
+├── src/
+│   ├── pages/          # the Astro page (index.astro)
+│   ├── layouts/        # BaseLayout.astro
+│   ├── components/     # 15 Astro components (.astro)
+│   ├── client/main.js  # the whole frontend — an ES module, bundled & minified by Astro
+│   └── styles/app.css  # the Plaintext theme, fully tokenised
+├── public/             # copied verbatim into dist/ — favicon, logos,
+│                       #   theme-init.js, and JSZip vendored (no CDN, no
+│                       #   external origin)
+├── dist/               # gitignored — Astro build output, served by server.js
 ├── extension/        # Chrome MV3 extension
 ├── obsidian-plugin/  # a vault note per video
 ├── vendor/whisper/   # prebuilt whisper-cli (linux-x64, win32-x64)
@@ -374,18 +380,21 @@ node tests/e2e/oauth-flow.mjs    # the whole Google sign-in flow, against a mock
 node extension/test/e2e.mjs      # the extension in a real browser, incl. SPA navigation
 ```
 
-CI runs the suite plus a boot job checking that every module parses and the server
-starts in all three modes.
+CI builds the frontend, then runs the suite plus a boot job checking that every module
+parses and the server starts in all three modes.
 
 **Three things to know before changing the frontend.**
 
-1. **Restart the server.** `index.html`, `app.css` and `app.js` are read and compressed
-   at boot. Editing without restarting shows you the old page and sends you chasing a
-   bug you already fixed.
+1. **Rebuild, then restart the server.** The frontend is a build artifact: `npm run build`
+   writes `dist/`, and the server reads and compresses it at boot. Editing `src/` without
+   rebuilding shows you the old page and sends you chasing a bug you already fixed.
+   `npm start` does both; `npm run dev` gives you HMR on :4321 instead, proxying the API
+   to a server you run alongside it.
 2. **The CSP forbids inline everything** — `<script>`, `<style>`, `style=""` and event
    handler attributes like `onerror=`. All fail *silently* in a browser and are
-   invisible to `node --test`. Put code in `app.js`, CSS in `app.css`, and use a class
-   or a real listener. Not theoretical: two thumbnail fallbacks used `onerror=""` and
+   invisible to `node --test`. Put code in `src/client/main.js`, CSS in
+   `src/styles/app.css`, and use a class or a real listener. Not theoretical: two
+   thumbnail fallbacks used `onerror=""` and
    had quietly not worked for months.
 3. **A screenshot is not proof.** Headless Chrome reports `hover: none`, matches neither
    `pointer: fine` nor `pointer: coarse`, and never loads `loading="lazy"` images below
@@ -408,8 +417,7 @@ delegated listeners, so never add a per-card `addEventListener` in the render pa
 [yt-dlp](https://github.com/yt-dlp/yt-dlp) ·
 [whisper.cpp](https://github.com/ggml-org/whisper.cpp) ·
 [Claude Code](https://claude.com/claude-code) ·
-[Tauri](https://tauri.app/) · plain HTML/CSS/JS on a system monospace stack — no
-webfonts, no build step
+[Tauri](https://tauri.app/) · built with [Astro 7.2](https://astro.build) — plain HTML/CSS/JS on a system monospace stack (no webfonts)
 
 ## License
 
