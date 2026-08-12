@@ -1812,7 +1812,11 @@ function updateNowReading() {
     : '';
   const readStr = formatReadingTime(countWords(segmentsToText(segs)));
   const parts   = [];
-  if (durationStr) parts.push(`${durationStr} watch`);
+  // `~12m` from formatDurationHuman vs `12 min` from formatReadingTime read as
+  // two different units in one sentence ("~12m watch · 12 min read"). Normalise
+  // the minutes-only form here rather than in formatDurationHuman, which has
+  // another caller that wants its compact spelling.
+  if (durationStr) parts.push(`${durationStr.replace(/^~(\d+)m$/, '~$1 min')} watch`);
   if (readStr)     parts.push(`${readStr} read`);
   contentHeaderDuration.textContent = parts.length
     ? (contentHeaderUrl.textContent ? ' · ' + parts.join(' · ') : parts.join(' · '))

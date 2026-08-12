@@ -1934,8 +1934,17 @@ body.has-transcript .hero-landing {
 /* Nested in .controls-row (see index.html): pinned right, opposite the view
    toggle, with no margin of its own — the parent row owns the spacing. */
 .controls-row #transcriptActionRow {
-  margin-left: auto;
   margin-bottom: 0;
+}
+
+/* Pinned right only when it shares a line with the view toggle. Below 520px the
+   two stack, and `margin-left: auto` then shoved the buttons to the right edge
+   of their own row — leaving a hole at the column's left edge, which is the one
+   straight edge this layout is built around. */
+@media (min-width: 521px) {
+  .controls-row #transcriptActionRow {
+    margin-left: auto;
+  }
 }
 
 /* [hidden] guard, same reason as .local-file-row[hidden]: `display: flex` above
