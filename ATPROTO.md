@@ -205,7 +205,17 @@ quota. Worth taking deliberately rather than by momentum.
   row or reader header needs; the transcript is a blob. Opening a library costs
   one `listRecords` call and **zero** blob fetches, and no record grows past
   what a record should be however long the talk was.
-- **Automatic, for everyone.** Save, delete or retag mirrors the change.
+- **OFF by default, opt-in PER ACCOUNT.** atproto repositories are public —
+  records and their blobs are readable with no credentials, verified directly —
+  so mirroring PUBLISHES a library under a real identity, and a delete does not
+  retract what already crossed the firehose. An app password is consent for Echo
+  to act on an account; it is not consent to publish a reading history.
+  Enabling requires `acknowledged: true` at the API, so a stray click cannot do
+  it and the server does not trust the UI to have asked.
+- **Local recordings are NEVER mirrored.** `file_*` entries are lectures,
+  meetings, voice notes. Publishing one is a different order of harm from
+  publishing which talk someone watched, and there is deliberately no override.
+- Save, delete or retag mirrors the change, once enabled.
   `POST /api/pds/restore` pulls it all back, streaming each entry as it arrives.
 - **The rotated refresh token is persisted BEFORE the access token is used.**
   Refresh tokens rotate; persisting after the write means a crash mid-write

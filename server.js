@@ -29,9 +29,9 @@ import {
 } from './auth.js';
 import {
   openSyncDb, upsertUser, getUser, pullEntries, pushEntries, userBytes, deleteUser,
-  bumpTokenVersion, upsertAtprotoUser, saveAtprotoTokens, deleteAtprotoTokens,
+  bumpTokenVersion, upsertAtprotoUser, saveAtprotoTokens, deleteAtprotoTokens, getAtprotoTokens,
   submitRegistration, decideRegistration, listRegistrations, setStatus,
-  touchLastSeen, forceSignOut,
+  touchLastSeen, forceSignOut, setPdsSync, getPdsSync,
 } from './syncStore.js';
 import {
   resolveAccount, createSession as atprotoCreateSession, deriveKey, encryptSecret, decryptSecret,
@@ -1583,7 +1583,7 @@ const ACCOUNTS_ENABLED = AUTH_ENABLED || ATPROTO_ENABLED;
 // credentials — and off in web mode, where there is no server-side library to
 // mirror in the first place.
 const PDS_SYNC_ENABLED = ATPROTO_ENABLED && !isWeb
-  && !/^(0|false|no)$/i.test(process.env.ECHO_PDS_SYNC ?? '1');
+  && /^(1|true|yes)$/i.test(process.env.ECHO_PDS_SYNC || '');
 
 const pdsSync = PDS_SYNC_ENABLED
   ? createPdsSync({
@@ -1607,8 +1607,30 @@ const pdsSync = PDS_SYNC_ENABLED
  * @param {'push'|'remove'} action
  * @param {object|string} payload an entry to push, or a videoId to remove
  */
+/**
+ * Entries that must NEVER leave this machine, whatever the account says.
+ *
+ * Local media gets a synthetic `file_<hash>` id — the feature's own docs say
+ * "podcast, lecture, meeting". Publishing a recording someone made of a private
+ * conversation is a different order of harm from publishing which YouTube talk
+ * they watched, and no toggle buried in a settings panel is informed consent
+ * for it. There is deliberately no override.
+ *
+ * @param {string} videoId
+ */
+function neverMirror(videoId) {
+  return String(videoId || '').startsWith('file_');
+}
+
 function mirrorToPds(userId, action, payload) {
   if (!pdsSync || !userId || userId === DEFAULT_OWNER) return;
+
+  const videoId = action === 'push' ? payload.videoId : payload;
+  if (neverMirror(videoId)) return;
+
+  // Per-account, and read fresh on every write rather than cached: switching it
+  // off has to take effect on the very next save, not whenever a cache expires.
+  if (!getPdsSync(userId)) return;
   const run = action === 'push'
     // Re-read the entry rather than mirroring the request body: the stored
     // entry is the canonical one — it carries the tags, the normalised URL and
@@ -2002,12 +2024,42 @@ app.post('/api/admin/registrations/:userId', requireAuthConfigured, requireAdmin
 // ---------------------------------------------------------------------------
 
 app.get('/api/pds/status', requireApproved, (req, res) => {
-  if (!pdsSync) return res.json({ enabled: false, collection: null, connected: false });
+  if (!pdsSync) return res.json({ available: false, on: false, collection: null, connected: false });
   return res.json({
-    enabled: true,
+    available: true,
+    on: Boolean(req.echoUserId && getPdsSync(req.echoUserId)),
     collection: PDS_COLLECTION,
     connected: Boolean(req.echoUserId && getAtprotoTokens(req.echoUserId)),
   });
+});
+
+/**
+ * Switch mirroring on or off for the calling account.
+ *
+ * Turning it ON requires `acknowledged: true` in the body. That is not a
+ * formality: mirroring publishes a library to the open internet under a real
+ * identity, and a switch that can be flipped by a stray click is not consent.
+ * The server refuses rather than trusting the UI to have asked.
+ */
+app.post('/api/pds/sync', requireApproved, (req, res) => {
+  if (!pdsSync) {
+    return sendError(res, 'WEB_MODE_UNSUPPORTED', 'Repository mirroring is not enabled on this instance.', '', 503);
+  }
+  const on = req.body?.on === true;
+  if (on && req.body?.acknowledged !== true) {
+    return sendError(
+      res,
+      'API_FAILED',
+      'Turning this on needs an explicit acknowledgement.',
+      'Mirroring publishes your library publicly — the client must confirm you were told.',
+      400
+    );
+  }
+
+  const result = setPdsSync(req.echoUserId, on);
+  if (!result.ok) return sendError(res, 'API_FAILED', 'That account no longer exists.', '', 401);
+  logEvent('pds-sync-toggle', { ok: true, on });
+  return res.json({ ok: true, on: result.enabled });
 });
 
 /**

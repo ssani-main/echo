@@ -61,6 +61,10 @@ export function openSyncDb(path) {
       admin_note      TEXT,
       last_seen       TEXT,   -- throttled; see touchLastSeen()
 
+      -- Mirroring a library into an atproto repo PUBLISHES it, so this is
+      -- off until the person says otherwise, per account. Never inferred.
+      pds_sync        INTEGER NOT NULL DEFAULT 0,
+
       -- Bumping this invalidates every session already issued for the account.
       -- It is the one column that buys back what stateless cookies give up:
       -- without it a leaked cookie stays valid for its full 30 days and there
@@ -200,6 +204,7 @@ function migrateUsersForApproval(handle) {
     ['decided_by', 'decided_by TEXT'],
     ['admin_note', 'admin_note TEXT'],
     ['last_seen', 'last_seen TEXT'],
+    ['pds_sync', 'pds_sync INTEGER NOT NULL DEFAULT 0'],
   ];
 
   const existing = new Set(handle.prepare('PRAGMA table_info(users)').all().map((c) => c.name));
@@ -295,7 +300,7 @@ export function upsertAtprotoUser({ did, handle }) {
 /** @returns {{id, provider, email, did, handle, status, submitted, adminNote, tokenVersion}|null} */
 export function getUser(userId) {
   const row = db.prepare(`
-    SELECT id, provider, email, did, handle, status, requested_at, admin_note, tokenVersion
+    SELECT id, provider, email, did, handle, status, requested_at, admin_note, tokenVersion, pds_sync
     FROM users WHERE id = ?
   `).get(userId);
   if (!row) return null;
@@ -308,6 +313,7 @@ export function getUser(userId) {
     status: row.status || 'pending',
     submitted: Boolean(row.requested_at),
     adminNote: row.admin_note || '',
+    pdsSync: row.pds_sync === 1,
     tokenVersion: row.tokenVersion || 0,
   };
 }
@@ -690,4 +696,30 @@ export function userBytes(userId) {
 export function deleteUser(userId) {
   db.prepare('DELETE FROM users WHERE id = ?').run(userId);
   return true;
+}
+
+/**
+ * Turn repository mirroring on or off for one account.
+ *
+ * Per account and default OFF, because mirroring PUBLISHES a library: atproto
+ * records and their blobs are readable by anyone with no credentials, and they
+ * cross the firehose on write, so a later delete removes your copy and not
+ * anyone else's. An app password is consent for Echo to act on an account. It
+ * is not consent to publish a reading history, and nothing may infer one from
+ * the other.
+ *
+ * @param {string} userId
+ * @param {boolean} on
+ */
+export function setPdsSync(userId, on) {
+  const row = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
+  if (!row) return { ok: false, reason: 'no_such_user' };
+  db.prepare('UPDATE users SET pds_sync = ? WHERE id = ?').run(on ? 1 : 0, userId);
+  return { ok: true, enabled: Boolean(on) };
+}
+
+/** Is mirroring switched on for this account? */
+export function getPdsSync(userId) {
+  const row = db.prepare('SELECT pds_sync FROM users WHERE id = ?').get(userId);
+  return row ? row.pds_sync === 1 : false;
 }

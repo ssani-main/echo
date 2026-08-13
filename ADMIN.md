@@ -110,6 +110,15 @@ Approving someone hands them three things:
   Windows). The unit suite cannot see the browser, and this is the app where
   that has bitten repeatedly.
 
+## Repository mirroring
+
+Off unless BOTH  is set on the instance AND the person turns it
+on for their own account. It publishes: their library becomes readable by anyone
+with no credentials, under their real handle, and deleting later does not
+retract it. Recordings they uploaded themselves are never mirrored at all.
+
+The About & FAQ in the footer explains all of this in their words, not yours.
+
 ## Turning it off
 
 Unset `ECHO_ATPROTO_ENABLED` and restart. Sign-in disappears, the gate stops

@@ -3810,6 +3810,17 @@ body.gate-declined .lens-row {
 .legal-modal-body p { margin: 0 0 var(--space-8); }
 .legal-modal-body p:last-child { margin-bottom: 0; }
 
+/* FAQ questions. Body size and weight, per the theme's no-larger-type rule —
+   the extra space above is what separates one question from the last answer. */
+.legal-modal-body h3 {
+  font-family: var(--font-stack);
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--title);
+  margin: var(--space-9) 0 var(--space-5);
+}
+.legal-modal-body h3:first-child { margin-top: 0; }
+
 /* ==============================================
    44. TOUCH TARGETS
    Every control in the app sized to --control-h (34px) and the two underlined

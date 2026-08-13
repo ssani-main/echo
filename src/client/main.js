@@ -5724,15 +5724,78 @@ const legalModalTitleEl = document.getElementById('legalModalTitle');
 const legalModalBodyEl  = document.getElementById('legalModalBody');
 
 const LEGAL_CONTENT = {
+  about: {
+    title: 'About & FAQ',
+    body:
+      '<p>Echo turns a YouTube link into the full transcript and an AI digest, so you can ' +
+      'read in minutes what would take an hour to watch.</p>' +
+
+      '<h3>Who runs this?</h3>' +
+      '<p>One person, on their own computer — not a company, and not a server farm. That is ' +
+      'why it is invite-only: every transcript is fetched over their home internet connection ' +
+      'and every digest is written by an AI subscription they pay for. Those are the real ' +
+      'limits, and they are why access is granted a person at a time.</p>' +
+
+      '<h3>Why do you want an app password and not my Bluesky password?</h3>' +
+      '<p>Because you should never give your real password to somebody else’s server, ' +
+      'including this one. An <strong>app password</strong> is a separate credential you create ' +
+      'in Bluesky’s settings. It can be revoked whenever you like, and it cannot change your ' +
+      'password, change your email, or delete your account. Echo refuses anything that is not ' +
+      'app-password-shaped, so you cannot hand over the real one by mistake.</p>' +
+      '<p>Echo uses it once to sign you in, then stores only a refresh token, encrypted. Your ' +
+      'password is never written down.</p>' +
+
+      '<h3>What happens to what I save?</h3>' +
+      '<p>Your library lives in its own database file on the machine running Echo. Each account ' +
+      'gets a separate one, so nobody else using this instance can read, edit or delete ' +
+      'anything you saved — including the person who runs it, unless they go looking on their ' +
+      'own disk. It is their computer; treat this as you would any service run by someone you ' +
+      'know rather than a company with a compliance department.</p>' +
+
+      '<h3>Does anything get posted to my Bluesky account?</h3>' +
+      '<p><strong>No — not unless you switch it on yourself.</strong> There is an optional ' +
+      'feature that mirrors your library into your own Bluesky repository so it can follow you ' +
+      'elsewhere. It is off by default, per account.</p>' +
+      '<p>If you do turn it on, understand what it means: <strong>Bluesky repositories are ' +
+      'public.</strong> Anyone can read the records and the attached transcripts, with no ' +
+      'account and no permission. That includes the titles, your tags, the AI digests and the ' +
+      'full text of everything you saved — effectively a public reading history under your real ' +
+      'handle. And deleting later does not undo it: records are broadcast to other servers the ' +
+      'moment they are written, so removing your copy does not remove theirs.</p>' +
+      '<p>Recordings you upload yourself — a lecture, a meeting, a voice note — are ' +
+      '<strong>never</strong> mirrored, whatever the setting says. There is no way to turn that ' +
+      'off.</p>' +
+
+      '<h3>How do I leave?</h3>' +
+      '<p>Revoke the app password in Bluesky’s settings and you are out; Echo can do nothing ' +
+      'with your account afterwards. Ask the admin to delete your library and it goes with the ' +
+      'file. If you had mirroring on, the records in your own repository are yours to delete.</p>' +
+
+      '<h3>Why was my request declined, or why is it taking so long?</h3>' +
+      '<p>A person reads these by hand, so it takes as long as it takes. A decline is not a ' +
+      'judgement of you — the resources are finite and personal.</p>' +
+
+      '<h3>Is this affiliated with YouTube, Bluesky or Anthropic?</h3>' +
+      '<p>No. Echo is an independent tool that talks to all three.</p>',
+  },
   privacy: {
     title: 'Privacy',
     body:
-      '<p>Echo does not create an account or store your data on its servers in hosted mode — ' +
-      'your library (saved transcripts, digests) lives entirely in your own browser ' +
-      '(IndexedDB).</p>' +
-      '<p>Your Anthropic API key is stored only in your browser’s localStorage. It is sent to ' +
-      'this app’s server solely to relay your AI requests to Anthropic on your behalf — it is ' +
-      'not persisted server-side and is not shared with any other party.</p>' +
+      '<p><strong>Where your library lives depends on how this instance is run.</strong> On a ' +
+      'hosted instance it stays in your own browser (IndexedDB) and never reaches the server. ' +
+      'On an invite-only instance you sign in to, it lives in a database file on that machine — ' +
+      'one file per account, so other people using the same instance cannot read yours.</p>' +
+      '<p>If you sign in with Bluesky, Echo stores your handle, your DID, what you wrote when ' +
+      'you asked for access, and an encrypted refresh token. <strong>Your app password is used ' +
+      'once and never stored.</strong> Roughly when you were last active is recorded, to the ' +
+      'nearest quarter hour.</p>' +
+      '<p><strong>Nothing is published anywhere unless you switch on repository mirroring, ' +
+      'which is off by default.</strong> If you do, your library becomes publicly readable — ' +
+      'see About & FAQ before enabling it.</p>' +
+      '<p>Your Anthropic API key, if you use one, is stored only in your browser’s ' +
+      'localStorage. It is sent to this app’s server solely to relay your AI requests to ' +
+      'Anthropic on your behalf — it is not persisted server-side and is not shared with any ' +
+      'other party.</p>' +
       '<p>Transcripts you fetch are retrieved on demand and are not logged in web mode.</p>',
   },
   terms: {
@@ -5758,6 +5821,7 @@ function closeLegalOverlay() {
   legalOverlayEl.hidden = true;
 }
 
+document.getElementById('footerAboutBtn')?.addEventListener('click', () => openLegalOverlay('about'));
 document.getElementById('footerPrivacyBtn')?.addEventListener('click', () => openLegalOverlay('privacy'));
 document.getElementById('footerTermsBtn')?.addEventListener('click', () => openLegalOverlay('terms'));
 document.getElementById('legalClose')?.addEventListener('click', closeLegalOverlay);

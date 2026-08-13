@@ -8,6 +8,7 @@ import {
   openSyncDb, closeSyncDb, upsertUser, upsertAtprotoUser, getUser,
   submitRegistration, decideRegistration, listRegistrations, setStatus, getApproval,
   saveAtprotoTokens, getAtprotoTokens, forceSignOut, touchLastSeen, statusCounts,
+  setPdsSync, getPdsSync,
   FIELD_LIMITS,
 } from '../syncStore.js';
 
@@ -342,4 +343,71 @@ test('a database from BETWEEN two releases gets the columns it is missing', () =
   // ...and the grandfather UPDATE does NOT re-run. Re-approving on every later
   // migration pass would silently let the whole pending queue in.
   assert.equal(getUser('u1').status, 'pending', 'a waiting applicant must stay waiting');
+});
+
+// ---------------------------------------------------------------------------
+// Repository mirroring is opt-in, per account
+// ---------------------------------------------------------------------------
+
+test('mirroring is OFF for a new account and stays off until asked', () => {
+  fresh('pdssync');
+  const u = upsertAtprotoUser({ did: 'did:plc:alice', handle: 'alice.bsky.social' });
+
+  // Mirroring PUBLISHES a library — atproto records and blobs are readable by
+  // anyone with no credentials. An app password is consent for Echo to act on
+  // an account; it is not consent to publish a reading history, and nothing
+  // may infer one from the other.
+  assert.equal(getUser(u.id).pdsSync, false);
+  assert.equal(getPdsSync(u.id), false);
+
+  // Approving them does not turn it on either.
+  submitRegistration(u.id, { motivation: 'please' });
+  decideRegistration(u.id, { status: 'approved', decidedBy: 'did:plc:admin' });
+  assert.equal(getPdsSync(u.id), false, 'approval is not consent to publish');
+
+  assert.deepEqual(setPdsSync(u.id, true), { ok: true, enabled: true });
+  assert.equal(getPdsSync(u.id), true);
+  assert.equal(getUser(u.id).pdsSync, true);
+
+  assert.deepEqual(setPdsSync(u.id, false), { ok: true, enabled: false });
+  assert.equal(getPdsSync(u.id), false);
+  assert.deepEqual(setPdsSync('nobody', true), { ok: false, reason: 'no_such_user' });
+});
+
+test('one account turning mirroring on does not turn it on for anyone else', () => {
+  fresh('pdssync-isolation');
+  const a = upsertAtprotoUser({ did: 'did:plc:alice' });
+  const b = upsertAtprotoUser({ did: 'did:plc:bob' });
+
+  setPdsSync(a.id, true);
+  assert.equal(getPdsSync(a.id), true);
+  assert.equal(getPdsSync(b.id), false, 'publishing is never a shared setting');
+});
+
+test('a database from before the opt-in existed gets it, defaulted OFF', () => {
+  closeSyncDb();
+  const p = join(tmpdir(), `echo-test-reg-pdscol-${process.pid}-${Date.now()}.db`);
+  paths.push(p);
+
+  // The dangerous direction is a migration that defaults an existing account to
+  // ON — that would start publishing someone's library on an upgrade, without
+  // them ever being asked.
+  const old = new DatabaseSync(p);
+  old.exec(`
+    CREATE TABLE users (
+      id TEXT PRIMARY KEY, provider TEXT NOT NULL DEFAULT 'google',
+      google_sub TEXT UNIQUE, did TEXT UNIQUE, handle TEXT, email TEXT,
+      createdAt TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+      motivation TEXT, referral_source TEXT, contact TEXT, requested_at TEXT,
+      decided_at TEXT, decided_by TEXT, admin_note TEXT, last_seen TEXT,
+      tokenVersion INTEGER NOT NULL DEFAULT 0
+    );
+    INSERT INTO users (id, provider, did, createdAt, status)
+      VALUES ('u1', 'atproto', 'did:plc:existing', '2026-08-01T00:00:00Z', 'approved');
+  `);
+  old.close();
+
+  openSyncDb(p);
+  assert.equal(getPdsSync('u1'), false, 'an upgrade must not start publishing');
+  assert.equal(getUser('u1').status, 'approved', 'and must not disturb their access');
 });
