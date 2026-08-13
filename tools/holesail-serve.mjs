@@ -64,17 +64,36 @@ export function buildJanusUrl(key) {
 }
 
 /**
- * True unless the mode is exactly "web" — the only mode that both requires
- * BYOK and 503s the server-side library routes.
+ * Does this configuration leave the tunnel URL wide open?
  *
- * Deliberately fail-SAFE: anything that isn't exactly "web" gets the warning,
- * including "desktop" (full server library, BYOK merely optional) and typos
- * like "Local". server.js:57-58 resolves ECHO_MODE by exact string match and
- * falls back to local for anything unrecognised, so a mode this function
- * didn't recognise is precisely a mode that IS exposing the library.
+ * Two things make it safe: ECHO_MODE=web (requires BYOK and 503s the
+ * server-side library routes), or a fully configured account gate (visitors
+ * need a Bluesky account AND an admin's approval, and each gets their own
+ * library file).
+ *
+ * Deliberately fail-SAFE on the mode: anything that isn't exactly "web" is
+ * treated as exposing, including "desktop" and typos like "Local", because
+ * server.js resolves ECHO_MODE by exact match and falls back to local — so a
+ * mode this function does not recognise is precisely one that IS exposing.
  */
-export function needsSecurityBanner(echoMode) {
-  return echoMode !== 'web';
+export function needsSecurityBanner(echoMode, env = process.env) {
+  if (echoMode === 'web') return false;
+
+  // A configured account gate protects a local instance too, and that is now
+  // the intended way to run this: visitors need a Bluesky account AND an
+  // admin's approval, and each gets their own library file. Warning anyway
+  // would be telling the operator something untrue about the correct setup.
+  //
+  // All four are required, and the admin list especially: with sign-in on but
+  // nobody able to approve anyone, every account sits pending — which is not
+  // "open", but it is not working either, and server.js warns about that
+  // separately.
+  const gated = /^(1|true|yes)$/i.test(env.ECHO_ATPROTO_ENABLED || '')
+    && Boolean(env.ECHO_ATPROTO_SECRET)
+    && Boolean(env.ECHO_SESSION_SECRET)
+    && Boolean((env.ECHO_ADMIN_DIDS || '').trim());
+
+  return !gated;
 }
 
 /** Poll a TCP connect until something answers, or give up after timeoutMs. */
@@ -109,7 +128,15 @@ function spawnEcho(port) {
   return spawn(process.execPath, ['server.js'], {
     cwd: REPO_ROOT,
     stdio: 'inherit',
-    env: { ...process.env, PORT: String(port) },
+    // ECHO_TRUST_PROXY is set here because THIS script is the thing that put a
+    // proxy in front of Echo, and it is the only place that knows for certain.
+    // Without it every visitor arrives from the tunnel's own address, so the
+    // rate limiters see one caller: measured, twelve sign-in attempts from
+    // twelve visitors shared a single bucket, and one person fumbling their app
+    // password locked out sign-in for everyone. Echo must NOT default this on —
+    // trusting X-Forwarded-For with nothing in front lets any client claim any
+    // address and walk past the limiter.
+    env: { ...process.env, PORT: String(port), ECHO_TRUST_PROXY: '1' },
   });
 }
 
@@ -124,13 +151,16 @@ async function startTunnel({ port, host, seed }) {
 
 function printSecurityBanner(echoMode) {
   console.log('\n⚠️  SECURITY WARNING');
-  console.log(`   ECHO_MODE is "${echoMode || 'unset (defaults to local)'}" — the URL below has no BYOK`);
-  console.log('   requirement and a full server-side library. Anyone who gets this link can');
-  console.log("   spend your Claude CLI quota and read/write your entire saved library.");
-  console.log('   Mitigate with EITHER of:');
+  console.log(`   ECHO_MODE is "${echoMode || 'unset (defaults to local)'}" and no account gate is`);
+  console.log('   configured, so the URL below is wide open: anyone who gets the link can spend');
+  console.log('   your Claude quota and read and write your saved library.');
+  console.log('   Mitigate with ANY of:');
+  console.log('     - the account gate: ECHO_ATPROTO_ENABLED=1 + ECHO_ATPROTO_SECRET +');
+  console.log('       ECHO_SESSION_SECRET + ECHO_ADMIN_DIDS (see ADMIN.md). Visitors then need');
+  console.log('       a Bluesky account AND your approval, and each gets their own library.');
   console.log('     - a per-key password on this tunnel in the Janus admin dashboard, or');
-  console.log('     - ECHO_MODE=web (requires visitors to bring their own Anthropic key and');
-  console.log('       disables the server-side library routes).');
+  console.log('     - ECHO_MODE=web (visitors bring their own Anthropic key; the server-side');
+  console.log('       library routes are disabled).');
 }
 
 function printUsage() {
@@ -226,7 +256,7 @@ async function main() {
   const key = server.key;
   const url = buildJanusUrl(key);
 
-  if (needsSecurityBanner(echoMode)) printSecurityBanner(echoMode);
+  if (needsSecurityBanner(echoMode, process.env)) printSecurityBanner(echoMode);
 
   console.log('\n✓ Tunnel established — this URL is stable across restarts (same .holesail-seed):\n');
   console.log(`  key:  ${key}`);

@@ -99,11 +99,27 @@ const HOST = process.env.ECHO_HOST && process.env.ECHO_HOST.trim()
   ? process.env.ECHO_HOST.trim()
   : '127.0.0.1';
 
-if (isWeb) {
-  // Running behind a reverse proxy in web mode — needed for correct req.ip
-  // (used by the rate limiter) and secure-cookie detection.
-  app.set('trust proxy', 1);
-}
+// Behind a reverse proxy, every request arrives from the proxy, so req.ip is
+// the proxy's address for EVERYONE unless Express is told otherwise — and the
+// rate limiters key on req.ip.
+//
+// This used to be web-mode only, which was right when web mode was the only
+// deployment behind a proxy. It no longer is: `npm run serve:public` fronts a
+// LOCAL instance with Holesail + Janus, and measured, twelve sign-in attempts
+// from twelve different visitors shared one bucket — so one person fumbling
+// their app password locked out sign-in for everybody.
+//
+// Opt-in rather than automatic, because trusting X-Forwarded-For when nothing
+// is actually in front of the server lets any client claim any address and walk
+// straight past the limiter. serve:public sets it, because it knows it put a
+// tunnel there.
+const TRUST_PROXY = isWeb || /^(1|true|yes)$/i.test(process.env.ECHO_TRUST_PROXY || '');
+if (TRUST_PROXY) app.set('trust proxy', 1);
+
+// Session cookies get Secure whenever the instance is actually served over
+// https — which now includes a local instance behind the tunnel, not just web
+// mode. Without it the cookie is also sent over plain http to the same host.
+const SECURE_COOKIES = TRUST_PROXY;
 
 app.use(express.json({ limit: '5mb' }));
 
@@ -1744,7 +1760,7 @@ app.get('/api/auth/google', requireGoogleConfigured, (req, res) => {
   // server memory, so sign-in survives a restart and needs no shared store if
   // the deployment ever runs more than one machine.
   const tx = signToken({ state, verifier, exp: Date.now() + OAUTH_TTL_MS }, SESSION_SECRET);
-  res.set('Set-Cookie', serializeCookie(OAUTH_COOKIE, tx, { maxAgeMs: OAUTH_TTL_MS, secure: isWeb }));
+  res.set('Set-Cookie', serializeCookie(OAUTH_COOKIE, tx, { maxAgeMs: OAUTH_TTL_MS, secure: SECURE_COOKIES }));
 
   return res.redirect(buildGoogleAuthUrl({
     clientId: GOOGLE_CLIENT_ID,
@@ -1759,7 +1775,7 @@ app.get('/api/auth/callback', requireGoogleConfigured, async (req, res) => {
     console.error(`[echo] sign-in failed: ${why}`);
     // Back to the app with a flag rather than a bare error page — the UI can
     // say "sign-in didn't complete" in its own voice.
-    res.set('Set-Cookie', serializeCookie(OAUTH_COOKIE, '', { maxAgeMs: 0, secure: isWeb }));
+    res.set('Set-Cookie', serializeCookie(OAUTH_COOKIE, '', { maxAgeMs: 0, secure: SECURE_COOKIES }));
     return res.redirect('/?signin=failed');
   };
 
@@ -1790,8 +1806,8 @@ app.get('/api/auth/callback', requireGoogleConfigured, async (req, res) => {
     }, SESSION_SECRET);
 
     res.set('Set-Cookie', [
-      serializeCookie(SESSION_COOKIE, session, { maxAgeMs: SESSION_TTL_MS, secure: isWeb }),
-      serializeCookie(OAUTH_COOKIE, '', { maxAgeMs: 0, secure: isWeb }),
+      serializeCookie(SESSION_COOKIE, session, { maxAgeMs: SESSION_TTL_MS, secure: SECURE_COOKIES }),
+      serializeCookie(OAUTH_COOKIE, '', { maxAgeMs: 0, secure: SECURE_COOKIES }),
     ]);
     logEvent('signin', { ok: true });
     return res.redirect('/?signin=ok');
@@ -1854,7 +1870,7 @@ app.post('/api/auth/atproto', requireAtprotoConfigured, alwaysLimit(ATPROTO_SIGN
       tv: user.tokenVersion || 0,
       exp: Date.now() + SESSION_TTL_MS,
     }, SESSION_SECRET);
-    res.set('Set-Cookie', serializeCookie(SESSION_COOKIE, cookie, { maxAgeMs: SESSION_TTL_MS, secure: isWeb }));
+    res.set('Set-Cookie', serializeCookie(SESSION_COOKIE, cookie, { maxAgeMs: SESSION_TTL_MS, secure: SECURE_COOKIES }));
 
     logEvent('signin', { ok: true, provider: 'atproto' });
     return res.json({ ok: true, user: { provider: 'atproto', did: session.did, handle: session.handle } });
@@ -2053,7 +2069,7 @@ app.post('/api/auth/logout', (req, res) => {
   // machine would have silently revoked Echo's ability to act for that account
   // everywhere else. "Sign out everywhere" is the route that means it, and it
   // deletes the token there.
-  res.set('Set-Cookie', serializeCookie(SESSION_COOKIE, '', { maxAgeMs: 0, secure: isWeb }));
+  res.set('Set-Cookie', serializeCookie(SESSION_COOKIE, '', { maxAgeMs: 0, secure: SECURE_COOKIES }));
   return res.json({ ok: true });
 });
 
@@ -2063,7 +2079,7 @@ app.post('/api/auth/signout-everywhere', requireAuthConfigured, requireSession, 
   // the server's own copy would not mean what it says.
   bumpTokenVersion(req.echoUserId);
   try { deleteAtprotoTokens(req.echoUserId); } catch { /* nothing to forget */ }
-  res.set('Set-Cookie', serializeCookie(SESSION_COOKIE, '', { maxAgeMs: 0, secure: isWeb }));
+  res.set('Set-Cookie', serializeCookie(SESSION_COOKIE, '', { maxAgeMs: 0, secure: SECURE_COOKIES }));
   logEvent('signout-all', { ok: true });
   return res.json({ ok: true });
 });
@@ -2073,7 +2089,7 @@ app.delete('/api/auth/account', requireAuthConfigured, requireSession, (req, res
   // CASCADE). The browser's own copy is untouched — this removes what the
   // server holds, which is the only thing the user is asking about.
   deleteUser(req.echoUserId);
-  res.set('Set-Cookie', serializeCookie(SESSION_COOKIE, '', { maxAgeMs: 0, secure: isWeb }));
+  res.set('Set-Cookie', serializeCookie(SESSION_COOKIE, '', { maxAgeMs: 0, secure: SECURE_COOKIES }));
   return res.json({ ok: true });
 });
 
