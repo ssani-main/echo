@@ -168,11 +168,21 @@ test('setStatus approves directly, for the admin auto-approve path', () => {
   assert.equal(getApproval(u.id).status, 'approved');
 });
 
-test('Google accounts go through the same gate', () => {
+test('Google accounts are approved on creation, Bluesky ones are not', () => {
   fresh('google');
+
+  // Not an oversight. ECHO_ADMIN_DIDS is a list of DIDs and a Google account
+  // has none, so a Google-only instance can never have an admin — gating it
+  // would leave every user pending forever with nobody able to approve them.
+  // The two providers serve different products: Google is the hosted app with
+  // open registration and per-user libraries; Bluesky is the personal instance
+  // that needs a gate.
   const g = upsertUser({ sub: 'google-1', email: 'g@example.com' });
-  assert.equal(getUser(g.id).status, 'pending', 'the gate is not provider-specific');
-  assert.equal(listRegistrations({ status: 'pending' }).entries[0].email, 'g@example.com');
+  assert.equal(getUser(g.id).status, 'approved');
+
+  const b = upsertAtprotoUser({ did: 'did:plc:alice', handle: 'alice.bsky.social' });
+  assert.equal(getUser(b.id).status, 'pending');
+  assert.equal(listRegistrations({ status: 'pending' }).total, 1, 'only the Bluesky account queues');
 });
 
 test('accounts that predate approval are grandfathered in, not locked out', () => {

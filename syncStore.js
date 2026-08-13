@@ -231,7 +231,17 @@ export function upsertUser({ sub, email }) {
     return { id: existing.id, email: email || existing.email || '', tokenVersion: existing.tokenVersion || 0 };
   }
   const id = randomUUID();
-  db.prepare('INSERT INTO users (id, provider, google_sub, email, createdAt) VALUES (?, \'google\', ?, ?, ?)')
+  // Approved on creation, unlike the Bluesky path. The two providers serve two
+  // different products: Google sign-in exists for the hosted BYOK web app,
+  // where registration is open by design and each library is already isolated
+  // per user in this table. Bluesky sign-in exists for a personal instance
+  // someone runs on their own machine, which is the one that needs a gate.
+  //
+  // It is also the only workable answer: ECHO_ADMIN_DIDS is a list of DIDs, and
+  // a Google account has none — so a Google-only instance could never have an
+  // admin, and gating it would leave every user pending forever with nobody
+  // able to approve them.
+  db.prepare("INSERT INTO users (id, provider, google_sub, email, createdAt, status) VALUES (?, 'google', ?, ?, ?, 'approved')")
     .run(id, sub, email || null, new Date().toISOString());
   return { id, email: email || '', tokenVersion: 0 };
 }

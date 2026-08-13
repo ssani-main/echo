@@ -1,8 +1,12 @@
 # Bluesky accounts, registration and approval
 
-Status: **Phases 1–2 built** (2026-08-13, branch `feat/atproto-signin`).
-Sign-in, registration and admin approval all work end to end against a real
-Bluesky account. Phases 3–5 planned.
+Status: **Phases 1–3 built** (2026-08-13, branch `feat/atproto-signin`).
+Sign-in, registration, admin approval and the access gate all work end to end
+against a real Bluesky account. Phases 4–5 planned.
+
+**Read this before opening an instance to anyone:** the gate is complete, but
+`store.js` is still single-tenant, so every approved user shares the operator's
+library. Approve only people you would hand your library to until Phase 4 lands.
 
 Goal: let people other than the operator use an Echo instance hosted on a
 personal machine — identified by their Bluesky account, admitted one at a time
@@ -126,12 +130,35 @@ keeps working.
 - The queue is **paged from the start** — an open instance collects pending rows
   faster than anything else here, because signing up costs a stranger nothing.
 
-### Phase 3 — gating and quota guard
+### Phase 3 — gating and quota guard — BUILT
 
-`requireApproved` middleware beside the existing `blockInWeb`, on
-`/api/digest`, `/api/transcript` and the library routes. Plus **per-user rate
-limits**: the operator's Claude quota and residential IP are both shared
-resources, and approval is the gate while the limiter is the blast radius.
+`requireApproved` on all 16 AI, fetch, Whisper and library routes.
+
+- **It no-ops entirely when no provider is configured.** That is the hard
+  constraint, not a convenience: a plain local install must behave exactly as it
+  always has. The 549-test suite runs with accounts off and is the proof.
+- **Anonymous visitors are blocked too**, not just signed-in non-approved ones.
+  An instance published over a tunnel is reachable by anyone, and "signed out"
+  is the state every stranger arrives in.
+- The refusal carries a machine-readable `reason` — `signed_out`,
+  `unsubmitted`, `pending`, `rejected` — so the client can offer a way forward
+  where one exists and stay quiet where none does. Four situations that would
+  otherwise collapse into one generic error.
+- `/api/auth/*` and `/api/health` are never gated, or there would be no way
+  back in.
+- **Per-ACCOUNT quotas**, not per-IP: `webLimit` keys on address, which is right
+  for a hosted deployment and wrong here, because the Claude quota and the
+  residential IP's standing with YouTube are spent per person. Two users behind
+  one NAT should not share a budget; one user on two devices should not get two.
+- **One limiter instance per budget, shared across routes.** Calling
+  `userLimit()` at each route gives each its own store, so "90 fetches an hour"
+  silently becomes three separate 90s. YouTube does not care which endpoint
+  spent the IP. Knobs: `ECHO_USER_DIGEST_LIMIT` (30/h), `ECHO_USER_FETCH_LIMIT`
+  (90/h).
+
+**The gate is complete; isolation is not.** `store.js` is still single-tenant,
+so every approved user reads and writes the SAME library — the operator's. That
+is Phase 4. Until it lands, approve only people you would hand your library to.
 
 ### Phase 4 — tenant-ise `store.js`
 

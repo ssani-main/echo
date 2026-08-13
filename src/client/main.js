@@ -1236,10 +1236,76 @@ function buildErrorCard({ headline, hint, detail }) {
  *
  * @param {object} data - parsed response JSON (structured error envelope)
  */
+/**
+ * Reasons the access gate refuses, as sent by requireApproved() on the server.
+ *
+ * Four different situations that would otherwise all render as one generic
+ * "something went wrong": you are not signed in, you have not asked yet, you
+ * have asked and are waiting, or you were declined. Only the last is final, and
+ * only the first two are things the person can act on.
+ */
+const ACCESS_REASONS = new Set(['signed_out', 'unsubmitted', 'pending', 'rejected']);
+
+/**
+ * Has the gate already been reported?
+ *
+ * A gated instance refuses several background requests on a single page load —
+ * the library, the Whisper status, the language list — and each one is a real
+ * 401. Reporting every one of them would stack three toasts and yank the
+ * Settings modal open before the visitor has read anything. The first refusal
+ * paints the pane, using the server's own wording; the rest are swallowed.
+ */
+let gateReported = false;
+
+function isAccessDenied(env) {
+  return Boolean(env && ACCESS_REASONS.has(env.reason));
+}
+
+/**
+ * Report a gate refusal once. Returns true if the caller should stop.
+ * @param {object} env
+ */
+function reportAccessDenied(env, target) {
+  const el = target || document.getElementById('output');
+  // Painting a pane is idempotent — replaceChildren of the same card — so the
+  // repeat refusals cost nothing. Only the toast fallback needs throttling,
+  // because toasts stack.
+  if (el) renderAccessGate(env, el);
+  else if (!gateReported) showToast('error', [env.message, env.hint].filter(Boolean).join(' '));
+  gateReported = true;
+}
+
+/**
+ * Render the gate refusal into a pane, with a way out where one exists.
+ *
+ * @param {object} env the error envelope
+ * @param {HTMLElement} target
+ */
+function renderAccessGate(env, target) {
+  setStatus('');
+  const card = buildErrorCard({ headline: env.message, hint: env.hint || '' });
+
+  // "Waiting" and "declined" have no action — offering a button that leads
+  // nowhere is worse than offering none.
+  if (env.reason === 'signed_out' || env.reason === 'unsubmitted') {
+    const row = document.createElement('div');
+    row.className = 'error-card-nudge';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = env.reason === 'signed_out' ? 'Sign in' : 'Request access';
+    btn.addEventListener('click', () => openSettingsModal());
+    row.appendChild(btn);
+    card.appendChild(row);
+  }
+
+  target.replaceChildren(card);
+}
+
 function renderTranscriptError(data) {
   console.error('[echo] transcript error:', data);
 
   const env     = data?.error;
+  if (isAccessDenied(env)) return void reportAccessDenied(env);
   const headline = env?.message || 'Could not fetch the transcript.';
   const hint     = env?.hint || '';
   const detail   = env?.detail || '';
@@ -1291,6 +1357,9 @@ function renderDigestError(data) {
   console.error('[echo] digest error:', data);
 
   const env      = data?.error;
+  if (isAccessDenied(env)) {
+    return void reportAccessDenied(env, document.getElementById('digestOutput'));
+  }
   const code     = env?.code;
   let headline   = env?.message || 'Failed to generate the digest.';
   let hint       = env?.hint || '';
@@ -1368,6 +1437,12 @@ function handleApiError(data, fallback) {
   console.error('[echo] API error:', data);
 
   const env = data?.error;
+
+  // The library flows toast rather than render a card, so the gate refusal
+  // arrives here too — including from the background loads a gated instance
+  // refuses on every page view.
+  if (isAccessDenied(env)) return void reportAccessDenied(env);
+
   let message, hint;
 
   // Desktop-specific: the CLI isn't installed/authed and the user hasn't

@@ -716,6 +716,132 @@ function blockInWeb(req, res, next) {
   next();
 }
 
+// Per-account budgets, defined here rather than beside the other account config
+// because the route registrations below reference them at module-eval time and
+// a `const` declared later would still be in its temporal dead zone.
+//
+// The defaults are deliberately generous: this is a backstop against one person
+// running away with the operator's Claude quota, not a metering scheme.
+const USER_DIGEST_LIMIT = numFromEnv('ECHO_USER_DIGEST_LIMIT', 30, { min: 1 });
+const USER_FETCH_LIMIT = numFromEnv('ECHO_USER_FETCH_LIMIT', 90, { min: 1 });
+const USER_LIMIT_WINDOW_MS = 60 * 60_000;
+
+/**
+ * The access gate: only approved accounts may use the instance.
+ *
+ * NO-OPS ENTIRELY when no identity provider is configured, which is the default
+ * everywhere. That is not a convenience — it is the hard constraint. A personal
+ * local install must keep working exactly as it always has, with no sign-in and
+ * no gate, and the only way to be sure of that is for this to return before it
+ * touches anything.
+ *
+ * Once accounts ARE configured the gate is real, and it applies to anonymous
+ * visitors too: an instance published over a tunnel is reachable by anyone, and
+ * "signed out" is the state every stranger arrives in. The alternative — gating
+ * only signed-in users — would leave the front door open and put a lock on the
+ * inside of it.
+ *
+ * The refusal carries a machine-readable `reason` so the client can say
+ * something useful (sign in / finish your request / it was declined) rather
+ * than showing one generic error for four different situations.
+ */
+function requireApproved(req, res, next) {
+  if (!ACCOUNTS_ENABLED) return next();
+
+  const uid = sessionUserId(req);
+  const user = uid ? getUser(uid) : null;
+
+  if (!user) {
+    return sendError(
+      res,
+      'API_NOT_AUTHED',
+      'Sign in to use this Echo.',
+      'Open Settings and sign in with your Bluesky handle.',
+      401,
+      { reason: 'signed_out' }
+    );
+  }
+
+  if (user.status === 'approved') {
+    req.echoUserId = uid;
+    return next();
+  }
+
+  if (user.status === 'rejected') {
+    return sendError(
+      res,
+      'API_NOT_AUTHED',
+      'Your request for access was declined.',
+      user.adminNote || '',
+      403,
+      { reason: 'rejected' }
+    );
+  }
+
+  return sendError(
+    res,
+    'API_NOT_AUTHED',
+    user.submitted ? 'Your request is still awaiting approval.' : 'Ask for access first.',
+    user.submitted
+      ? 'The admin has your request — nothing more to do for now.'
+      : 'Open Settings and tell the admin why you would like access.',
+    403,
+    { reason: user.submitted ? 'pending' : 'unsubmitted' }
+  );
+}
+
+/**
+ * Per-ACCOUNT rate limit for the expensive paths.
+ *
+ * webLimit keys on IP, which is the right key for a hosted multi-tenant
+ * deployment and the wrong one here: the resources being protected are the
+ * operator's Claude quota and their residential IP's standing with YouTube, and
+ * both are spent per person, not per address. Two approved users behind one NAT
+ * should not share a budget, and one user on a phone plus a laptop should not
+ * get two.
+ *
+ * Only enforced when accounts exist. With them off there is exactly one user —
+ * the person at the keyboard — and rate-limiting them would be new behaviour in
+ * a mode that must not change.
+ *
+ * @param {number} max
+ * @param {number} windowMs
+ */
+function userLimit(max, windowMs) {
+  const store = new Map();
+  let lastSweep = 0;
+  return (req, res, next) => {
+    if (!ACCOUNTS_ENABLED) return next();
+
+    const now = Date.now();
+    if (now - lastSweep > RATE_LIMIT_SWEEP_INTERVAL_MS) {
+      lastSweep = now;
+      sweepStaleEntries(store, windowMs, now);
+    }
+    // requireApproved runs first and sets echoUserId; the IP fallback only
+    // matters if this is ever mounted on its own.
+    const key = req.echoUserId || `ip:${req.ip || 'unknown'}`;
+    if (rateLimitHit(key, max, windowMs, store)) {
+      return sendError(
+        res,
+        'RATE_LIMITED',
+        'You have hit your limit for now.',
+        `This Echo allows ${max} of these per ${Math.round(windowMs / 60_000)} minutes. Try again a bit later.`
+      );
+    }
+    next();
+  };
+}
+
+// ONE limiter instance per budget, shared across every route that spends it.
+// Calling userLimit() separately at each route would give each its own store,
+// so "90 fetches an hour" would silently become 90 transcripts AND 90 metadata
+// lookups AND 90 language probes — three budgets wearing one number's name.
+// What is being protected is the IP's standing with YouTube, and YouTube does
+// not care which endpoint spent it.
+const userFetchLimit = userLimit(USER_FETCH_LIMIT, USER_LIMIT_WINDOW_MS);
+const userDigestLimit = userLimit(USER_DIGEST_LIMIT, USER_LIMIT_WINDOW_MS);
+
 // ---------------------------------------------------------------------------
 // Health
 // ---------------------------------------------------------------------------
@@ -774,7 +900,7 @@ let openProgressStreams = 0;
 // /api/transcript ignores `jobId` there and forces transcription off, so this
 // route could only ever heartbeat at a hosted visitor, while still costing a
 // socket and a timer per connection. Gating it removes that sink outright.
-app.get('/api/transcript/progress', blockInWeb, (req, res) => {
+app.get('/api/transcript/progress', blockInWeb, requireApproved, (req, res) => {
   const jobId = String(req.query.jobId || '');
   if (!jobId) { res.status(400).end(); return; }
 
@@ -837,7 +963,7 @@ app.get('/api/transcript/progress', blockInWeb, (req, res) => {
   res.on('close', finish);
 });
 
-app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
+app.post('/api/transcript', requireApproved, userFetchLimit, webLimit(20, 60_000), async (req, res) => {
   const { url, lang, transcribe, whisperModel } = req.body;
 
   const videoId = extractVideoId(url);
@@ -968,6 +1094,8 @@ function localMediaId(name, buf) {
 app.post(
   '/api/transcript/file',
   blockInWeb,
+  requireApproved,
+  userFetchLimit,
   express.raw({ type: '*/*', limit: ECHO_MAX_UPLOAD_BYTES }),
   async (req, res) => {
     const rawName = typeof req.query.name === 'string' ? req.query.name : '';
@@ -1046,7 +1174,7 @@ app.post(
 );
 
 // --- Whisper model management (local/desktop only) ---
-app.get('/api/whisper/status', blockInWeb, (req, res) => {
+app.get('/api/whisper/status', blockInWeb, requireApproved, (req, res) => {
   const binaryPresent = !!resolveWhisperBinary();
   const models = Object.keys(WHISPER_MODELS).map((n) => {
     const m = WHISPER_MODELS[n];
@@ -1055,7 +1183,7 @@ app.get('/api/whisper/status', blockInWeb, (req, res) => {
   return res.json({ binaryPresent, defaultModel: DEFAULT_WHISPER_MODEL, cacheDir: modelCacheDir(), models });
 });
 
-app.post('/api/whisper/model', blockInWeb, (req, res) => {
+app.post('/api/whisper/model', blockInWeb, requireApproved, (req, res) => {
   const { model } = req.body || {};
   if (!model || !WHISPER_MODELS[model]) {
     return sendError(res, 'WHISPER_MODEL_UNKNOWN', `Unknown model: ${model}`, 'Choose base or small.');
@@ -1072,7 +1200,7 @@ app.post('/api/whisper/model', blockInWeb, (req, res) => {
 // Languages
 // ---------------------------------------------------------------------------
 
-app.get('/api/languages', webLimit(20, 60_000), async (req, res) => {
+app.get('/api/languages', requireApproved, userFetchLimit, webLimit(20, 60_000), async (req, res) => {
   const { videoId: rawId } = req.query;
   if (!rawId) {
     return sendError(res, 'INTERNAL', 'videoId query parameter is required.', '', 400);
@@ -1099,7 +1227,7 @@ app.get('/api/languages', webLimit(20, 60_000), async (req, res) => {
 // info on saved library entries created before channelUrl was stored)
 // ---------------------------------------------------------------------------
 
-app.get('/api/video-meta', webLimit(20, 60_000), async (req, res) => {
+app.get('/api/video-meta', requireApproved, userFetchLimit, webLimit(20, 60_000), async (req, res) => {
   const { videoId: rawId, url: rawUrl } = req.query;
   const videoId = extractVideoId(rawId || rawUrl);
   if (!videoId) {
@@ -1204,7 +1332,7 @@ function openDigestStream(res) {
   };
 }
 
-app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
+app.post('/api/digest', requireApproved, userDigestLimit, webLimit(20, 60_000), async (req, res) => {
   const { text, length, format, language, title, videoId } = req.body;
 
   if (!requireText(res, text, 'No transcript text provided.', 'Load a transcript before generating a digest.')) return;
@@ -1346,7 +1474,7 @@ async function digestStreaming(req, res, { text, length, format, language, title
 // (via a cheap, token-free models.list() call) instead of the user only
 // finding out it's invalid on their first AI call.
 
-app.post('/api/validate-key', webLimit(20, 60_000), async (req, res) => {
+app.post('/api/validate-key', requireApproved, webLimit(20, 60_000), async (req, res) => {
   if (!isWeb && !isDesktop) {
     return sendError(
       res,
@@ -1430,6 +1558,17 @@ const ADMIN_DIDS = new Set(
 /** @param {{did?: string}|null} user */
 function isAdmin(user) {
   return Boolean(user && user.did && ADMIN_DIDS.has(user.did));
+}
+
+// An approval queue with no approver is a locked door with no key: every
+// Bluesky account would sit at 'pending' forever, including the operator's.
+// Loud at boot, because the symptom otherwise is "sign-in works but nothing
+// does", which reads as a bug rather than as missing configuration.
+if (ATPROTO_ENABLED && ADMIN_DIDS.size === 0) {
+  console.warn(
+    '[echo] Bluesky sign-in is on but ECHO_ADMIN_DIDS is empty — nobody can approve '
+    + 'anyone, so every account will stay pending. Set it to your own DID.'
+  );
 }
 
 // Per-user storage ceiling. A synced library is transcripts, which are text but
@@ -1783,7 +1922,10 @@ app.delete('/api/auth/account', requireAuthConfigured, requireSession, (req, res
   return res.json({ ok: true });
 });
 
-app.get('/api/sync/pull', requireAuthConfigured, requireSession, webLimit(60, 60_000), (req, res) => {
+// Gated like everything else: sync writes transcripts into server storage, so
+// an unapproved account filling the volume is exactly the abuse the gate is
+// for. requireSession alone would have let a rejected user keep syncing.
+app.get('/api/sync/pull', requireAuthConfigured, requireApproved, requireSession, webLimit(60, 60_000), (req, res) => {
   try {
     const since = typeof req.query.since === 'string' && req.query.since ? req.query.since : undefined;
     return res.json(pullEntries(req.echoUserId, since));
@@ -1792,7 +1934,7 @@ app.get('/api/sync/pull', requireAuthConfigured, requireSession, webLimit(60, 60
   }
 });
 
-app.post('/api/sync/push', requireAuthConfigured, requireSession, webLimit(60, 60_000), (req, res) => {
+app.post('/api/sync/push', requireAuthConfigured, requireApproved, requireSession, webLimit(60, 60_000), (req, res) => {
   const entries = req.body && req.body.entries;
   if (!Array.isArray(entries)) {
     return sendError(res, 'INTERNAL', 'entries must be an array.', '', 400);
@@ -1834,7 +1976,7 @@ app.post('/api/sync/push', requireAuthConfigured, requireSession, webLimit(60, 6
  * rest in the background. `total` is sent so the library count is right from
  * the first paint rather than climbing as pages land.
  */
-app.get('/api/saved', blockInWeb, async (req, res) => {
+app.get('/api/saved', blockInWeb, requireApproved, async (req, res) => {
   try {
     const limit = req.query.limit === undefined ? null : Number(req.query.limit);
     if (limit === null) return res.json(await listEntries());
@@ -1874,7 +2016,7 @@ app.get('/api/saved', blockInWeb, async (req, res) => {
  * which the client sees as a failed download rather than a truncated file it
  * might mistake for a good one.
  */
-app.get('/api/saved/export', blockInWeb, async (req, res) => {
+app.get('/api/saved/export', blockInWeb, requireApproved, async (req, res) => {
   let meta;
   try {
     meta = await listEntries();
@@ -1924,7 +2066,7 @@ app.get('/api/saved/export', blockInWeb, async (req, res) => {
 
 // Sub-routes for a saved entry — all before the bare /:videoId GET/DELETE
 
-app.patch('/api/saved/:videoId/tags', blockInWeb, async (req, res) => {
+app.patch('/api/saved/:videoId/tags', blockInWeb, requireApproved, async (req, res) => {
   try {
     const { tags } = req.body;
     if (!Array.isArray(tags)) {
@@ -1938,7 +2080,7 @@ app.patch('/api/saved/:videoId/tags', blockInWeb, async (req, res) => {
   }
 });
 
-app.get('/api/saved/:videoId', blockInWeb, async (req, res) => {
+app.get('/api/saved/:videoId', blockInWeb, requireApproved, async (req, res) => {
   try {
     const e = await getEntry(req.params.videoId);
     if (!e) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
@@ -1948,7 +2090,7 @@ app.get('/api/saved/:videoId', blockInWeb, async (req, res) => {
   }
 });
 
-app.get('/api/saved/:videoId/export.md', blockInWeb, async (req, res) => {
+app.get('/api/saved/:videoId/export.md', blockInWeb, requireApproved, async (req, res) => {
   try {
     const entry = await getEntry(req.params.videoId);
     if (!entry) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
@@ -1975,7 +2117,7 @@ app.get('/api/saved/:videoId/export.md', blockInWeb, async (req, res) => {
  * should use the existing ZIP export instead.
  * Body: { dir?: string, includeTranscript?: boolean }
  */
-app.post('/api/vault/sync', blockInWeb, async (req, res) => {
+app.post('/api/vault/sync', blockInWeb, requireApproved, async (req, res) => {
   const { dir, includeTranscript } = req.body || {};
   const resolvedDir = (typeof dir === 'string' && dir.trim()) ? dir.trim() : process.env.ECHO_VAULT_DIR;
 
@@ -2003,7 +2145,7 @@ app.post('/api/vault/sync', blockInWeb, async (req, res) => {
   }
 });
 
-app.post('/api/saved', blockInWeb, async (req, res) => {
+app.post('/api/saved', blockInWeb, requireApproved, async (req, res) => {
   const t0 = Date.now();
   try {
     const { url, videoId, title, segments, digest, channel, channelUrl, transcriptSource, whisperModel } = req.body;
@@ -2018,7 +2160,7 @@ app.post('/api/saved', blockInWeb, async (req, res) => {
   }
 });
 
-app.delete('/api/saved/:videoId', blockInWeb, async (req, res) => {
+app.delete('/api/saved/:videoId', blockInWeb, requireApproved, async (req, res) => {
   const t0 = Date.now();
   try {
     const ok = await deleteEntry(req.params.videoId);
@@ -2034,7 +2176,7 @@ app.delete('/api/saved/:videoId', blockInWeb, async (req, res) => {
 // Search helpers
 // ---------------------------------------------------------------------------
 
-app.get('/api/search', blockInWeb, async (req, res) => {
+app.get('/api/search', blockInWeb, requireApproved, async (req, res) => {
   const q     = String(req.query.q || '').trim();
   const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
   const t0 = Date.now();
