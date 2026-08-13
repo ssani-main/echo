@@ -1246,59 +1246,27 @@ function buildErrorCard({ headline, hint, detail }) {
  */
 const ACCESS_REASONS = new Set(['signed_out', 'unsubmitted', 'pending', 'rejected']);
 
-/**
- * Has the gate already been reported?
- *
- * A gated instance refuses several background requests on a single page load —
- * the library, the Whisper status, the language list — and each one is a real
- * 401. Reporting every one of them would stack three toasts and yank the
- * Settings modal open before the visitor has read anything. The first refusal
- * paints the pane, using the server's own wording; the rest are swallowed.
- */
-let gateReported = false;
-
+/** @param {{reason?: string}|undefined} env */
 function isAccessDenied(env) {
   return Boolean(env && ACCESS_REASONS.has(env.reason));
 }
 
 /**
- * Report a gate refusal once. Returns true if the caller should stop.
- * @param {object} env
- */
-function reportAccessDenied(env, target) {
-  const el = target || document.getElementById('output');
-  // Painting a pane is idempotent — replaceChildren of the same card — so the
-  // repeat refusals cost nothing. Only the toast fallback needs throttling,
-  // because toasts stack.
-  if (el) renderAccessGate(env, el);
-  else if (!gateReported) showToast('error', [env.message, env.hint].filter(Boolean).join(' '));
-  gateReported = true;
-}
-
-/**
- * Render the gate refusal into a pane, with a way out where one exists.
+ * A refusal from the gate means the account state changed under us — signed out
+ * in another tab, approved, or declined. Re-reading /api/auth/me and letting
+ * applyGateState() repaint is the ONLY correct response.
  *
- * @param {object} env the error envelope
- * @param {HTMLElement} target
+ * The previous version painted an error card into a pane and left it there.
+ * Nothing repainted it when the state changed, so after signing in AND after
+ * submitting a request the page still read "Sign in to use this Echo" — a user
+ * was told to do the thing they had just done. Deriving the screen from state
+ * rather than from the last error makes that class of bug unrepresentable.
+ *
+ * @param {object} env the error envelope (unused; state is authoritative)
  */
-function renderAccessGate(env, target) {
+function reportAccessDenied() {
   setStatus('');
-  const card = buildErrorCard({ headline: env.message, hint: env.hint || '' });
-
-  // "Waiting" and "declined" have no action — offering a button that leads
-  // nowhere is worse than offering none.
-  if (env.reason === 'signed_out' || env.reason === 'unsubmitted') {
-    const row = document.createElement('div');
-    row.className = 'error-card-nudge';
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.textContent = env.reason === 'signed_out' ? 'Sign in' : 'Request access';
-    btn.addEventListener('click', () => openSettingsModal());
-    row.appendChild(btn);
-    card.appendChild(row);
-  }
-
-  target.replaceChildren(card);
+  renderAccountState();
 }
 
 function renderTranscriptError(data) {
@@ -5095,29 +5063,94 @@ document.getElementById('settingsBackdrop')?.addEventListener('click', closeSett
  *  - Web mode with an empty field: treat Save as a clear (no validation needed).
  */
 /* ==============================================
-   ACCOUNT — Google sign-in for library sync (web mode)
-   Only appears when the server has accounts configured; a deployment
-   without them shows nothing and behaves exactly as before.
+   ACCOUNT + ACCESS GATE
+   The gate state is the PAGE's state, not an error that happened to arrive.
+   Exactly one of five screens is live at a time, derived from /api/auth/me:
+   welcome · request · waiting · declined · the app. On an instance with no
+   identity provider configured none of it exists and the page is the app,
+   byte-identical to before.
 =============================================== */
+
+/** The four gated states, in the order someone passes through them. */
+const GATE_CLASSES = ['gate-welcome', 'gate-request', 'gate-waiting', 'gate-declined'];
+
+/**
+ * Which screen does this account state call for?
+ * @param {object|null} user the /api/auth/me user object
+ * @returns {string} '' when the app itself should show
+ */
+function gateStateFor(user) {
+  if (!isSignedIn(user)) return 'gate-welcome';
+  if (user.status === 'approved') return '';
+  if (user.status === 'rejected') return 'gate-declined';
+  return user.submitted ? 'gate-waiting' : 'gate-request';
+}
+
+/**
+ * Put the page into one gate state, or none.
+ *
+ * Every control that cannot work in a gated state is HIDDEN rather than
+ * disabled — the paste box was the largest, brightest thing on the page and did
+ * nothing, which is a worse first impression than no box at all. The hiding is
+ * CSS on body.gate-*; this sets the class and fills the screens.
+ *
+ * @param {object|null} user
+ */
+function applyGateState(user) {
+  const state = gateStateFor(user);
+  document.body.classList.remove(...GATE_CLASSES);
+  if (state) document.body.classList.add(state);
+
+  const section = document.getElementById('gateScreens');
+  if (section) section.hidden = !state;
+
+  const screens = {
+    'gate-welcome': 'gateWelcome',
+    'gate-request': 'gateRequest',
+    'gate-waiting': 'gateWaiting',
+    'gate-declined': 'gateDeclined',
+  };
+  for (const [cls, id] of Object.entries(screens)) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = cls !== state;
+  }
+
+  const who = identityLabel(user);
+  const whoRequest = document.getElementById('gateWhoRequest');
+  if (whoRequest) whoRequest.textContent = who;
+  const whoWaiting = document.getElementById('gateWhoWaiting');
+  if (whoWaiting) whoWaiting.textContent = who;
+
+  const note = document.getElementById('gateDeclinedNote');
+  if (note) {
+    note.textContent = user && user.adminNote
+      ? user.adminNote
+      : 'The person who runs this Echo declined the request.';
+  }
+  return state;
+}
+
 async function renderAccountState() {
-  const section = document.getElementById('accountSection');
-  if (!section) return;
-
   const state = await EchoSync.refresh();
-  if (!state.enabled) { section.hidden = true; return; }
-  section.hidden = false;
-
   const user = state.user;
+
+  // Ungated instance: no gate class, no gate screens, no account section.
+  // This is the default everywhere.
+  if (!state.enabled) {
+    document.body.classList.remove(...GATE_CLASSES);
+    const section = document.getElementById('gateScreens');
+    if (section) section.hidden = true;
+    const off = document.getElementById('accountSection');
+    if (off) off.hidden = true;
+    return state;
+  }
+
+  applyGateState(user);
+
+  const account = document.getElementById('accountSection');
+  if (account) account.hidden = false;
+
   const signedIn = isSignedIn(user);
-  const providers = state.providers || {};
-
-  // Only offer the providers this instance actually has. Showing a dead
-  // "Sign in with Google" button on a Bluesky-only instance is a broken door.
-  const googleBtn = document.getElementById('signInBtn');
-  if (googleBtn) googleBtn.hidden = signedIn || !providers.google;
-  const atprotoForm = document.getElementById('atprotoSignInForm');
-  if (atprotoForm) atprotoForm.hidden = signedIn || !providers.atproto;
-
   document.getElementById('accountSignedOut').hidden = signedIn;
   document.getElementById('accountSignedIn').hidden = !signedIn;
   if (signedIn) document.getElementById('accountEmail').textContent = identityLabel(user);
@@ -5131,32 +5164,14 @@ async function renderAccountState() {
   const syncStatusEl = document.getElementById('syncStatus');
   if (syncStatusEl) syncStatusEl.hidden = !syncable;
 
-  // The three states of not-yet-approved. Signing in says who you are; none of
-  // this says you may use the instance.
-  const status = user?.status || 'pending';
-  const awaiting = signedIn && status === 'pending';
-  document.getElementById('registrationForm').hidden = !(awaiting && !user.submitted);
-  document.getElementById('accountPending').hidden = !(awaiting && user.submitted);
-  document.getElementById('accountRejected').hidden = !(signedIn && status === 'rejected');
-
-  const noteEl = document.getElementById('accountRejectedNote');
-  if (noteEl) noteEl.textContent = user?.adminNote ? ` ${user.adminNote}` : '';
-
-  const adminSection = document.getElementById('adminSection');
-  if (adminSection) {
-    const wasHidden = adminSection.hidden;
-    adminSection.hidden = !(signedIn && user.isAdmin);
-    // Load the queue the first time it appears, not on every re-render.
-    if (wasHidden && !adminSection.hidden) loadAdminQueue();
-  }
+  // Admin chip. The count is the notification.
+  const adminBtn = document.getElementById('adminBtn');
+  const wasAdmin = adminBtn && !adminBtn.hidden;
+  if (adminBtn) adminBtn.hidden = !(signedIn && user.isAdmin);
+  if (adminBtn && !adminBtn.hidden && !wasAdmin) loadAdminQueue();
 
   return state;
 }
-
-document.getElementById('signInBtn')?.addEventListener('click', () => {
-  // Full navigation, not fetch: this is an OAuth redirect to Google.
-  window.location.href = '/api/auth/google';
-});
 
 /** Show an inline error under a form, or clear it when message is falsy. */
 function setFormError(id, message) {
@@ -5166,70 +5181,86 @@ function setFormError(id, message) {
   el.hidden = !message;
 }
 
-document.getElementById('atprotoSignInForm')?.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const btn = document.getElementById('atprotoSignInBtn');
-  const handleEl = document.getElementById('atprotoHandle');
-  const passwordEl = document.getElementById('atprotoPassword');
+/** Turn an error envelope into one line of human text. */
+function envText(body, fallback) {
+  const err = (body && body.error) || {};
+  return [err.message, err.hint].filter(Boolean).join(' ') || fallback;
+}
 
-  setFormError('atprotoSignInError', '');
+document.getElementById('gateSignInForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('gateSignInBtn');
+  const passwordEl = document.getElementById('gatePassword');
+
+  setFormError('gateSignInError', '');
   btn.disabled = true;
+  btn.textContent = 'Signing in…';
   try {
     const res = await fetch('/api/auth/atproto', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier: handleEl.value, password: passwordEl.value }),
+      body: JSON.stringify({
+        identifier: document.getElementById('gateHandle').value,
+        password: passwordEl.value,
+      }),
     });
     const body = await res.json().catch(() => ({}));
-
     if (!res.ok) {
-      const err = body.error || {};
-      setFormError('atprotoSignInError', [err.message, err.hint].filter(Boolean).join(' '));
+      setFormError('gateSignInError', envText(body, 'Sign-in failed.'));
       return;
     }
-
-    // Clear the credential out of the DOM the moment it is spent. It is not
-    // needed again — the server holds a refresh token — and leaving it sitting
-    // in a form field on a shared machine is free risk.
+    // Clear the credential out of the DOM the moment it is spent: the server
+    // holds a refresh token now, and a password sitting in a form field on a
+    // shared machine is free risk.
     passwordEl.value = '';
     await renderAccountState();
-    showToast('info', `Signed in as @${body.user?.handle || 'Bluesky'}.`);
   } catch {
-    setFormError('atprotoSignInError', 'Could not reach the server. Check your connection and try again.');
+    setFormError('gateSignInError', 'Could not reach the server. Check your connection and try again.');
   } finally {
     btn.disabled = false;
+    btn.textContent = 'Sign in with Bluesky';
   }
 });
 
-document.getElementById('registrationForm')?.addEventListener('submit', async (e) => {
+document.getElementById('gateRequestForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const btn = document.getElementById('regSubmitBtn');
-  setFormError('regError', '');
+  const btn = document.getElementById('gateRequestBtn');
+  setFormError('gateRequestError', '');
   btn.disabled = true;
+  btn.textContent = 'Sending…';
   try {
     const res = await fetch('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        motivation: document.getElementById('regMotivation').value,
-        referralSource: document.getElementById('regReferral').value,
-        contact: document.getElementById('regContact').value,
+        motivation: document.getElementById('gateMotivation').value,
+        referralSource: document.getElementById('gateReferral').value,
+        contact: document.getElementById('gateContact').value,
       }),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const err = body.error || {};
-      setFormError('regError', [err.message, err.hint].filter(Boolean).join(' '));
+      setFormError('gateRequestError', envText(body, 'Could not send your request.'));
       return;
     }
     await renderAccountState();
-    showToast('info', 'Request sent. You\'ll get access once the admin approves it.');
   } catch {
-    setFormError('regError', 'Could not reach the server. Check your connection and try again.');
+    setFormError('gateRequestError', 'Could not reach the server. Check your connection and try again.');
   } finally {
     btn.disabled = false;
+    btn.textContent = 'Send request';
   }
 });
+
+// Sign out from inside the gate, for someone who wants to try another account.
+for (const gateOutId of ['gateSignOutBtn', 'gateSignOutBtn2']) {
+  document.getElementById(gateOutId)?.addEventListener('click', async () => {
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    EchoSync.clearLocalSyncState();
+    await renderAccountState();
+  });
+}
+
 
 /* ==============================================
    ADMIN — the access-request queue
@@ -5314,6 +5345,13 @@ async function loadAdminQueue() {
     list.replaceChildren(...entries.map(buildAdminRequestCard));
     if (empty) empty.hidden = entries.length > 0;
 
+    // The chip's count is how an admin learns anyone is waiting at all, so it
+    // tracks the PENDING total regardless of which filter is being viewed.
+    if (status === 'pending') {
+      const chip = document.getElementById('adminCount');
+      if (chip) chip.textContent = String(body.total ?? entries.length);
+    }
+
     // The queue is paged server-side; say so rather than implying this is all
     // of it, which is how a bounded list quietly becomes a wrong one.
     if (body.hasMore) {
@@ -5363,6 +5401,23 @@ document.getElementById('adminQueueList')?.addEventListener('click', async (e) =
 
 document.getElementById('adminQueueFilter')?.addEventListener('change', loadAdminQueue);
 document.getElementById('adminRefreshBtn')?.addEventListener('click', loadAdminQueue);
+
+/**
+ * The Requests chip opens the queue as a pane, the way the Library does.
+ *
+ * An approval queue is a place you go to do work, not a preference — it used to
+ * live inside the Settings modal below Whisper and Obsidian, where an admin
+ * would never think to look and nothing told them anyone was waiting.
+ */
+document.getElementById('adminBtn')?.addEventListener('click', () => {
+  const pane = document.getElementById('adminPane');
+  if (!pane) return;
+  const opening = pane.hidden;
+  pane.hidden = !opening;
+  document.getElementById('adminBtn').setAttribute('aria-pressed', String(opening));
+  document.body.classList.toggle('pane-admin', opening);
+  if (opening) loadAdminQueue();
+});
 
 document.getElementById('signOutBtn')?.addEventListener('click', async () => {
   await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});

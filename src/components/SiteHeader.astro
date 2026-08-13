@@ -15,6 +15,20 @@
 
     <!-- TOP-RIGHT HEADER CLUSTER: Library destination + usage chip + theme + shortcuts -->
     <div class="header-actions">
+      <!-- Admin only. The COUNT is the notification: without it nobody knows
+           anyone is waiting, which is how an approval queue quietly becomes a
+           wall. Hidden for everyone else. -->
+      <button
+        id="adminBtn"
+        class="library-btn"
+        type="button"
+        aria-pressed="false"
+        title="Access requests"
+        hidden
+      >
+        <span class="library-btn-label">Requests</span>
+        <span id="adminCount" class="library-btn-count">0</span>
+      </button>
       <button
         id="libraryBtn"
         class="library-btn"

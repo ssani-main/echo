@@ -17,46 +17,19 @@
            inside it) while "Markdown vault" used a third treatment borrowed
            from the checkbox rows. One class per level now. -->
       <span class="settings-section-title">Account</span>
+      <!-- Identity and sign-out only. Sign-in and the access request moved
+           out to the gate screens, and the approval queue to its own pane:
+           a first-time visitor was being sent here to find a sign-in field,
+           past the Whisper and Obsidian sections. Sign-in is not a setting.
+
+           Keeping a second copy of either form here would be the
+           extractSummary drift and the duplicated reading controls in a
+           third costume — one control that carries state, in one place. -->
       <div id="accountSignedOut">
-        <p class="settings-note">
-          Sign in to keep your saved videos in step across your devices. Your
-          library is stored in this browser; signing in adds a synced copy.
-        </p>
-        <button type="button" id="signInBtn" class="settings-btn" hidden>Sign in with Google</button>
-
-        <!-- Bluesky. A form rather than a redirect: app passwords have no
-             consent screen to send anyone to. -->
-        <form id="atprotoSignInForm" hidden>
-          <label class="digest-opt-label" for="atprotoHandle">Bluesky handle</label>
-          <input
-            id="atprotoHandle"
-            type="text"
-            autocomplete="username"
-            spellcheck="false"
-            placeholder="you.bsky.social"
-          />
-          <label class="digest-opt-label" for="atprotoPassword">App password</label>
-          <input
-            id="atprotoPassword"
-            type="password"
-            autocomplete="current-password"
-            spellcheck="false"
-            placeholder="abcd-efgh-ijkl-mnop"
-          />
-          <p class="settings-note">
-            Use an <strong>app password</strong>, not your Bluesky password — create one in
-            Bluesky under Settings → Privacy and security → App passwords. It can be
-            revoked at any time and cannot change your account.
-          </p>
-          <button type="submit" id="atprotoSignInBtn" class="settings-btn">Sign in with Bluesky</button>
-          <p id="atprotoSignInError" class="settings-key-status" aria-live="polite" hidden></p>
-        </form>
+        <p class="settings-note" id="accountSignedOutNote">Not signed in.</p>
       </div>
-
       <div id="accountSignedIn" hidden>
         <p class="settings-note">
-          <!-- The separator lives INSIDE the span so that hiding sync outside
-               web mode does not leave a dangling "·". -->
           Signed in as <strong id="accountEmail"></strong><span id="syncStatus"> · library syncing</span>
         </p>
         <div class="account-actions">
@@ -65,58 +38,7 @@
           <button type="button" id="signOutAllBtn" class="settings-btn secondary">Sign out everywhere</button>
         </div>
       </div>
-
-      <!-- ACCESS REQUEST — signing in says who you are; this asks to be let in.
-           Shown only when signed in and not yet approved. -->
-      <form id="registrationForm" hidden>
-        <span class="settings-section-title">Request access</span>
-        <p class="settings-note">
-          This Echo runs on someone's own machine, so access is granted one person
-          at a time. Tell them a little about yourself and they'll take a look.
-        </p>
-        <label class="digest-opt-label" for="regMotivation">Why would you like access?</label>
-        <textarea id="regMotivation" rows="4" placeholder="A sentence or two is plenty."></textarea>
-        <label class="digest-opt-label" for="regReferral">Where did you find Echo?</label>
-        <input id="regReferral" type="text" placeholder="Bluesky, a friend, a search…" />
-        <label class="digest-opt-label" for="regContact">Contact (optional)</label>
-        <input id="regContact" type="text" autocomplete="off" placeholder="Email or handle, if you'd like a reply" />
-        <button type="submit" id="regSubmitBtn" class="settings-btn">Send request</button>
-        <p id="regError" class="settings-key-status" aria-live="polite" hidden></p>
-      </form>
-
-      <div id="accountPending" hidden>
-        <p class="settings-note">
-          <strong>Your request is with the admin.</strong> Nothing more to do for now —
-          check back later, or keep using Echo in this browser.
-        </p>
-      </div>
-
-      <div id="accountRejected" hidden>
-        <p class="settings-note">
-          <strong>This request wasn't granted.</strong>
-          <span id="accountRejectedNote"></span>
-        </p>
-      </div>
-
       <hr class="settings-rule" />
-
-      <!-- ADMIN — the approval queue. Only rendered for a DID listed in
-           ECHO_ADMIN_DIDS; the route itself 404s for everyone else. -->
-      <div id="adminSection" hidden>
-        <span class="settings-section-title">Access requests</span>
-        <div class="admin-queue-head">
-          <label class="digest-opt-label" for="adminQueueFilter">Showing</label>
-          <select id="adminQueueFilter">
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-          </select>
-          <button type="button" id="adminRefreshBtn" class="mini-btn">Refresh</button>
-        </div>
-        <p id="adminQueueEmpty" class="settings-note" hidden>No requests here.</p>
-        <div id="adminQueueList"></div>
-        <hr class="settings-rule" />
-      </div>
     </div>
 
     <div id="apiKeySection">
