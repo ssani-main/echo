@@ -3054,6 +3054,116 @@ kbd {
   margin: var(--space-9) 0;
 }
 
+/* ---------------------------------------------------------------------------
+   Bluesky sign-in, access requests, and the admin queue
+   ---------------------------------------------------------------------------
+   Hidden by default and revealed via :not([hidden]), rather than relying on the
+   UA [hidden] rule — every one of these sets `display`, which is an author rule
+   and beats it. That is the trap that left .local-file-row permanently visible;
+   the guard goes in with the element, not after someone notices. */
+#atprotoSignInForm,
+#registrationForm,
+#accountPending,
+#accountRejected,
+#adminSection {
+  display: none;
+}
+#atprotoSignInForm:not([hidden]),
+#registrationForm:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+}
+#accountPending:not([hidden]),
+#accountRejected:not([hidden]),
+#adminSection:not([hidden]) {
+  display: block;
+}
+
+/* The settings inputs all looked like #apiKeyInput, so the shape is shared
+   rather than copied — a fourth near-identical block is how these drift. */
+#atprotoHandle,
+#atprotoPassword,
+#regMotivation,
+#regReferral,
+#regContact,
+.admin-note-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-4) var(--space-6);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  outline: none;
+  margin: var(--space-4) 0 var(--space-6);
+  transition: border-color var(--dur), box-shadow var(--dur);
+}
+#atprotoHandle:focus,
+#atprotoPassword:focus,
+#regMotivation:focus,
+#regReferral:focus,
+#regContact:focus,
+.admin-note-input:focus {
+  border-color: var(--title);
+}
+#regMotivation {
+  resize: vertical;
+  min-height: 5.5em;
+}
+
+/* Errors are semantic, so --warn stays chromatic here on purpose — an
+   invisible error is a bug, not restraint. */
+#atprotoSignInError:not([hidden]),
+#regError:not([hidden]) {
+  color: var(--warn);
+}
+#atprotoSignInError[hidden],
+#regError[hidden] {
+  display: none;
+}
+
+.admin-queue-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-6);
+}
+.admin-queue-head .digest-opt-label { margin: 0; }
+
+#adminQueueEmpty[hidden] { display: none; }
+
+.admin-request {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  padding: var(--space-6);
+  margin-bottom: var(--space-6);
+}
+.admin-request-who {
+  font-weight: 600;
+  color: var(--title);
+  word-break: break-all;
+}
+.admin-request-meta {
+  font-size: var(--text-sm);
+  color: var(--ink-dim);
+  margin-top: var(--space-2);
+}
+/* Someone else's free text, so it wraps rather than stretching the modal. */
+.admin-request-motivation {
+  margin: var(--space-5) 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.admin-request-actions {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.admin-request-actions[hidden] { display: none; }
+
 .settings-toggle-row {
   display: flex;
   align-items: flex-start;

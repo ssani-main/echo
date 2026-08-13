@@ -1,7 +1,8 @@
 # Bluesky accounts, registration and approval
 
-Status: **Phase 1 built** (2026-08-13, branch `feat/atproto-signin`, backend only —
-no UI yet). Phases 2–5 planned.
+Status: **Phases 1–2 built** (2026-08-13, branch `feat/atproto-signin`).
+Sign-in, registration and admin approval all work end to end against a real
+Bluesky account. Phases 3–5 planned.
 
 Goal: let people other than the operator use an Echo instance hosted on a
 personal machine — identified by their Bluesky account, admitted one at a time
@@ -88,7 +89,7 @@ verified: `/api/auth/me` returns `{enabled:false}`, `POST /api/auth/atproto`
 it can be built once alongside the registration and pending screens rather than
 twice.
 
-### Phase 2 — registration and admin approval
+### Phase 2 — registration and admin approval — BUILT
 
 Authentication and authorisation are separate. Signing in always succeeds; Echo
 then looks up the DID's **status**: `pending` → `approved` / `rejected`.
@@ -105,7 +106,25 @@ keeps working.
 - **Admin** = a DID listed in `ECHO_ADMIN_DIDS`. `/admin` lists pending requests
   with approve / reject / note. Requests show the applicant's real Bluesky
   handle and profile — far better signal than an anonymous email.
-- Rejections persist, so a rejected DID cannot re-apply in a loop.
+- Rejections persist, so a rejected DID cannot re-apply in a loop. A pending
+  request CAN be re-submitted, so a thin first answer can be improved.
+- **`ECHO_ADMIN_DIDS` is an env var, not a database flag.** Becoming an admin
+  requires access to the machine; no sequence of requests can promote anyone.
+- **Admins auto-approve at sign-in.** Otherwise the first sign-in on a fresh
+  instance leaves the operator pending with nobody able to approve them — the
+  gate locked from the inside.
+- **The admin routes 404 rather than 403** for a signed-in non-admin. A 403
+  confirms the route exists; the admin already knows where it is.
+- **Accounts are no longer web-mode-only in the client.** `renderAccountState()`
+  and `EchoSync.refresh()` returned early unless `ECHO.mode === 'web'`, so a
+  locally-hosted instance rendered no account UI at all — the exact deployment
+  this feature exists for. Sync itself stays web-only, guarded inside
+  `syncNow()` rather than at each call site.
+- **Accounts that predate the gate are grandfathered to `approved`.** New rows
+  default to `pending`; applying that to existing rows would lock out people who
+  were using the instance before there was a gate.
+- The queue is **paged from the start** — an open instance collects pending rows
+  faster than anything else here, because signing up costs a stranger nothing.
 
 ### Phase 3 — gating and quota guard
 

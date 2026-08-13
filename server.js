@@ -38,6 +38,7 @@ import {
 import {
   openSyncDb, upsertUser, getUser, pullEntries, pushEntries, userBytes, deleteUser,
   bumpTokenVersion, upsertAtprotoUser, saveAtprotoTokens, deleteAtprotoTokens,
+  submitRegistration, decideRegistration, listRegistrations, setStatus,
 } from './syncStore.js';
 import {
   resolveAccount, createSession as atprotoCreateSession, deriveKey, encryptSecret,
@@ -1415,6 +1416,22 @@ const ATPROTO_SIGNIN_LIMIT = numFromEnv('ECHO_ATPROTO_SIGNIN_LIMIT', 10, { min: 
 /** Either provider being configured means accounts exist on this instance. */
 const ACCOUNTS_ENABLED = AUTH_ENABLED || ATPROTO_ENABLED;
 
+// Who may approve people. Comma-separated DIDs — the operator's own Bluesky
+// account(s). Held in the environment rather than a database flag so that no
+// sequence of requests can promote anyone: becoming an admin requires access to
+// the machine, which is the property that makes the approval gate worth having.
+const ADMIN_DIDS = new Set(
+  (process.env.ECHO_ADMIN_DIDS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
+
+/** @param {{did?: string}|null} user */
+function isAdmin(user) {
+  return Boolean(user && user.did && ADMIN_DIDS.has(user.did));
+}
+
 // Per-user storage ceiling. A synced library is transcripts, which are text but
 // not small; this keeps one account from filling the volume.
 const ECHO_MAX_SYNC_BYTES = numFromEnv('ECHO_MAX_SYNC_BYTES', 100_000_000, { min: 1 });
@@ -1489,9 +1506,27 @@ function sessionUserId(req) {
 function requireSession(req, res, next) {
   const uid = sessionUserId(req);
   if (!uid) {
-    return sendError(res, 'API_NOT_AUTHED', 'Sign in to sync your library.', 'Sign in with Google to use sync.', 401);
+    return sendError(res, 'API_NOT_AUTHED', 'Sign in to sync your library.', 'Sign in to use sync.', 401);
   }
   req.echoUserId = uid;
+  next();
+}
+
+/**
+ * Guards the admin routes.
+ *
+ * Deliberately answers 404 rather than 403 to a signed-in non-admin: a 403
+ * confirms the route exists and that admins exist, which is a small thing to
+ * hand someone probing an instance. The admin already knows where it is.
+ */
+function requireAdmin(req, res, next) {
+  const uid = sessionUserId(req);
+  const user = uid ? getUser(uid) : null;
+  if (!isAdmin(user)) {
+    return sendError(res, 'NOT_FOUND', 'Not found.', '', 404);
+  }
+  req.echoUserId = uid;
+  req.echoAdminDid = user.did;
   next();
 }
 
@@ -1577,6 +1612,12 @@ app.post('/api/auth/atproto', requireAtprotoConfigured, alwaysLimit(ATPROTO_SIGN
     const session = await atprotoCreateSession({ pdsUrl, identifier: did, password });
 
     const user = upsertAtprotoUser({ did: session.did, handle: session.handle });
+
+    // An admin never waits in their own queue. Without this, the first sign-in
+    // on a fresh instance lands the operator in 'pending' with nobody able to
+    // approve them — the gate locked from the inside.
+    if (isAdmin({ did: session.did })) setStatus(user.id, 'approved');
+
     // Persisted before the cookie is issued: a session the server cannot act
     // through later is worse than a sign-in that visibly failed.
     saveAtprotoTokens({
@@ -1621,9 +1662,92 @@ app.get('/api/auth/me', (req, res) => {
     enabled: true,
     providers,
     user: user
-      ? { provider: user.provider, email: user.email, did: user.did, handle: user.handle }
+      ? {
+        provider: user.provider,
+        email: user.email,
+        did: user.did,
+        handle: user.handle,
+        // What the client needs to decide which screen to show: the app, the
+        // registration form, or "we have your request".
+        status: user.status,
+        submitted: user.submitted,
+        adminNote: user.adminNote,
+        isAdmin: isAdmin(user),
+      }
       : null,
   });
+});
+
+/**
+ * Ask for access.
+ *
+ * Separate from sign-in because they answer different questions: sign-in
+ * establishes who someone is, this says why they should be let in. Somebody can
+ * be signed in and still have no access, which is exactly the state the pending
+ * screen renders.
+ */
+app.post('/api/auth/register', requireAuthConfigured, requireSession, alwaysLimit(20, 60 * 60_000), (req, res) => {
+  const result = submitRegistration(req.echoUserId, {
+    motivation: req.body?.motivation,
+    referralSource: req.body?.referralSource,
+    contact: req.body?.contact,
+  });
+
+  if (!result.ok) {
+    const messages = {
+      motivation_required: ['Tell us a little about why you want access.', 'A sentence or two is plenty.', 400],
+      rejected: ['This request has already been decided.', '', 403],
+      already_approved: ['You already have access.', 'Try reloading the page.', 400],
+      no_such_user: ['That account no longer exists.', '', 401],
+    };
+    const [message, hint, status] = messages[result.reason] || ['Could not submit your request.', '', 400];
+    return sendError(res, 'API_FAILED', message, hint, status);
+  }
+
+  logEvent('register', { ok: true });
+  return res.json({ ok: true, status: 'pending' });
+});
+
+// ---------------------------------------------------------------------------
+// Admin: the approval queue
+// ---------------------------------------------------------------------------
+
+app.get('/api/admin/registrations', requireAuthConfigured, requireAdmin, (req, res) => {
+  const status = ['pending', 'approved', 'rejected'].includes(req.query.status) ? req.query.status : 'pending';
+  try {
+    return res.json(listRegistrations({
+      status,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+      offset: req.query.offset ? Number(req.query.offset) : undefined,
+    }));
+  } catch (err) {
+    return sendCaughtError(res, err);
+  }
+});
+
+app.post('/api/admin/registrations/:userId', requireAuthConfigured, requireAdmin, (req, res) => {
+  const decision = req.body?.decision;
+  if (decision !== 'approve' && decision !== 'reject') {
+    return sendError(res, 'API_FAILED', 'Decision must be approve or reject.', '', 400);
+  }
+
+  // An admin rejecting themselves would lock the instance's only operator out
+  // of the queue that could undo it.
+  if (req.params.userId === req.echoUserId && decision === 'reject') {
+    return sendError(res, 'API_FAILED', 'You cannot reject your own account.', '', 400);
+  }
+
+  const result = decideRegistration(req.params.userId, {
+    status: decision === 'approve' ? 'approved' : 'rejected',
+    decidedBy: req.echoAdminDid,
+    adminNote: req.body?.note,
+  });
+  if (!result.ok) {
+    return sendError(res, 'API_FAILED', 'That request could not be decided.', '', result.reason === 'no_such_user' ? 404 : 400);
+  }
+
+  logEvent('admin-decision', { ok: true, decision });
+  return res.json({ ok: true });
 });
 
 app.post('/api/auth/logout', (req, res) => {

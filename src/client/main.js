@@ -537,7 +537,12 @@ const EchoSync = (() => {
   }
 
   async function syncNow({ silent = true } = {}) {
-    if (!signedIn || syncing) return { skipped: true };
+    // Sync is web-mode only, and the guard lives HERE rather than at each call
+    // site. refresh() now runs in every mode so that sign-in and the approval
+    // gate work on a locally-hosted instance — which means `signedIn` can be
+    // true in local mode, where the library is server-side and there is nothing
+    // to reconcile. One guard at the door beats remembering it at four of them.
+    if (ECHO.mode !== 'web' || !signedIn || syncing) return { skipped: true };
     syncing = true;
     try {
       const cursor = localStorage.getItem(CURSOR_KEY) || '';
@@ -664,9 +669,17 @@ const EchoSync = (() => {
     pending = setTimeout(() => syncNow({ silent: true }), 1500);
   }
 
-  /** Ask the server who we are; returns the account state. */
+  /**
+   * Ask the server who we are; returns the account state.
+   *
+   * Deliberately NOT gated on web mode, unlike the sync it sits next to.
+   * Accounts are config-gated rather than mode-gated on the server, and the
+   * case that matters is a LOCAL instance published over a tunnel: sign-in and
+   * the approval gate are the whole point there, while the library stays
+   * server-side and there is nothing to sync. Asking in every mode costs one
+   * request that answers `{enabled:false}` on an unconfigured install.
+   */
   async function refresh() {
-    if (ECHO.mode !== 'web') return { enabled: false, user: null };
     try {
       const res = await fetch('/api/auth/me');
       const body = await res.json();
@@ -5013,16 +5026,55 @@ document.getElementById('settingsBackdrop')?.addEventListener('click', closeSett
 =============================================== */
 async function renderAccountState() {
   const section = document.getElementById('accountSection');
-  if (!section || ECHO.mode !== 'web') return;
+  if (!section) return;
 
   const state = await EchoSync.refresh();
   if (!state.enabled) { section.hidden = true; return; }
   section.hidden = false;
 
-  const signedIn = isSignedIn(state.user);
+  const user = state.user;
+  const signedIn = isSignedIn(user);
+  const providers = state.providers || {};
+
+  // Only offer the providers this instance actually has. Showing a dead
+  // "Sign in with Google" button on a Bluesky-only instance is a broken door.
+  const googleBtn = document.getElementById('signInBtn');
+  if (googleBtn) googleBtn.hidden = signedIn || !providers.google;
+  const atprotoForm = document.getElementById('atprotoSignInForm');
+  if (atprotoForm) atprotoForm.hidden = signedIn || !providers.atproto;
+
   document.getElementById('accountSignedOut').hidden = signedIn;
   document.getElementById('accountSignedIn').hidden = !signedIn;
-  if (signedIn) document.getElementById('accountEmail').textContent = identityLabel(state.user);
+  if (signedIn) document.getElementById('accountEmail').textContent = identityLabel(user);
+
+  // Sync is a web-mode idea: elsewhere the library already lives on the server
+  // this is signed in to, so there is nothing to reconcile and offering the
+  // button would promise something that quietly does nothing.
+  const syncable = ECHO.mode === 'web';
+  const syncBtn = document.getElementById('syncNowBtn');
+  if (syncBtn) syncBtn.hidden = !syncable;
+  const syncStatusEl = document.getElementById('syncStatus');
+  if (syncStatusEl) syncStatusEl.hidden = !syncable;
+
+  // The three states of not-yet-approved. Signing in says who you are; none of
+  // this says you may use the instance.
+  const status = user?.status || 'pending';
+  const awaiting = signedIn && status === 'pending';
+  document.getElementById('registrationForm').hidden = !(awaiting && !user.submitted);
+  document.getElementById('accountPending').hidden = !(awaiting && user.submitted);
+  document.getElementById('accountRejected').hidden = !(signedIn && status === 'rejected');
+
+  const noteEl = document.getElementById('accountRejectedNote');
+  if (noteEl) noteEl.textContent = user?.adminNote ? ` ${user.adminNote}` : '';
+
+  const adminSection = document.getElementById('adminSection');
+  if (adminSection) {
+    const wasHidden = adminSection.hidden;
+    adminSection.hidden = !(signedIn && user.isAdmin);
+    // Load the queue the first time it appears, not on every re-render.
+    if (wasHidden && !adminSection.hidden) loadAdminQueue();
+  }
+
   return state;
 }
 
@@ -5030,6 +5082,212 @@ document.getElementById('signInBtn')?.addEventListener('click', () => {
   // Full navigation, not fetch: this is an OAuth redirect to Google.
   window.location.href = '/api/auth/google';
 });
+
+/** Show an inline error under a form, or clear it when message is falsy. */
+function setFormError(id, message) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = message || '';
+  el.hidden = !message;
+}
+
+document.getElementById('atprotoSignInForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('atprotoSignInBtn');
+  const handleEl = document.getElementById('atprotoHandle');
+  const passwordEl = document.getElementById('atprotoPassword');
+
+  setFormError('atprotoSignInError', '');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/auth/atproto', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier: handleEl.value, password: passwordEl.value }),
+    });
+    const body = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      const err = body.error || {};
+      setFormError('atprotoSignInError', [err.message, err.hint].filter(Boolean).join(' '));
+      return;
+    }
+
+    // Clear the credential out of the DOM the moment it is spent. It is not
+    // needed again — the server holds a refresh token — and leaving it sitting
+    // in a form field on a shared machine is free risk.
+    passwordEl.value = '';
+    await renderAccountState();
+    showToast('info', `Signed in as @${body.user?.handle || 'Bluesky'}.`);
+  } catch {
+    setFormError('atprotoSignInError', 'Could not reach the server. Check your connection and try again.');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('registrationForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('regSubmitBtn');
+  setFormError('regError', '');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        motivation: document.getElementById('regMotivation').value,
+        referralSource: document.getElementById('regReferral').value,
+        contact: document.getElementById('regContact').value,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = body.error || {};
+      setFormError('regError', [err.message, err.hint].filter(Boolean).join(' '));
+      return;
+    }
+    await renderAccountState();
+    showToast('info', 'Request sent. You\'ll get access once the admin approves it.');
+  } catch {
+    setFormError('regError', 'Could not reach the server. Check your connection and try again.');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* ==============================================
+   ADMIN — the access-request queue
+   Visible only to a DID listed in ECHO_ADMIN_DIDS. The route 404s for anyone
+   else, so this is presentation, not the security boundary.
+=============================================== */
+
+/**
+ * Build one request card.
+ *
+ * Built as NODES with textContent, never as an innerHTML string. Every field
+ * here is text a stranger typed — a handle they chose, a motivation they wrote
+ * — and it is being rendered in the admin's own browser, which is the one
+ * session on the instance worth stealing.
+ */
+function buildAdminRequestCard(entry) {
+  const card = document.createElement('div');
+  card.className = 'admin-request';
+  card.dataset.userId = entry.id;
+
+  const who = document.createElement('div');
+  who.className = 'admin-request-who';
+  who.textContent = entry.handle ? `@${entry.handle}` : (entry.email || entry.did || 'unknown');
+  card.appendChild(who);
+
+  const meta = document.createElement('div');
+  meta.className = 'admin-request-meta';
+  const when = entry.requestedAt || entry.createdAt;
+  meta.textContent = [
+    entry.did,
+    entry.referralSource ? `found via ${entry.referralSource}` : '',
+    when ? new Date(when).toLocaleDateString() : '',
+    entry.contact || '',
+  ].filter(Boolean).join(' · ');
+  card.appendChild(meta);
+
+  const motivation = document.createElement('p');
+  motivation.className = 'admin-request-motivation';
+  motivation.textContent = entry.motivation || '(no reason given yet)';
+  card.appendChild(motivation);
+
+  if (entry.status === 'pending') {
+    const note = document.createElement('input');
+    note.type = 'text';
+    note.className = 'admin-note-input';
+    note.placeholder = 'Note (optional, shown to them if rejected)';
+    card.appendChild(note);
+
+    const actions = document.createElement('div');
+    actions.className = 'admin-request-actions';
+    for (const [decision, label, cls] of [['approve', 'Approve', ''], ['reject', 'Reject', 'secondary']]) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `settings-btn${cls ? ` ${cls}` : ''}`;
+      btn.dataset.decision = decision;
+      btn.textContent = label;
+      actions.appendChild(btn);
+    }
+    card.appendChild(actions);
+  } else {
+    const decided = document.createElement('div');
+    decided.className = 'admin-request-meta';
+    decided.textContent = `${entry.status}${entry.adminNote ? ` — ${entry.adminNote}` : ''}`;
+    card.appendChild(decided);
+  }
+
+  return card;
+}
+
+async function loadAdminQueue() {
+  const list = document.getElementById('adminQueueList');
+  const empty = document.getElementById('adminQueueEmpty');
+  if (!list) return;
+
+  const status = document.getElementById('adminQueueFilter')?.value || 'pending';
+  try {
+    const res = await fetch(`/api/admin/registrations?status=${encodeURIComponent(status)}`);
+    if (!res.ok) { list.replaceChildren(); if (empty) empty.hidden = false; return; }
+    const body = await res.json();
+    const entries = Array.isArray(body.entries) ? body.entries : [];
+
+    list.replaceChildren(...entries.map(buildAdminRequestCard));
+    if (empty) empty.hidden = entries.length > 0;
+
+    // The queue is paged server-side; say so rather than implying this is all
+    // of it, which is how a bounded list quietly becomes a wrong one.
+    if (body.hasMore) {
+      const more = document.createElement('p');
+      more.className = 'settings-note';
+      more.textContent = `Showing ${entries.length} of ${body.total}. Decide these to see the rest.`;
+      list.appendChild(more);
+    }
+  } catch {
+    list.replaceChildren();
+    if (empty) empty.hidden = false;
+  }
+}
+
+// ONE delegated listener, attached once — never per card. Re-rendering the
+// queue would otherwise leave dead buttons behind and grow a listener per row.
+document.getElementById('adminQueueList')?.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-decision]');
+  if (!btn) return;
+  const card = btn.closest('.admin-request');
+  if (!card) return;
+
+  const decision = btn.dataset.decision;
+  const who = card.querySelector('.admin-request-who')?.textContent || 'this person';
+  if (decision === 'reject' && !confirm(`Reject ${who}? They will not be able to ask again.`)) return;
+
+  card.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+  try {
+    const res = await fetch(`/api/admin/registrations/${encodeURIComponent(card.dataset.userId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision, note: card.querySelector('.admin-note-input')?.value || '' }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      showToast('error', body.error?.message || 'That decision did not go through.');
+      card.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+      return;
+    }
+    showToast('info', decision === 'approve' ? `${who} approved.` : `${who} rejected.`);
+    await loadAdminQueue();
+  } catch {
+    showToast('error', 'Could not reach the server.');
+    card.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+  }
+});
+
+document.getElementById('adminQueueFilter')?.addEventListener('change', loadAdminQueue);
+document.getElementById('adminRefreshBtn')?.addEventListener('click', loadAdminQueue);
 
 document.getElementById('signOutBtn')?.addEventListener('click', async () => {
   await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
@@ -5064,7 +5322,10 @@ document.getElementById('syncNowBtn')?.addEventListener('click', async () => {
 // On load: work out the account state, sync if signed in, and report the
 // outcome of a sign-in redirect we have just come back from.
 (async function initAccount() {
-  if (ECHO.mode !== 'web') return;
+  // Runs in every mode now. The account section hides itself when the server
+  // says accounts are off, so an unconfigured install still shows nothing —
+  // but a locally-hosted instance with Bluesky sign-in configured is exactly
+  // the case that used to return here and render no account UI at all.
   const state = await renderAccountState();
 
   const params = new URLSearchParams(location.search);

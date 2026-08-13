@@ -47,6 +47,19 @@ export function openSyncDb(path) {
       handle      TEXT,
       email       TEXT,
       createdAt   TEXT NOT NULL,
+
+      -- Approval. Signing in proves who someone is; it does not decide whether
+      -- they may use this instance. Everyone lands on 'pending' and an admin
+      -- moves them to 'approved' or 'rejected'.
+      status          TEXT NOT NULL DEFAULT 'pending',
+      motivation      TEXT,   -- why they want access, in their words
+      referral_source TEXT,   -- where they found Echo
+      contact         TEXT,   -- optional, how to reach them
+      requested_at    TEXT,   -- null until they actually submit the form
+      decided_at      TEXT,
+      decided_by      TEXT,   -- the admin DID that decided
+      admin_note      TEXT,
+
       -- Bumping this invalidates every session already issued for the account.
       -- It is the one column that buys back what stateless cookies give up:
       -- without it a leaked cookie stays valid for its full 30 days and there
@@ -82,6 +95,8 @@ export function openSyncDb(path) {
   `);
 
   migrateUsersForAtproto(db);
+
+  migrateUsersForApproval(db);
 
   // Idempotent migration for databases created before tokenVersion existed.
   // Mirrors store.js's PRAGMA-check + duplicate-column tolerance.
@@ -149,6 +164,48 @@ function migrateUsersForAtproto(handle) {
   }
 }
 
+/**
+ * Add the registration and approval columns.
+ *
+ * Plain ALTERs, unlike the atproto migration above: every one of these is
+ * nullable or has a default, and none of them relaxes a constraint, so the
+ * table does not need rebuilding.
+ *
+ * The subtle part is the backfill. `status` defaults to 'pending' because that
+ * is right for everyone who signs up from now on — but applying it to rows that
+ * already exist would lock out accounts that predate approval entirely, on an
+ * instance whose admin may not even have a UI to unlock them with yet. Anyone
+ * already in the table got in before there was a gate, so they are grandfathered
+ * to 'approved'. That UPDATE is safe to run unconditionally here because it only
+ * executes on the pass that adds the column, when every row is by definition a
+ * pre-existing one.
+ *
+ * @param {import('node:sqlite').DatabaseSync} handle
+ */
+function migrateUsersForApproval(handle) {
+  const cols = handle.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+  if (cols.includes('status')) return;
+
+  const added = [
+    "status TEXT NOT NULL DEFAULT 'pending'",
+    'motivation TEXT',
+    'referral_source TEXT',
+    'contact TEXT',
+    'requested_at TEXT',
+    'decided_at TEXT',
+    'decided_by TEXT',
+    'admin_note TEXT',
+  ];
+  for (const spec of added) {
+    try {
+      handle.exec(`ALTER TABLE users ADD COLUMN ${spec}`);
+    } catch (err) {
+      if (!/duplicate column/i.test(err?.message || '')) throw err;
+    }
+  }
+  handle.exec("UPDATE users SET status = 'approved'");
+}
+
 /** Test seam: drop the handle so a suite can point at a fresh file. */
 export function closeSyncDb() {
   if (db) { db.close(); db = null; }
@@ -209,9 +266,12 @@ export function upsertAtprotoUser({ did, handle }) {
   return { id, did, handle: handle || '', tokenVersion: 0 };
 }
 
-/** @returns {{id: string, provider: string, email: string, did: string, handle: string, tokenVersion: number}|null} */
+/** @returns {{id, provider, email, did, handle, status, submitted, adminNote, tokenVersion}|null} */
 export function getUser(userId) {
-  const row = db.prepare('SELECT id, provider, email, did, handle, tokenVersion FROM users WHERE id = ?').get(userId);
+  const row = db.prepare(`
+    SELECT id, provider, email, did, handle, status, requested_at, admin_note, tokenVersion
+    FROM users WHERE id = ?
+  `).get(userId);
   if (!row) return null;
   return {
     id: row.id,
@@ -219,7 +279,146 @@ export function getUser(userId) {
     email: row.email || '',
     did: row.did || '',
     handle: row.handle || '',
+    status: row.status || 'pending',
+    submitted: Boolean(row.requested_at),
+    adminNote: row.admin_note || '',
     tokenVersion: row.tokenVersion || 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Registration and approval
+// ---------------------------------------------------------------------------
+
+/** Longest each free-text field may be. Enough to say something real, bounded
+ *  so one submission cannot be used to write a novel into the database. */
+const FIELD_LIMITS = { motivation: 2000, referralSource: 200, contact: 200 };
+
+export { FIELD_LIMITS };
+
+/** @returns {{status: string, submitted: boolean, adminNote: string}|null} */
+export function getApproval(userId) {
+  const row = db.prepare('SELECT status, requested_at, admin_note FROM users WHERE id = ?').get(userId);
+  if (!row) return null;
+  return {
+    status: row.status || 'pending',
+    submitted: Boolean(row.requested_at),
+    adminNote: row.admin_note || '',
+  };
+}
+
+/**
+ * Record someone's request for access.
+ *
+ * Re-submittable while pending — someone who realises their first answer was
+ * thin should be able to improve it rather than being stuck with it forever.
+ * NOT re-submittable once rejected: a decision that can be reopened by the
+ * applicant at will is not a decision, and it would turn the admin queue into
+ * something anyone could flood.
+ *
+ * @param {string} userId
+ * @param {{motivation: string, referralSource?: string, contact?: string}} form
+ * @returns {{ok: true} | {ok: false, reason: string}}
+ */
+export function submitRegistration(userId, { motivation, referralSource, contact }) {
+  const row = db.prepare('SELECT status FROM users WHERE id = ?').get(userId);
+  if (!row) return { ok: false, reason: 'no_such_user' };
+  if (row.status === 'rejected') return { ok: false, reason: 'rejected' };
+  if (row.status === 'approved') return { ok: false, reason: 'already_approved' };
+
+  const text = String(motivation || '').trim();
+  if (!text) return { ok: false, reason: 'motivation_required' };
+
+  db.prepare(`
+    UPDATE users SET motivation = ?, referral_source = ?, contact = ?, requested_at = ?
+    WHERE id = ?
+  `).run(
+    text.slice(0, FIELD_LIMITS.motivation),
+    String(referralSource || '').trim().slice(0, FIELD_LIMITS.referralSource) || null,
+    String(contact || '').trim().slice(0, FIELD_LIMITS.contact) || null,
+    new Date().toISOString(),
+    userId
+  );
+  return { ok: true };
+}
+
+/**
+ * Approve or reject a request.
+ *
+ * @param {string} userId
+ * @param {{status: 'approved'|'rejected', decidedBy: string, adminNote?: string}} decision
+ * @returns {{ok: true} | {ok: false, reason: string}}
+ */
+export function decideRegistration(userId, { status, decidedBy, adminNote }) {
+  if (status !== 'approved' && status !== 'rejected') return { ok: false, reason: 'bad_status' };
+  const row = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
+  if (!row) return { ok: false, reason: 'no_such_user' };
+
+  db.prepare(`
+    UPDATE users SET status = ?, decided_at = ?, decided_by = ?, admin_note = ?
+    WHERE id = ?
+  `).run(
+    status,
+    new Date().toISOString(),
+    String(decidedBy || '').slice(0, 200),
+    String(adminNote || '').trim().slice(0, FIELD_LIMITS.motivation) || null,
+    userId
+  );
+  return { ok: true };
+}
+
+/**
+ * Set a status directly, bypassing the queue. Used to auto-approve admins at
+ * sign-in — an instance whose own operator is stuck in the pending queue has
+ * nobody left who can approve anyone.
+ */
+export function setStatus(userId, status) {
+  db.prepare('UPDATE users SET status = ? WHERE id = ?').run(status, userId);
+}
+
+/**
+ * The admin queue.
+ *
+ * Paged from the start. A queue is exactly the kind of "everything of a kind"
+ * read that has gone wrong seven times in this codebase by being fine at ten
+ * rows — and an open instance collects pending rows faster than anything else
+ * here, because signing up costs a stranger nothing.
+ *
+ * @param {{status?: string, limit?: number, offset?: number}} [opts]
+ * @returns {{entries: object[], total: number, hasMore: boolean}}
+ */
+export function listRegistrations({ status = 'pending', limit = 50, offset = 0 } = {}) {
+  const capped = Math.max(1, Math.min(Number(limit) || 50, 200));
+  const from = Math.max(0, Number(offset) || 0);
+
+  const total = Number(db.prepare('SELECT COUNT(*) AS n FROM users WHERE status = ?').get(status).n) || 0;
+  const rows = db.prepare(`
+    SELECT id, provider, did, handle, email, status, motivation, referral_source, contact,
+           requested_at, decided_at, decided_by, admin_note, createdAt
+    FROM users WHERE status = ?
+    ORDER BY COALESCE(requested_at, createdAt) ASC
+    LIMIT ? OFFSET ?
+  `).all(status, capped, from);
+
+  return {
+    entries: rows.map((r) => ({
+      id: r.id,
+      provider: r.provider || 'google',
+      did: r.did || '',
+      handle: r.handle || '',
+      email: r.email || '',
+      status: r.status,
+      motivation: r.motivation || '',
+      referralSource: r.referral_source || '',
+      contact: r.contact || '',
+      requestedAt: r.requested_at || null,
+      decidedAt: r.decided_at || null,
+      decidedBy: r.decided_by || '',
+      adminNote: r.admin_note || '',
+      createdAt: r.createdAt,
+    })),
+    total,
+    hasMore: from + rows.length < total,
   };
 }
 
