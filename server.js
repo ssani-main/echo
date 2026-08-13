@@ -37,8 +37,11 @@ import {
 } from './auth.js';
 import {
   openSyncDb, upsertUser, getUser, pullEntries, pushEntries, userBytes, deleteUser,
-  bumpTokenVersion,
+  bumpTokenVersion, upsertAtprotoUser, saveAtprotoTokens, deleteAtprotoTokens,
 } from './syncStore.js';
+import {
+  resolveAccount, createSession as atprotoCreateSession, deriveKey, encryptSecret,
+} from './atproto.js';
 import { logEvent, errLabel } from './usagelog.js';
 import { validateApiKey } from './providers.js';
 
@@ -620,6 +623,40 @@ function webLimit(max, windowMs) {
         'RATE_LIMITED',
         'Too many requests — please slow down.',
         `Limit is ${max} requests per ${Math.round(windowMs / 1000)}s. Try again shortly.`
+      );
+    }
+    next();
+  };
+}
+
+/**
+ * Like webLimit, but applies in EVERY mode.
+ *
+ * webLimit exists to protect a hosted multi-tenant deployment and correctly
+ * no-ops in local mode, where the only caller is the person at the keyboard.
+ * Sign-in breaks that assumption: a local instance published over a tunnel is
+ * reachable by anyone, and the thing being guessed is somebody else's Bluesky
+ * app password. A limiter that switches itself off in the mode this instance
+ * actually runs in would guard nothing.
+ *
+ * @param {number} max
+ * @param {number} windowMs
+ */
+function alwaysLimit(max, windowMs) {
+  const store = new Map();
+  let lastSweep = 0;
+  return (req, res, next) => {
+    const now = Date.now();
+    if (now - lastSweep > RATE_LIMIT_SWEEP_INTERVAL_MS) {
+      lastSweep = now;
+      sweepStaleEntries(store, windowMs, now);
+    }
+    if (rateLimitHit(req.ip || 'unknown', max, windowMs, store)) {
+      return sendError(
+        res,
+        'RATE_LIMITED',
+        'Too many sign-in attempts — please slow down.',
+        `Limit is ${max} per ${Math.round(windowMs / 60_000)} minutes. Try again shortly.`
       );
     }
     next();
@@ -1355,25 +1392,74 @@ const PUBLIC_URL = (process.env.ECHO_PUBLIC_URL || '').replace(/\/+$/, '');
 
 const AUTH_ENABLED = Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && SESSION_SECRET);
 
+// Sign in with Bluesky. Config-gated exactly like the Google path and entirely
+// independent of it: with these unset — the default everywhere — there is no
+// sign-in route, no database file and no behaviour change of any kind, which is
+// what keeps local mode's promise intact.
+//
+// ECHO_ATPROTO_SECRET is separate from ECHO_SESSION_SECRET because it protects
+// something categorically different: session cookies are Echo's own and expire,
+// while these seal other people's Bluesky refresh tokens. Rotating one should
+// not have to mean rotating the other.
+const ATPROTO_SECRET = process.env.ECHO_ATPROTO_SECRET || '';
+const ATPROTO_ENABLED = Boolean(
+  /^(1|true|yes)$/i.test(process.env.ECHO_ATPROTO_ENABLED || '') && SESSION_SECRET && ATPROTO_SECRET
+);
+const ATPROTO_KEY = ATPROTO_ENABLED ? deriveKey(ATPROTO_SECRET) : null;
+
+// Sign-in attempts per IP. Bluesky's own ceiling is 30 per 5 minutes per
+// ACCOUNT; this is the per-caller half, so one IP cannot walk a list of handles
+// and burn every one of their rate limits for them.
+const ATPROTO_SIGNIN_LIMIT = numFromEnv('ECHO_ATPROTO_SIGNIN_LIMIT', 10, { min: 1 });
+
+/** Either provider being configured means accounts exist on this instance. */
+const ACCOUNTS_ENABLED = AUTH_ENABLED || ATPROTO_ENABLED;
+
 // Per-user storage ceiling. A synced library is transcripts, which are text but
 // not small; this keeps one account from filling the volume.
 const ECHO_MAX_SYNC_BYTES = numFromEnv('ECHO_MAX_SYNC_BYTES', 100_000_000, { min: 1 });
 
-if (AUTH_ENABLED) openSyncDb(SYNC_DB_PATH);
+if (ACCOUNTS_ENABLED) openSyncDb(SYNC_DB_PATH);
 
 function redirectUri(req) {
   const origin = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
   return `${origin}/api/auth/callback`;
 }
 
-/** Blocks a route unless accounts are configured. */
+/** Blocks a route unless SOME identity provider is configured. */
 function requireAuthConfigured(req, res, next) {
-  if (!AUTH_ENABLED) {
+  if (!ACCOUNTS_ENABLED) {
     return sendError(
       res,
       'WEB_MODE_UNSUPPORTED',
       'Accounts are not enabled on this instance.',
-      'Your library is stored in this browser. Set ECHO_GOOGLE_CLIENT_ID, ECHO_GOOGLE_CLIENT_SECRET and ECHO_SESSION_SECRET to enable sign-in.'
+      'Your library is stored in this browser. Set ECHO_SESSION_SECRET plus either the ECHO_GOOGLE_* pair or ECHO_ATPROTO_ENABLED + ECHO_ATPROTO_SECRET to enable sign-in.'
+    );
+  }
+  next();
+}
+
+/** Blocks the Google-specific routes, which need Google's own credentials. */
+function requireGoogleConfigured(req, res, next) {
+  if (!AUTH_ENABLED) {
+    return sendError(
+      res,
+      'WEB_MODE_UNSUPPORTED',
+      'Google sign-in is not enabled on this instance.',
+      'Set ECHO_GOOGLE_CLIENT_ID, ECHO_GOOGLE_CLIENT_SECRET and ECHO_SESSION_SECRET to enable it.'
+    );
+  }
+  next();
+}
+
+/** Blocks the Bluesky routes when that provider is not configured. */
+function requireAtprotoConfigured(req, res, next) {
+  if (!ATPROTO_ENABLED) {
+    return sendError(
+      res,
+      'WEB_MODE_UNSUPPORTED',
+      'Bluesky sign-in is not enabled on this instance.',
+      'Set ECHO_ATPROTO_ENABLED=1, ECHO_ATPROTO_SECRET and ECHO_SESSION_SECRET to enable it.'
     );
   }
   next();
@@ -1388,7 +1474,7 @@ function requireAuthConfigured(req, res, next) {
  * one integer buys it back.
  */
 function sessionUserId(req) {
-  if (!AUTH_ENABLED) return null;
+  if (!ACCOUNTS_ENABLED) return null;
   const token = parseCookies(req.get('cookie'))[SESSION_COOKIE];
   const payload = verifyToken(token, SESSION_SECRET);
   if (!payload || !payload.uid) return null;
@@ -1409,7 +1495,7 @@ function requireSession(req, res, next) {
   next();
 }
 
-app.get('/api/auth/google', requireAuthConfigured, (req, res) => {
+app.get('/api/auth/google', requireGoogleConfigured, (req, res) => {
   const state = randomToken();
   const verifier = randomToken();
 
@@ -1427,7 +1513,7 @@ app.get('/api/auth/google', requireAuthConfigured, (req, res) => {
   }));
 });
 
-app.get('/api/auth/callback', requireAuthConfigured, async (req, res) => {
+app.get('/api/auth/callback', requireGoogleConfigured, async (req, res) => {
   const fail = (why) => {
     console.error(`[echo] sign-in failed: ${why}`);
     // Back to the app with a flag rather than a bare error page — the UI can
@@ -1473,22 +1559,92 @@ app.get('/api/auth/callback', requireAuthConfigured, async (req, res) => {
   }
 });
 
+/**
+ * Sign in with Bluesky.
+ *
+ * One POST rather than a redirect pair: there is no third-party consent screen
+ * on this path, so there is nothing to redirect to. The app password is used
+ * once — resolve the account, exchange it for tokens — and is never written
+ * anywhere, not to the database, not to the log, and not into an error detail.
+ * What survives the request is a sealed refresh token.
+ */
+app.post('/api/auth/atproto', requireAtprotoConfigured, alwaysLimit(ATPROTO_SIGNIN_LIMIT, 5 * 60_000), async (req, res) => {
+  const identifier = String(req.body?.identifier || '');
+  const password = String(req.body?.password || '');
+
+  try {
+    const { did, pdsUrl } = await resolveAccount(identifier);
+    const session = await atprotoCreateSession({ pdsUrl, identifier: did, password });
+
+    const user = upsertAtprotoUser({ did: session.did, handle: session.handle });
+    // Persisted before the cookie is issued: a session the server cannot act
+    // through later is worse than a sign-in that visibly failed.
+    saveAtprotoTokens({
+      userId: user.id,
+      did: session.did,
+      pdsUrl,
+      refreshJwt: encryptSecret(session.refreshJwt, ATPROTO_KEY),
+    });
+
+    const cookie = signToken({
+      uid: user.id,
+      tv: user.tokenVersion || 0,
+      exp: Date.now() + SESSION_TTL_MS,
+    }, SESSION_SECRET);
+    res.set('Set-Cookie', serializeCookie(SESSION_COOKIE, cookie, { maxAgeMs: SESSION_TTL_MS, secure: isWeb }));
+
+    logEvent('signin', { ok: true, provider: 'atproto' });
+    return res.json({ ok: true, user: { provider: 'atproto', did: session.did, handle: session.handle } });
+  } catch (err) {
+    logEvent('signin', { ok: false, provider: 'atproto', err: errLabel(err) });
+    return sendError(
+      res,
+      err?.echoCode || 'API_FAILED',
+      err?.message || 'Sign-in failed.',
+      err?.hint || '',
+      err?.status || 502,
+      err?.detail ? { detail: err.detail } : {}
+    );
+  }
+});
+
 app.get('/api/auth/me', (req, res) => {
-  if (!AUTH_ENABLED) return res.json({ enabled: false, user: null });
+  // `providers` is additive: existing clients read `enabled` and `user.email`,
+  // both of which still mean what they always did.
+  const providers = { google: AUTH_ENABLED, atproto: ATPROTO_ENABLED };
+  if (!ACCOUNTS_ENABLED) return res.json({ enabled: false, providers, user: null });
+
   const uid = sessionUserId(req);
-  if (!uid) return res.json({ enabled: true, user: null });
+  if (!uid) return res.json({ enabled: true, providers, user: null });
   const user = getUser(uid);
-  return res.json({ enabled: true, user: user ? { email: user.email } : null });
+  return res.json({
+    enabled: true,
+    providers,
+    user: user
+      ? { provider: user.provider, email: user.email, did: user.did, handle: user.handle }
+      : null,
+  });
 });
 
 app.post('/api/auth/logout', (req, res) => {
+  // Clears THIS browser's cookie and nothing else — deliberately.
+  //
+  // An earlier version also deleted the stored Bluesky token here, on the
+  // reasoning that signing out should leave no live credential behind. That was
+  // wrong: the token is per-ACCOUNT, not per-device, so logging out on one
+  // machine would have silently revoked Echo's ability to act for that account
+  // everywhere else. "Sign out everywhere" is the route that means it, and it
+  // deletes the token there.
   res.set('Set-Cookie', serializeCookie(SESSION_COOKIE, '', { maxAgeMs: 0, secure: isWeb }));
   return res.json({ ok: true });
 });
 
 app.post('/api/auth/signout-everywhere', requireAuthConfigured, requireSession, (req, res) => {
-  // Every session for this account, on every device, stops working now.
+  // Every session for this account, on every device, stops working now — and
+  // the stored Bluesky token goes with them, since "everywhere" that excluded
+  // the server's own copy would not mean what it says.
   bumpTokenVersion(req.echoUserId);
+  try { deleteAtprotoTokens(req.echoUserId); } catch { /* nothing to forget */ }
   res.set('Set-Cookie', serializeCookie(SESSION_COOKIE, '', { maxAgeMs: 0, secure: isWeb }));
   logEvent('signout-all', { ok: true });
   return res.json({ ok: true });

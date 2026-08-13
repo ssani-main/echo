@@ -8,9 +8,11 @@
 // that cannot reach it — and local mode's behaviour is the one thing that must
 // not change.
 //
-// Two tables. No sessions table (sessions are signed cookies), no tokens table
-// (Google is the only provider and we keep nothing of Google's), no API keys
-// (they never leave the browser).
+// Three tables. No sessions table (sessions are signed cookies) and no API keys
+// (they never leave the browser). There IS one credential table now:
+// atproto_sessions holds sealed Bluesky refresh tokens, because that provider —
+// unlike Google — is one Echo goes on to act through. Nothing of Google's is
+// kept, and no password of anyone's ever is.
 
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
@@ -35,7 +37,14 @@ export function openSyncDb(path) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id          TEXT PRIMARY KEY,
-      google_sub  TEXT NOT NULL UNIQUE,
+      -- Exactly one of google_sub / did is set, per the provider column. Both are
+      -- nullable because a user arrives through one identity provider or the
+      -- other, never both; UNIQUE still holds because SQLite treats NULLs as
+      -- distinct, so any number of rows may leave either column empty.
+      provider    TEXT NOT NULL DEFAULT 'google',
+      google_sub  TEXT UNIQUE,
+      did         TEXT UNIQUE,
+      handle      TEXT,
       email       TEXT,
       createdAt   TEXT NOT NULL,
       -- Bumping this invalidates every session already issued for the account.
@@ -55,7 +64,24 @@ export function openSyncDb(path) {
     );
 
     CREATE INDEX IF NOT EXISTS entries_by_updated ON entries(userId, updatedAt);
+
+    -- Bluesky credentials, one row per signed-in account.
+    --
+    -- Separate from the users table because it is the only one holding a
+    -- secret: it
+    -- can be emptied to sign everyone out of Bluesky without touching an
+    -- account, a library, or an approval decision. refreshJwt is sealed with
+    -- ECHO_ATPROTO_SECRET (see atproto.js) and is useless without it.
+    CREATE TABLE IF NOT EXISTS atproto_sessions (
+      userId     TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      did        TEXT NOT NULL,
+      pdsUrl     TEXT NOT NULL,
+      refreshJwt TEXT NOT NULL,
+      updatedAt  TEXT NOT NULL
+    );
   `);
+
+  migrateUsersForAtproto(db);
 
   // Idempotent migration for databases created before tokenVersion existed.
   // Mirrors store.js's PRAGMA-check + duplicate-column tolerance.
@@ -69,6 +95,58 @@ export function openSyncDb(path) {
   }
 
   return db;
+}
+
+/**
+ * Bring a pre-Bluesky `users` table up to the current schema.
+ *
+ * A plain ALTER cannot do this: the original `google_sub` is `NOT NULL`, and
+ * SQLite has no way to drop a NOT NULL constraint. The table has to be rebuilt,
+ * which is the documented procedure — foreign keys off, swap, keys back on.
+ *
+ * Fresh databases never reach the rebuild: `CREATE TABLE IF NOT EXISTS` above
+ * already created the current shape, so `did` exists and this returns
+ * immediately. In practice accounts have never been switched on anywhere, so
+ * this path is expected to run against zero real databases — it exists so that
+ * the one instance where it does run does not lose a library.
+ *
+ * @param {import('node:sqlite').DatabaseSync} handle
+ */
+function migrateUsersForAtproto(handle) {
+  const cols = handle.prepare('PRAGMA table_info(users)').all();
+  if (cols.some((c) => c.name === 'did')) return;
+
+  // `handle` is shadowed inside the SQL only as a column name; no ambiguity.
+  handle.exec('PRAGMA foreign_keys = OFF');
+  try {
+    handle.exec('BEGIN');
+    handle.exec(`
+      CREATE TABLE users_new (
+        id          TEXT PRIMARY KEY,
+        provider    TEXT NOT NULL DEFAULT 'google',
+        google_sub  TEXT UNIQUE,
+        did         TEXT UNIQUE,
+        handle      TEXT,
+        email       TEXT,
+        createdAt   TEXT NOT NULL,
+        tokenVersion INTEGER NOT NULL DEFAULT 0
+      );
+      INSERT INTO users_new (id, provider, google_sub, email, createdAt, tokenVersion)
+        SELECT id, 'google', google_sub, email, createdAt, COALESCE(tokenVersion, 0) FROM users;
+      DROP TABLE users;
+      ALTER TABLE users_new RENAME TO users;
+    `);
+    // Fails the migration rather than committing a database whose entries point
+    // at users that no longer exist.
+    const orphans = handle.prepare('PRAGMA foreign_key_check').all();
+    if (orphans.length) throw new Error(`foreign key check failed after users migration (${orphans.length} rows)`);
+    handle.exec('COMMIT');
+  } catch (err) {
+    try { handle.exec('ROLLBACK'); } catch { /* already rolled back */ }
+    throw err;
+  } finally {
+    handle.exec('PRAGMA foreign_keys = ON');
+  }
 }
 
 /** Test seam: drop the handle so a suite can point at a fresh file. */
@@ -96,15 +174,89 @@ export function upsertUser({ sub, email }) {
     return { id: existing.id, email: email || existing.email || '', tokenVersion: existing.tokenVersion || 0 };
   }
   const id = randomUUID();
-  db.prepare('INSERT INTO users (id, google_sub, email, createdAt) VALUES (?, ?, ?, ?)')
+  db.prepare('INSERT INTO users (id, provider, google_sub, email, createdAt) VALUES (?, \'google\', ?, ?, ?)')
     .run(id, sub, email || null, new Date().toISOString());
   return { id, email: email || '', tokenVersion: 0 };
 }
 
-/** @returns {{id: string, email: string}|null} */
+/**
+ * Find or create the user behind a Bluesky DID.
+ *
+ * The DID is the join key, never the handle. Handles are rented: they can be
+ * changed at will and released back to the pool, so keying on one would let a
+ * later owner of @alice.bsky.social inherit the previous owner's library. The
+ * handle is stored for display and refreshed on every sign-in.
+ *
+ * @param {{ did: string, handle?: string }} identity
+ * @returns {{ id: string, did: string, handle: string, tokenVersion: number }}
+ */
+export function upsertAtprotoUser({ did, handle }) {
+  const existing = db.prepare('SELECT id, handle, tokenVersion FROM users WHERE did = ?').get(did);
+  if (existing) {
+    if (handle && handle !== existing.handle) {
+      db.prepare('UPDATE users SET handle = ? WHERE id = ?').run(handle, existing.id);
+    }
+    return {
+      id: existing.id,
+      did,
+      handle: handle || existing.handle || '',
+      tokenVersion: existing.tokenVersion || 0,
+    };
+  }
+  const id = randomUUID();
+  db.prepare('INSERT INTO users (id, provider, did, handle, createdAt) VALUES (?, \'atproto\', ?, ?, ?)')
+    .run(id, did, handle || null, new Date().toISOString());
+  return { id, did, handle: handle || '', tokenVersion: 0 };
+}
+
+/** @returns {{id: string, provider: string, email: string, did: string, handle: string, tokenVersion: number}|null} */
 export function getUser(userId) {
-  const row = db.prepare('SELECT id, email, tokenVersion FROM users WHERE id = ?').get(userId);
-  return row ? { id: row.id, email: row.email || '', tokenVersion: row.tokenVersion || 0 } : null;
+  const row = db.prepare('SELECT id, provider, email, did, handle, tokenVersion FROM users WHERE id = ?').get(userId);
+  if (!row) return null;
+  return {
+    id: row.id,
+    provider: row.provider || 'google',
+    email: row.email || '',
+    did: row.did || '',
+    handle: row.handle || '',
+    tokenVersion: row.tokenVersion || 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Bluesky credentials
+// ---------------------------------------------------------------------------
+
+/**
+ * Store (or replace) a user's sealed refresh token.
+ *
+ * Called on every refresh, not just at sign-in: atproto refresh tokens rotate,
+ * so the previous one stops working the moment a new pair is issued. Persist
+ * first, use second — the other order loses the session on a crash.
+ *
+ * @param {{ userId: string, did: string, pdsUrl: string, refreshJwt: string }} spec
+ */
+export function saveAtprotoTokens({ userId, did, pdsUrl, refreshJwt }) {
+  db.prepare(`
+    INSERT INTO atproto_sessions (userId, did, pdsUrl, refreshJwt, updatedAt)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(userId) DO UPDATE SET
+      did = excluded.did,
+      pdsUrl = excluded.pdsUrl,
+      refreshJwt = excluded.refreshJwt,
+      updatedAt = excluded.updatedAt
+  `).run(userId, did, pdsUrl, refreshJwt, new Date().toISOString());
+}
+
+/** @returns {{did: string, pdsUrl: string, refreshJwt: string}|null} */
+export function getAtprotoTokens(userId) {
+  const row = db.prepare('SELECT did, pdsUrl, refreshJwt FROM atproto_sessions WHERE userId = ?').get(userId);
+  return row ? { did: row.did, pdsUrl: row.pdsUrl, refreshJwt: row.refreshJwt } : null;
+}
+
+/** Forget a user's Bluesky credentials without touching their account. */
+export function deleteAtprotoTokens(userId) {
+  db.prepare('DELETE FROM atproto_sessions WHERE userId = ?').run(userId);
 }
 
 /**

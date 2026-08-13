@@ -484,6 +484,28 @@ function idbCaughtError(err) {
    The Anthropic API key is not part of any of this and never leaves this
    browser — signing in changes where your LIBRARY lives, not your key.
 =============================================== */
+/**
+ * Is this /api/auth/me user object a signed-in person?
+ *
+ * NOT `user.email`, which is what this used to check: a Bluesky account has no
+ * email here, so an atproto session read as signed-OUT while the sync code —
+ * which tests `state.user` alone — happily synced under it. Two places
+ * disagreeing about whether someone is signed in is worse than either answer.
+ *
+ * @param {{email?: string, did?: string}|null} user
+ */
+function isSignedIn(user) {
+  return !!(user && (user.email || user.did));
+}
+
+/** What to show as "you are signed in as": an email, a handle, or a bare DID. */
+function identityLabel(user) {
+  if (!user) return '';
+  if (user.email) return user.email;
+  if (user.handle) return `@${user.handle}`;
+  return user.did || '';
+}
+
 const EchoSync = (() => {
   const CURSOR_KEY = 'echo-sync-cursor';
   // Bound on how many pages one sync will walk: 20 x 500 = 10k entries,
@@ -649,7 +671,7 @@ const EchoSync = (() => {
       const res = await fetch('/api/auth/me');
       const body = await res.json();
       enabled = !!body.enabled;
-      signedIn = !!(body.user && body.user.email);
+      signedIn = isSignedIn(body.user);
       return body;
     } catch {
       enabled = false; signedIn = false;
@@ -4997,10 +5019,10 @@ async function renderAccountState() {
   if (!state.enabled) { section.hidden = true; return; }
   section.hidden = false;
 
-  const signedIn = !!(state.user && state.user.email);
+  const signedIn = isSignedIn(state.user);
   document.getElementById('accountSignedOut').hidden = signedIn;
   document.getElementById('accountSignedIn').hidden = !signedIn;
-  if (signedIn) document.getElementById('accountEmail').textContent = state.user.email;
+  if (signedIn) document.getElementById('accountEmail').textContent = identityLabel(state.user);
   return state;
 }
 

@@ -60,6 +60,7 @@
       "../common/text.js": "common/text.js",
       "../common/package.json": "common/package.json",
       "../auth.js": "auth.js",
+      "../atproto.js": "atproto.js",
       "../syncStore.js": "syncStore.js",
       "../usagelog.js": "usagelog.js",
       "../package.json": "package.json",
