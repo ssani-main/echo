@@ -87,18 +87,13 @@ Approving someone hands them three things:
    from your connection. This is the whole reason the instance works at all —
    YouTube bot-blocks datacenter IPs — and it is the resource with the least
    headroom.
-3. **Your library.** This is the big one, and it is the reason to be careful:
-   **`store.js` is still single-tenant.** Every approved person reads and writes
-   *the same library you do* — the same saved videos, and they can delete them.
-   Per-user libraries are Phase 4 of `ATPROTO.md` and are not built.
+3. **Nothing of your library.** Each account gets its OWN library — a separate database file — so an approved person cannot read, edit or delete anything you saved. That was true only from Phase 4 onward; if you are reading an older copy of this file, it was not.
 
-**So: approve only people you would hand your library to.** That is a much
-higher bar than "people I would let read a transcript", and it is the right bar
-until Phase 4 lands.
+**So the bar is: people you are willing to spend compute and bandwidth on.** That is a lower bar than it used to be, but it is not zero — a stranger with an approved account can still burn a day of your Claude quota inside their hourly limits.
 
 ## Keeping it running
 
-- **Back up two files.** `data/echo-sync.db` is every account and decision.
+- **Back up the data directory, not one file.** `data/echo-sync.db` is every account and decision; `data/library.db` is your own library; `data/libraries/*.db` is one file per other account.
   `.holesail-seed` is the serving capability for your public URL — lose it and
   the URL changes for everyone. Both are gitignored; neither is in any backup
   you have not made yourself.

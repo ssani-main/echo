@@ -15,15 +15,7 @@ import {
 } from './transcript.js';
 import { WHISPER_MODELS, DEFAULT_WHISPER_MODEL, modelCacheDir, downloadState, startModelDownload } from './whisperModel.js';
 import { resolveWhisperBinary, transcribeFile, LOCAL_MEDIA_EXTENSIONS } from './whisper.js';
-import {
-  listEntries,
-  countEntries,
-  getEntry,
-  saveEntry,
-  deleteEntry,
-  setTags,
-  searchSummaries,
-} from './store.js';
+import { forOwner, DEFAULT_OWNER, adoptDefaultLibrary } from './store.js';
 import { entryToMarkdown } from './markdown.js';
 import { syncVault } from './vault.js';
 import {
@@ -726,6 +718,25 @@ function blockInWeb(req, res, next) {
 const USER_DIGEST_LIMIT = numFromEnv('ECHO_USER_DIGEST_LIMIT', 30, { min: 1 });
 const USER_FETCH_LIMIT = numFromEnv('ECHO_USER_FETCH_LIMIT', 90, { min: 1 });
 const USER_LIMIT_WINDOW_MS = 60 * 60_000;
+
+/**
+ * Whose library is this request about?
+ *
+ * With no identity provider configured there is one person — the one at the
+ * keyboard — and they get DEFAULT_OWNER, which is the original database file at
+ * the original path. Nothing about a plain local install changes.
+ *
+ * With accounts on, every approved account gets its own library FILE. That is
+ * why this returns an id rather than adding a filter: the isolation is the file
+ * boundary, so a route that forgets to scope cannot leak anything — it simply
+ * has no handle on anyone else's data. requireApproved has already run and set
+ * echoUserId by the time any library route reaches this.
+ *
+ * @param {import('express').Request} req
+ */
+function libraryFor(req) {
+  return forOwner(ACCOUNTS_ENABLED ? (req.echoUserId || DEFAULT_OWNER) : DEFAULT_OWNER);
+}
 
 /**
  * The access gate: only approved accounts may use the instance.
@@ -1760,7 +1771,23 @@ app.post('/api/auth/atproto', requireAtprotoConfigured, alwaysLimit(ATPROTO_SIGN
     // An admin never waits in their own queue. Without this, the first sign-in
     // on a fresh instance lands the operator in 'pending' with nobody able to
     // approve them — the gate locked from the inside.
-    if (isAdmin({ did: session.did })) setStatus(user.id, 'approved');
+    if (isAdmin({ did: session.did })) {
+      setStatus(user.id, 'approved');
+
+      // The operator's pre-accounts library becomes theirs, once. Without this,
+      // switching accounts on looks exactly like data loss: they sign in, get a
+      // brand-new empty library, and everything they ever saved is sitting in
+      // the default owner's file with nothing left to show it to them.
+      // No-op in web mode, where the whole library layer is blockInWeb'd.
+      if (!isWeb) {
+        try {
+          const adopted = adoptDefaultLibrary(user.id);
+          if (adopted.adopted) console.log(`[echo] moved the existing library to @${session.handle}`);
+        } catch (err) {
+          console.error(`[echo] could not adopt the existing library: ${err.message}`);
+        }
+      }
+    }
 
     // Persisted before the cookie is issued: a session the server cannot act
     // through later is worse than a sign-in that visibly failed.
@@ -2002,7 +2029,7 @@ app.post('/api/sync/push', requireAuthConfigured, requireApproved, requireSessio
 app.get('/api/saved', blockInWeb, requireApproved, async (req, res) => {
   try {
     const limit = req.query.limit === undefined ? null : Number(req.query.limit);
-    if (limit === null) return res.json(await listEntries());
+    if (limit === null) return res.json(await libraryFor(req).listEntries());
 
     if (!Number.isFinite(limit) || limit < 1) {
       return sendError(res, 'INTERNAL', 'limit must be a positive number.', '', 400);
@@ -2014,8 +2041,8 @@ app.get('/api/saved', blockInWeb, requireApproved, async (req, res) => {
 
     const capped = Math.min(limit, 500);
     const [entries, total] = await Promise.all([
-      listEntries({ limit: capped, offset }),
-      countEntries(),
+      libraryFor(req).listEntries({ limit: capped, offset }),
+      libraryFor(req).countEntries(),
     ]);
     res.json({ entries, total, hasMore: offset + entries.length < total });
   } catch (err) {
@@ -2040,9 +2067,12 @@ app.get('/api/saved', blockInWeb, requireApproved, async (req, res) => {
  * might mistake for a good one.
  */
 app.get('/api/saved/export', blockInWeb, requireApproved, async (req, res) => {
+  // Resolved once, not per entry: the export streams the WHOLE library, and
+  // re-resolving inside the loop would be a lookup per row for no reason.
+  const lib = libraryFor(req);
   let meta;
   try {
-    meta = await listEntries();
+    meta = await lib.listEntries();
   } catch (err) {
     return sendCaughtError(res, err);
   }
@@ -2072,7 +2102,7 @@ app.get('/api/saved/export', blockInWeb, requireApproved, async (req, res) => {
     await write('{"entries":[');
     let first = true;
     for (const m of meta) {
-      const entry = await getEntry(m.videoId);
+      const entry = await lib.getEntry(m.videoId);
       if (!entry) continue;
       await write(first ? '' : ',');
       await write(JSON.stringify(entry));
@@ -2095,7 +2125,7 @@ app.patch('/api/saved/:videoId/tags', blockInWeb, requireApproved, async (req, r
     if (!Array.isArray(tags)) {
       return sendError(res, 'INTERNAL', 'tags must be an array.', '', 400);
     }
-    const entry = await setTags(req.params.videoId, tags);
+    const entry = await libraryFor(req).setTags(req.params.videoId, tags);
     if (!entry) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
     res.json(entry);
   } catch (err) {
@@ -2105,7 +2135,7 @@ app.patch('/api/saved/:videoId/tags', blockInWeb, requireApproved, async (req, r
 
 app.get('/api/saved/:videoId', blockInWeb, requireApproved, async (req, res) => {
   try {
-    const e = await getEntry(req.params.videoId);
+    const e = await libraryFor(req).getEntry(req.params.videoId);
     if (!e) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
     res.json(e);
   } catch (err) {
@@ -2115,7 +2145,7 @@ app.get('/api/saved/:videoId', blockInWeb, requireApproved, async (req, res) => 
 
 app.get('/api/saved/:videoId/export.md', blockInWeb, requireApproved, async (req, res) => {
   try {
-    const entry = await getEntry(req.params.videoId);
+    const entry = await libraryFor(req).getEntry(req.params.videoId);
     if (!entry) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
 
     const transcriptParam = req.query.transcript;
@@ -2156,7 +2186,7 @@ app.post('/api/vault/sync', blockInWeb, requireApproved, async (req, res) => {
 
   const t0 = Date.now();
   try {
-    const result = await syncVault(resolvedDir, { includeTranscript });
+    const result = await syncVault(resolvedDir, { includeTranscript, library: libraryFor(req) });
     logEvent('vault-sync', {
       total: result.total, written: result.written, unchanged: result.unchanged, failed: result.failed,
       ok: true, ms: Date.now() - t0,
@@ -2175,7 +2205,7 @@ app.post('/api/saved', blockInWeb, requireApproved, async (req, res) => {
     if (!videoId || !Array.isArray(segments) || segments.length === 0) {
       return sendError(res, 'INTERNAL', 'videoId and segments are required.', '', 400);
     }
-    const meta = await saveEntry({ url, videoId, title, segments, digest, channel, channelUrl, transcriptSource, whisperModel });
+    const meta = await libraryFor(req).saveEntry({ url, videoId, title, segments, digest, channel, channelUrl, transcriptSource, whisperModel });
     logEvent('save', { videoId, hadDigest: Boolean(digest), ok: true, ms: Date.now() - t0 });
     res.json(meta);
   } catch (err) {
@@ -2186,7 +2216,7 @@ app.post('/api/saved', blockInWeb, requireApproved, async (req, res) => {
 app.delete('/api/saved/:videoId', blockInWeb, requireApproved, async (req, res) => {
   const t0 = Date.now();
   try {
-    const ok = await deleteEntry(req.params.videoId);
+    const ok = await libraryFor(req).deleteEntry(req.params.videoId);
     if (!ok) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
     logEvent('unsave', { videoId: req.params.videoId, ok: true, ms: Date.now() - t0 });
     res.json({ ok: true });
@@ -2212,7 +2242,7 @@ app.get('/api/search', blockInWeb, requireApproved, async (req, res) => {
     // full entry — transcript and all — purely to slice ~200 characters out of
     // it, which on a 300-entry library meant reading 2.0 MB of transcript per
     // search to produce about 4 KB of output.
-    const results = await searchSummaries(q, limit);
+    const results = await libraryFor(req).searchSummaries(q, limit);
     logEvent('search', { qLen: q.length, mode: 'keyword', results: results.length, ok: true, ms: Date.now() - t0 });
     return res.json({ results, mode: 'keyword' });
   } catch (err) {

@@ -4,7 +4,7 @@
 
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { listEntries, getEntry } from './store.js';
+import { forOwner } from './store.js';
 import { entryToMarkdown, extractSummary, buildVaultIndex } from './markdown.js';
 
 const MAX_SLUG_LEN = 60;
@@ -56,6 +56,10 @@ export function monthFolder(savedAt) {
  * @returns {Promise<{ dir: string, total: number, written: number, unchanged: number, failed: number, index: string }>}
  */
 export async function syncVault(dir, opts = {}) {
+  // The caller passes whose library to write. Defaulting to the single-user
+  // library keeps every existing caller (and the plugin) working unchanged,
+  // while a signed-in visitor exports THEIR vault rather than the operator's.
+  const lib = opts.library || forOwner();
   if (typeof dir !== 'string' || !dir.trim()) {
     const err = new Error('A vault folder path is required.');
     err.echoCode = 'INVALID_URL';
@@ -66,7 +70,7 @@ export async function syncVault(dir, opts = {}) {
   mkdirSync(target, { recursive: true });
 
   const includeTranscript = opts.includeTranscript !== false;
-  const metas = await listEntries();
+  const metas = await lib.listEntries();
 
   let written = 0;
   let unchanged = 0;
@@ -81,7 +85,7 @@ export async function syncVault(dir, opts = {}) {
         continue;
       }
 
-      const entry = await getEntry(videoId);
+      const entry = await lib.getEntry(videoId);
       if (!entry) {
         failed++;
         continue;

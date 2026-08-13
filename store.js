@@ -1,7 +1,7 @@
 // Node 24 ships a built-in synchronous SQLite module — no native build needed.
 // API mirrors better-sqlite3 closely: DatabaseSync, StatementSync, transaction().
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, existsSync, readFileSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { safeHttpUrl } from './sanitize.js';
@@ -21,35 +21,118 @@ const LEGACY_JSON = join(DATA_DIR, 'library.json');
 // and would fail outright on a read-only filesystem. Local and desktop reach a
 // library route within moments of starting, so nothing there is deferred in
 // any way a user could notice.
-let _db = null;
+// One database FILE per owner, not one table with an ownerId column.
+//
+// The column approach needs a WHERE on every query, a composite primary key, a
+// rebuilt tags foreign key and an FTS reindex — and then it is correct only for
+// as long as nobody forgets the WHERE. This codebase has SEVEN recorded bugs of
+// the shape "a query that was fine because the fixture was small"; a filter that
+// must be remembered at thirty call sites is that shape again, with a worse
+// failure mode: the bug is not a slow page, it is one person reading another's
+// library.
+//
+// Separate files make the isolation structural. A query cannot reach across an
+// owner boundary because there is nothing to reach across — the other library is
+// a different file that this connection has never opened. Deleting an account
+// becomes deleting a file, and backing one up becomes copying it.
+//
+// The costs, honestly: no cross-owner query is possible (nothing here wants
+// one), and a handle is held per active owner (bounded below).
+const DEFAULT_OWNER = 'local';
+const LIBRARIES_DIR = join(DATA_DIR, 'libraries');
 
-function getDb() {
-  if (_db) return _db;
+/** @type {Map<string, import('node:sqlite').DatabaseSync>} */
+const handles = new Map();
 
-  mkdirSync(DATA_DIR, { recursive: true });
-  _db = new DatabaseSync(DB_FILE);
+/**
+ * Where an owner's library lives.
+ *
+ * The default owner keeps the ORIGINAL path, untouched: an install that never
+ * turns accounts on must not notice this change, and the operator's existing
+ * library must not move out from under them.
+ *
+ * @param {string} owner
+ */
+function dbPathFor(owner) {
+  if (owner === DEFAULT_OWNER) return DB_FILE;
+
+  // The owner id becomes a filename, so it is validated as one. Ids are UUIDs
+  // from randomUUID today, but "today" is not a security property — a path
+  // separator or a `..` here would be a traversal straight out of the data
+  // directory.
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(owner)) {
+    throw new Error(`Invalid library owner id: ${JSON.stringify(String(owner).slice(0, 40))}`);
+  }
+  return join(LIBRARIES_DIR, `${owner}.db`);
+}
+
+// Most-recently-used cap on open handles. With accounts on, every person who
+// makes a request opens one and nothing releases it — fine for the handful of
+// people a personal instance approves, but "fine at ten" is the exact shape of
+// bug this codebase has recorded seven times, so it gets a bound rather than an
+// assumption. Reopening is a file open plus a few no-op migrations.
+const MAX_OPEN_LIBRARIES = 64;
+
+function getDb(owner = DEFAULT_OWNER) {
+  const existing = handles.get(owner);
+  if (existing) {
+    // Refresh recency: delete + set moves the key to the end of Map iteration
+    // order, so the first key is always the least recently used.
+    handles.delete(owner);
+    handles.set(owner, existing);
+    return existing;
+  }
+
+  // Evict before opening, and never evict the default owner — on a
+  // single-user install it is the only library there is.
+  while (handles.size >= MAX_OPEN_LIBRARIES) {
+    const oldest = [...handles.keys()].find((k) => k !== DEFAULT_OWNER);
+    if (!oldest) break;
+    try { handles.get(oldest).close(); } catch { /* already gone */ }
+    handles.delete(oldest);
+  }
+
+  const file = dbPathFor(owner);
+  mkdirSync(dirname(file), { recursive: true });
+  const _db = new DatabaseSync(file);
+  handles.set(owner, _db);
 
   // Enable WAL mode and FK enforcement via plain PRAGMA SQL (node:sqlite has no
   // separate pragma() method; exec() runs any SQL statement directly).
   _db.exec('PRAGMA journal_mode = WAL');
   _db.exec('PRAGMA foreign_keys = ON');
 
-  initSchema();
-  migrateSegmentCount();
-  migrateChannelColumns();
-  migrateTranscriptSourceColumns();
-  migrateFtsRowids();
-  migrateFromLegacyJson();
+  initSchema(owner);
+  migrateSegmentCount(owner);
+  migrateChannelColumns(owner);
+  migrateTranscriptSourceColumns(owner);
+  migrateFtsRowids(owner);
+
+  // Only the default owner has a legacy JSON library to import. A per-account
+  // file is new by definition, and pulling the operator's old library into a
+  // visitor's would be the exact leak this design exists to prevent.
+  if (owner === DEFAULT_OWNER) migrateFromLegacyJson(owner);
 
   return _db;
+}
+
+/**
+ * Close every open handle. Test seam, and the tidy-up path for a long-running
+ * instance that has accumulated handles for people who have gone home.
+ */
+export function closeAllLibraries() {
+  for (const [, handle] of handles) {
+    try { handle.close(); } catch { /* already gone */ }
+  }
+  handles.clear();
 }
 
 // ---------------------------------------------------------------------------
 // Schema
 // ---------------------------------------------------------------------------
 
-function initSchema() {
-  getDb().exec(`
+function initSchema(owner) {
+  getDb(owner).exec(`
   CREATE TABLE IF NOT EXISTS videos (
     videoId   TEXT PRIMARY KEY,
     url       TEXT NOT NULL,
@@ -89,13 +172,13 @@ function initSchema() {
 // concurrent processes touching the same DB file).
 // ---------------------------------------------------------------------------
 
-function migrateSegmentCount() {
-  const cols = getDb().prepare('PRAGMA table_info(videos)').all();
+function migrateSegmentCount(owner) {
+  const cols = getDb(owner).prepare('PRAGMA table_info(videos)').all();
   const hasCol = cols.some((c) => c.name === 'segment_count');
   if (hasCol) return; // Already migrated (or created fresh with the column above)
 
   try {
-    getDb().exec('ALTER TABLE videos ADD COLUMN segment_count INTEGER NOT NULL DEFAULT 0');
+    getDb(owner).exec('ALTER TABLE videos ADD COLUMN segment_count INTEGER NOT NULL DEFAULT 0');
   } catch (err) {
     // Tolerate a race where another process added the column concurrently.
     if (!/duplicate column/i.test(err?.message || '')) throw err;
@@ -103,8 +186,8 @@ function migrateSegmentCount() {
   }
 
   // Backfill existing rows (added before this column existed) once.
-  const rows = getDb().prepare('SELECT videoId, segments FROM videos').all();
-  const updateCount = getDb().prepare('UPDATE videos SET segment_count = ? WHERE videoId = ?');
+  const rows = getDb(owner).prepare('SELECT videoId, segments FROM videos').all();
+  const updateCount = getDb(owner).prepare('UPDATE videos SET segment_count = ? WHERE videoId = ?');
   for (const row of rows) {
     let n = 0;
     try { n = JSON.parse(row.segments || '[]').length; } catch { n = 0; }
@@ -119,14 +202,14 @@ function migrateSegmentCount() {
 // mirrors migrateSegmentCount()'s PRAGMA-check + duplicate-column tolerance.
 // ---------------------------------------------------------------------------
 
-function migrateChannelColumns() {
-  const cols = getDb().prepare('PRAGMA table_info(videos)').all();
+function migrateChannelColumns(owner) {
+  const cols = getDb(owner).prepare('PRAGMA table_info(videos)').all();
   const colNames = new Set(cols.map((c) => c.name));
 
   for (const col of ['channel', 'channelUrl']) {
     if (colNames.has(col)) continue; // Already migrated (or created fresh with the column above)
     try {
-      getDb().exec(`ALTER TABLE videos ADD COLUMN ${col} TEXT`);
+      getDb(owner).exec(`ALTER TABLE videos ADD COLUMN ${col} TEXT`);
     } catch (err) {
       // Tolerate a race where another process added the column concurrently.
       if (!/duplicate column/i.test(err?.message || '')) throw err;
@@ -143,14 +226,14 @@ function migrateChannelColumns() {
 // duplicate-column tolerance.
 // ---------------------------------------------------------------------------
 
-function migrateTranscriptSourceColumns() {
-  const cols = getDb().prepare('PRAGMA table_info(videos)').all();
+function migrateTranscriptSourceColumns(owner) {
+  const cols = getDb(owner).prepare('PRAGMA table_info(videos)').all();
   const colNames = new Set(cols.map((c) => c.name));
 
   for (const col of ['transcript_source', 'whisper_model']) {
     if (colNames.has(col)) continue; // Already migrated (or created fresh with the column above)
     try {
-      getDb().exec(`ALTER TABLE videos ADD COLUMN ${col} TEXT`);
+      getDb(owner).exec(`ALTER TABLE videos ADD COLUMN ${col} TEXT`);
     } catch (err) {
       // Tolerate a race where another process added the column concurrently.
       if (!/duplicate column/i.test(err?.message || '')) throw err;
@@ -166,11 +249,11 @@ function migrateTranscriptSourceColumns() {
  * Reassemble a full normalized entry object from the four DB tables.
  * Returns null if the videoId does not exist in the videos table.
  */
-function fetchFullEntry(videoId) {
-  const row = getDb().prepare('SELECT * FROM videos WHERE videoId = ?').get(videoId);
+function fetchFullEntry(owner, videoId) {
+  const row = getDb(owner).prepare('SELECT * FROM videos WHERE videoId = ?').get(videoId);
   if (!row) return null;
 
-  const tags = getDb().prepare(
+  const tags = getDb(owner).prepare(
     'SELECT tag FROM tags WHERE videoId = ? ORDER BY rowid'
   ).all(videoId);
 
@@ -250,8 +333,8 @@ function metaFromRow(row, tags) {
  * the two rows are always deleted together (see deleteEntry) — so a rowid
  * SQLite recycles for a new video can never collide with a live FTS row.
  */
-function syncFts(videoId) {
-  const row = getDb().prepare(
+function syncFts(owner, videoId) {
+  const row = getDb(owner).prepare(
     'SELECT rowid, title, segments, digest FROM videos WHERE videoId = ?'
   ).get(videoId);
   if (!row) return;
@@ -260,8 +343,8 @@ function syncFts(videoId) {
     .map((s) => s.text || '')
     .join(' ');
 
-  getDb().prepare('DELETE FROM videos_fts WHERE rowid = ?').run(row.rowid);
-  getDb().prepare(
+  getDb(owner).prepare('DELETE FROM videos_fts WHERE rowid = ?').run(row.rowid);
+  getDb(owner).prepare(
     'INSERT INTO videos_fts(rowid, videoId, title, transcript_text, digest) VALUES (?, ?, ?, ?, ?)'
   ).run(row.rowid, videoId, row.title ?? '', transcriptText, row.digest ?? '');
 }
@@ -282,17 +365,17 @@ function syncFts(videoId) {
 
 const FTS_ROWID_SCHEMA_VERSION = 1;
 
-function migrateFtsRowids() {
-  const { user_version: version } = getDb().prepare('PRAGMA user_version').get();
+function migrateFtsRowids(owner) {
+  const { user_version: version } = getDb(owner).prepare('PRAGMA user_version').get();
   if (version >= FTS_ROWID_SCHEMA_VERSION) return;
 
-  getDb().exec('DELETE FROM videos_fts');
+  getDb(owner).exec('DELETE FROM videos_fts');
 
   // Ids first, then one entry at a time — never hold every transcript at once.
-  const ids = getDb().prepare('SELECT videoId FROM videos ORDER BY rowid').all();
-  for (const { videoId } of ids) syncFts(videoId);
+  const ids = getDb(owner).prepare('SELECT videoId FROM videos ORDER BY rowid').all();
+  for (const { videoId } of ids) syncFts(owner, videoId);
 
-  getDb().exec(`PRAGMA user_version = ${FTS_ROWID_SCHEMA_VERSION}`);
+  getDb(owner).exec(`PRAGMA user_version = ${FTS_ROWID_SCHEMA_VERSION}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -301,9 +384,9 @@ function migrateFtsRowids() {
 // already populated). Does NOT delete library.json (left as backup).
 // ---------------------------------------------------------------------------
 
-function migrateFromLegacyJson() {
+function migrateFromLegacyJson(owner) {
   if (process.env.ECHO_DB_PATH) return;
-  const count = getDb().prepare('SELECT COUNT(*) as n FROM videos').get().n;
+  const count = getDb(owner).prepare('SELECT COUNT(*) as n FROM videos').get().n;
   if (count > 0) return; // Already populated — nothing to migrate
   if (!existsSync(LEGACY_JSON)) return;
 
@@ -316,17 +399,17 @@ function migrateFromLegacyJson() {
     return; // Corrupt / unreadable — skip silently
   }
 
-  const insertVideo = getDb().prepare(`
+  const insertVideo = getDb(owner).prepare(`
     INSERT OR IGNORE INTO videos (videoId, url, title, savedAt, updatedAt, segments, digest, favorite, segment_count)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  const insertTag = getDb().prepare(
+  const insertTag = getDb(owner).prepare(
     'INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)'
   );
 
   // node:sqlite's DatabaseSync has no transaction() wrapper — use raw SQL.
   let migrated = 0;
-  getDb().exec('BEGIN');
+  getDb(owner).exec('BEGIN');
   try {
     for (const entry of entries) {
       if (!entry.videoId) continue;
@@ -350,12 +433,12 @@ function migrateFromLegacyJson() {
         insertTag.run(entry.videoId, tag);
       }
 
-      syncFts(entry.videoId);
+      syncFts(owner, entry.videoId);
       migrated++;
     }
-    getDb().exec('COMMIT');
+    getDb(owner).exec('COMMIT');
   } catch (err) {
-    getDb().exec('ROLLBACK');
+    getDb(owner).exec('ROLLBACK');
     console.error('[store] Migration failed, rolled back:', err.message);
     return;
   }
@@ -368,8 +451,8 @@ function migrateFromLegacyJson() {
 // ---------------------------------------------------------------------------
 
 /** Total number of saved entries. Cheap — SQLite answers it from the index. */
-export async function countEntries() {
-  return getDb().prepare('SELECT COUNT(*) AS n FROM videos').get().n;
+async function countEntriesFor(owner) {
+  return getDb(owner).prepare('SELECT COUNT(*) AS n FROM videos').get().n;
 }
 
 /**
@@ -386,12 +469,12 @@ export async function countEntries() {
  *
  * @param {{limit?: number, offset?: number}} [opts]
  */
-export async function listEntries(opts = {}) {
+async function listEntriesFor(owner, opts = {}) {
   const paged = Number.isFinite(opts.limit) && opts.limit > 0;
   const limit = paged ? Math.floor(opts.limit) : -1;         // -1 = no limit, in SQLite
   const offset = Number.isFinite(opts.offset) && opts.offset > 0 ? Math.floor(opts.offset) : 0;
 
-  const rows = getDb().prepare(`
+  const rows = getDb(owner).prepare(`
     SELECT videoId, url, title, savedAt, favorite, segment_count, channel, channelUrl,
            transcript_source, whisper_model, (digest IS NOT NULL) AS hasDigest
     FROM videos
@@ -409,10 +492,10 @@ export async function listEntries(opts = {}) {
   // which is exactly the kind of works-at-500-breaks-at-40k this code keeps
   // having to unlearn.
   const allTags = paged
-    ? getDb()
+    ? getDb(owner)
         .prepare(`SELECT videoId, tag FROM tags WHERE videoId IN (${rows.map(() => '?').join(',')}) ORDER BY videoId, rowid`)
         .all(...rows.map((r) => r.videoId))
-    : getDb().prepare('SELECT videoId, tag FROM tags ORDER BY videoId, rowid').all();
+    : getDb(owner).prepare('SELECT videoId, tag FROM tags ORDER BY videoId, rowid').all();
 
   /** @type {Record<string, string[]>} */
   const tagsByVideo = {};
@@ -427,8 +510,8 @@ export async function listEntries(opts = {}) {
 /**
  * Return the full normalized entry object for a given videoId, or null if not found.
  */
-export async function getEntry(videoId) {
-  return fetchFullEntry(videoId);
+async function getEntryFor(owner, videoId) {
+  return fetchFullEntry(owner, videoId);
 }
 
 /**
@@ -437,14 +520,14 @@ export async function getEntry(videoId) {
  * incoming payload omits them.
  * Returns the metadata object for the saved entry.
  */
-export async function saveEntry({ url, videoId, title, segments, digest, tags, favorite, channel, channelUrl, transcriptSource, whisperModel }) {
+async function saveEntryFor(owner, { url, videoId, title, segments, digest, tags, favorite, channel, channelUrl, transcriptSource, whisperModel }) {
   const now      = new Date().toISOString();
-  const existing = getDb().prepare('SELECT * FROM videos WHERE videoId = ?').get(videoId);
+  const existing = getDb(owner).prepare('SELECT * FROM videos WHERE videoId = ?').get(videoId);
   const safeUrl  = safeHttpUrl(url);
 
   if (!existing) {
     // ---- New entry --------------------------------------------------------
-    getDb().prepare(`
+    getDb(owner).prepare(`
       INSERT INTO videos (videoId, url, title, savedAt, updatedAt, segments, digest, favorite, segment_count, channel, channelUrl, transcript_source, whisper_model)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -464,7 +547,7 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
 
     const initTags = Array.isArray(tags) ? tags : [];
     for (const tag of [...new Set(initTags.map((t) => String(t).trim()).filter(Boolean))].slice(0, 20)) {
-      getDb().prepare('INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)').run(videoId, tag);
+      getDb(owner).prepare('INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)').run(videoId, tag);
     }
   } else {
     // ---- Existing entry — preserve savedAt and extension fields not in payload ----
@@ -475,7 +558,7 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
     const keepTranscriptSource = transcriptSource != null ? transcriptSource : existing.transcript_source;
     const keepWhisperModel     = whisperModel     != null ? whisperModel     : existing.whisper_model;
 
-    getDb().prepare(`
+    getDb(owner).prepare(`
       UPDATE videos
       SET url = ?, title = ?, updatedAt = ?, segments = ?, digest = ?, favorite = ?, segment_count = ?, channel = ?, channelUrl = ?, transcript_source = ?, whisper_model = ?
       WHERE videoId = ?
@@ -497,33 +580,33 @@ export async function saveEntry({ url, videoId, title, segments, digest, tags, f
     // Replace tags only if a tags array was explicitly provided
     if (Array.isArray(tags)) {
       const sanitized = [...new Set(tags.map((t) => String(t).trim()).filter(Boolean))].slice(0, 20);
-      getDb().prepare('DELETE FROM tags WHERE videoId = ?').run(videoId);
+      getDb(owner).prepare('DELETE FROM tags WHERE videoId = ?').run(videoId);
       for (const tag of sanitized) {
-        getDb().prepare('INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)').run(videoId, tag);
+        getDb(owner).prepare('INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)').run(videoId, tag);
       }
     }
   }
 
-  syncFts(videoId);
+  syncFts(owner, videoId);
 
-  return toMeta(fetchFullEntry(videoId));
+  return toMeta(fetchFullEntry(owner, videoId));
 }
 
 /**
  * Remove the entry with the given videoId.
  * Returns true if an entry was removed, false if it wasn't found.
  */
-export async function deleteEntry(videoId) {
+async function deleteEntryFor(owner, videoId) {
   // Read the rowid *before* the delete — it is the FTS row's key, and once the
   // videos row is gone there is no cheap way back to it. Deleting both rows
   // together is also what makes rowid reuse safe (see syncFts).
-  const row = getDb().prepare('SELECT rowid FROM videos WHERE videoId = ?').get(videoId);
+  const row = getDb(owner).prepare('SELECT rowid FROM videos WHERE videoId = ?').get(videoId);
   if (!row) return false;
 
-  const result = getDb().prepare('DELETE FROM videos WHERE videoId = ?').run(videoId);
+  const result = getDb(owner).prepare('DELETE FROM videos WHERE videoId = ?').run(videoId);
   if (result.changes === 0) return false;
   // FK ON DELETE CASCADE removes tags; clean up FTS manually.
-  getDb().prepare('DELETE FROM videos_fts WHERE rowid = ?').run(row.rowid);
+  getDb(owner).prepare('DELETE FROM videos_fts WHERE rowid = ?').run(row.rowid);
   return true;
 }
 
@@ -536,20 +619,20 @@ export async function deleteEntry(videoId) {
  * Sanitizes: trims strings, drops empties, deduplicates, caps at 20 tags.
  * Returns the updated full entry, or null if videoId not found.
  */
-export async function setTags(videoId, tags) {
-  if (!getDb().prepare('SELECT videoId FROM videos WHERE videoId = ?').get(videoId)) return null;
+async function setTagsFor(owner, videoId, tags) {
+  if (!getDb(owner).prepare('SELECT videoId FROM videos WHERE videoId = ?').get(videoId)) return null;
 
   const sanitized = Array.isArray(tags)
     ? [...new Set(tags.map((t) => String(t).trim()).filter(Boolean))].slice(0, 20)
     : [];
 
-  getDb().prepare('DELETE FROM tags WHERE videoId = ?').run(videoId);
+  getDb(owner).prepare('DELETE FROM tags WHERE videoId = ?').run(videoId);
   for (const tag of sanitized) {
-    getDb().prepare('INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)').run(videoId, tag);
+    getDb(owner).prepare('INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)').run(videoId, tag);
   }
-  getDb().prepare('UPDATE videos SET updatedAt = ? WHERE videoId = ?').run(new Date().toISOString(), videoId);
+  getDb(owner).prepare('UPDATE videos SET updatedAt = ? WHERE videoId = ?').run(new Date().toISOString(), videoId);
 
-  return fetchFullEntry(videoId);
+  return fetchFullEntry(owner, videoId);
 }
 
 // ---------------------------------------------------------------------------
@@ -582,13 +665,13 @@ export async function setTags(videoId, tags) {
  * @param {number} [limit]
  * @returns {Array<{videoId, title, url, snippet, tags, favorite}>}
  */
-export async function searchSummaries(query, limit = 20) {
+async function searchSummariesFor(owner, query, limit = 20) {
   if (!query || !String(query).trim()) return [];
   const capped = Math.min(Math.max(Number(limit) || 20, 1), 100);
 
   let rows;
   try {
-    rows = getDb().prepare(`
+    rows = getDb(owner).prepare(`
       SELECT f.videoId,
              v.title,
              v.url,
@@ -610,7 +693,7 @@ export async function searchSummaries(query, limit = 20) {
   // Tags in one query for the whole result set rather than one per hit.
   const ids = rows.map((r) => r.videoId);
   const placeholders = ids.map(() => '?').join(',');
-  const tagRows = getDb()
+  const tagRows = getDb(owner)
     .prepare(`SELECT videoId, tag FROM tags WHERE videoId IN (${placeholders}) ORDER BY videoId, rowid`)
     .all(...ids);
 
@@ -632,3 +715,86 @@ export async function searchSummaries(query, limit = 20) {
 
 
 
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * The library belonging to one owner.
+ *
+ * @param {string} owner an account id, or DEFAULT_OWNER
+ */
+export function forOwner(owner = DEFAULT_OWNER) {
+  return {
+    countEntries: () => countEntriesFor(owner),
+    listEntries: (opts) => listEntriesFor(owner, opts),
+    getEntry: (videoId) => getEntryFor(owner, videoId),
+    saveEntry: (entry) => saveEntryFor(owner, entry),
+    deleteEntry: (videoId) => deleteEntryFor(owner, videoId),
+    setTags: (videoId, tags) => setTagsFor(owner, videoId, tags),
+    searchSummaries: (query, limit) => searchSummariesFor(owner, query, limit),
+  };
+}
+
+// The bare exports are the DEFAULT owner's library — which is exactly what an
+// install with no accounts has, and what every existing caller means. Keeping
+// them is not backwards-compatibility theatre: single-user local mode is the
+// one behaviour that must not change, and this is the shape it already had.
+export const countEntries = (...a) => countEntriesFor(DEFAULT_OWNER, ...a);
+export const listEntries = (...a) => listEntriesFor(DEFAULT_OWNER, ...a);
+export const getEntry = (...a) => getEntryFor(DEFAULT_OWNER, ...a);
+export const saveEntry = (...a) => saveEntryFor(DEFAULT_OWNER, ...a);
+export const deleteEntry = (...a) => deleteEntryFor(DEFAULT_OWNER, ...a);
+export const setTags = (...a) => setTagsFor(DEFAULT_OWNER, ...a);
+export const searchSummaries = (...a) => searchSummariesFor(DEFAULT_OWNER, ...a);
+
+export { DEFAULT_OWNER, dbPathFor };
+
+/**
+ * Hand the pre-accounts library to an account.
+ *
+ * Turning accounts on otherwise looks like data loss: the operator signs in,
+ * their account gets a brand-new empty file, and every video they ever saved is
+ * still sitting in the default owner's library where nothing will show it to
+ * them again. This moves the file itself rather than copying rows — one rename,
+ * no reindex, and nothing can half-succeed.
+ *
+ * Refuses when the target already has a library, so it can never overwrite one,
+ * and is a no-op once done because there is no longer a default file to adopt.
+ *
+ * @param {string} owner
+ * @returns {{adopted: boolean, reason?: string}}
+ */
+export function adoptDefaultLibrary(owner) {
+  if (owner === DEFAULT_OWNER) return { adopted: false, reason: 'already_default' };
+
+  const from = dbPathFor(DEFAULT_OWNER);
+  const to = dbPathFor(owner);
+  if (!existsSync(from)) return { adopted: false, reason: 'nothing_to_adopt' };
+
+  // "Has a library" means HAS ENTRIES, not "has a file". Reading an empty
+  // library creates its file — so an existence check would refuse to adopt for
+  // anyone who had merely loaded the page once, which is everyone who just
+  // signed in. An empty file is not data and is safe to replace.
+  if (existsSync(to)) {
+    const { n } = getDb(owner).prepare('SELECT COUNT(*) AS n FROM videos').get();
+    if (n > 0) return { adopted: false, reason: 'owner_has_library' };
+    closeAllLibraries();
+    for (const suffix of ['', '-wal', '-shm']) {
+      if (existsSync(to + suffix)) rmSync(to + suffix, { force: true });
+    }
+  }
+
+  // Both handles must be shut before the file moves, or SQLite keeps writing
+  // through a descriptor pointing at a path that no longer means what it did.
+  closeAllLibraries();
+  mkdirSync(dirname(to), { recursive: true });
+  renameSync(from, to);
+  // WAL and shared-memory siblings travel with it; a checkpointed database can
+  // be missing either, so their absence is not an error.
+  for (const suffix of ['-wal', '-shm']) {
+    if (existsSync(from + suffix)) renameSync(from + suffix, to + suffix);
+  }
+  return { adopted: true };
+}

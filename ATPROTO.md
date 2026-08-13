@@ -1,12 +1,11 @@
 # Bluesky accounts, registration and approval
 
-Status: **Phases 1–3 built** (2026-08-13, branch `feat/atproto-signin`).
+Status: **Phases 1–4 built** (2026-08-13, branch `feat/atproto-signin`).
 Sign-in, registration, admin approval and the access gate all work end to end
-against a real Bluesky account. Phases 4–5 planned.
+against a real Bluesky account, and every account has its own library. Phase 5
+is the only one left.
 
-**Read this before opening an instance to anyone:** the gate is complete, but
-`store.js` is still single-tenant, so every approved user shares the operator's
-library. Approve only people you would hand your library to until Phase 4 lands.
+**Libraries are now per-account** (Phase 4), so approving someone no longer hands them yours. They still spend your Claude quota and your residential IP.
 
 Goal: let people other than the operator use an Echo instance hosted on a
 personal machine — identified by their Bluesky account, admitted one at a time
@@ -63,8 +62,7 @@ The atproto tokens live server-side only. The browser never sees them.
 
 ## Phases
 
-Phases 1–3 are a complete, shippable system. Stop and run it there. 4 and 5 are
-each large and independent, and belong on their own branches.
+Phases 1–4 are built. Phase 5 is independent and belongs on its own branch.
 
 ### Phase 1 — sign in with Bluesky (`atproto.js`) — BUILT
 
@@ -156,16 +154,39 @@ keeps working.
   spent the IP. Knobs: `ECHO_USER_DIGEST_LIMIT` (30/h), `ECHO_USER_FETCH_LIMIT`
   (90/h).
 
-**The gate is complete; isolation is not.** `store.js` is still single-tenant,
-so every approved user reads and writes the SAME library — the operator's. That
-is Phase 4. Until it lands, approve only people you would hand your library to.
+**The gate and the isolation are both complete.** What an approved account can still spend is the operator's Claude quota and their residential IP — bounded by the per-account limits, not by isolation.
 
-### Phase 4 — tenant-ise `store.js`
+### Phase 4 — per-account libraries — BUILT
 
-`userId` on `videos` and `tags`, filtered in every query, migrated behind a
-`PRAGMA user_version` bump (the FTS-rowid gotcha applies directly). Touches the
-repo's highest-risk file plus the export, the vault sync and the Obsidian
-plugin. Do not combine with any other phase.
+**One database FILE per owner, not an `ownerId` column.** The column approach
+was the plan, and it is the wrong one here: it needs a WHERE on every query, a
+composite primary key, a rebuilt tags foreign key and an FTS reindex — and then
+it is correct only for as long as nobody forgets the WHERE. This repo has SEVEN
+recorded bugs of the shape "fine because the fixture was small". A filter that
+must be remembered at thirty call sites is that shape again with a worse failure
+mode: not a slow page, but one person reading another's library.
+
+Separate files make the isolation **structural**. A query cannot reach across an
+owner boundary because there is nothing to reach across — the other library is a
+file this connection never opened. It also made the change far smaller: no
+schema migration, no FTS rebuild, and `store.js`'s queries are untouched.
+
+- `forOwner(id)` returns the library API bound to one owner. The bare exports
+  stay, bound to `DEFAULT_OWNER` — which is what an install without accounts
+  has, at the ORIGINAL path — so single-user local mode is unchanged and every
+  existing caller and test still works.
+- The owner id becomes a filename, so it is validated as one. A path separator
+  or a `..` would be a traversal out of the data directory.
+- **`adoptDefaultLibrary()`** hands the pre-accounts library to the first admin
+  who signs in, by renaming the file. Without it, turning accounts on looks
+  exactly like data loss: the operator signs in, gets a new empty library, and
+  everything they saved sits in the default file with nothing left to show it.
+- "Owner already has a library" means **has entries**, not "has a file". Reading
+  an empty library creates its file, so an existence check would refuse to adopt
+  for anyone who had merely loaded the page — which is everyone who just signed
+  in. Found by the test, not by review.
+- Costs, honestly: no cross-owner query is possible (nothing wants one), and one
+  handle is held per active owner (`closeAllLibraries()` releases them).
 
 ### Phase 5 — libraries in the user's PDS
 
