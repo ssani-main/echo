@@ -3261,6 +3261,16 @@ body.gate-declined .lens-row {
 }
 .admin-pane-controls .digest-opt-label { margin: 0; }
 
+.admin-pane-counts {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* [hidden] guard: .library-btn-count sets `display`, so the badge would stay
+   visible at zero. Same trap as #adminBtn above it. */
+#adminCount[hidden] { display: none; }
+
 #adminQueueEmpty[hidden] { display: none; }
 
 .admin-request {

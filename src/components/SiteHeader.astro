@@ -23,11 +23,13 @@
         class="library-btn"
         type="button"
         aria-pressed="false"
-        title="Access requests"
+        title="People — access requests and accounts"
         hidden
       >
-        <span class="library-btn-label">Requests</span>
-        <span id="adminCount" class="library-btn-count">0</span>
+        <span class="library-btn-label">People</span>
+        <!-- Hidden at zero: a badge that always shows a number is furniture,
+             and stops being a notification. -->
+        <span id="adminCount" class="library-btn-count" hidden>0</span>
       </button>
       <button
         id="libraryBtn"

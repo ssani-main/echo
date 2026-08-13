@@ -5280,6 +5280,7 @@ function buildAdminRequestCard(entry) {
   const card = document.createElement('div');
   card.className = 'admin-request';
   card.dataset.userId = entry.id;
+  card.dataset.status = entry.status;
 
   const who = document.createElement('div');
   who.className = 'admin-request-who';
@@ -5292,40 +5293,60 @@ function buildAdminRequestCard(entry) {
   meta.textContent = [
     entry.did,
     entry.referralSource ? `found via ${entry.referralSource}` : '',
-    when ? new Date(when).toLocaleDateString() : '',
+    when ? `applied ${new Date(when).toLocaleDateString()}` : '',
     entry.contact || '',
   ].filter(Boolean).join(' · ');
   card.appendChild(meta);
+
+  // Activity. "Has a live credential" is the honest phrasing: sessions are
+  // stateless signed cookies with no table, so nothing here knows who has a tab
+  // open. Calling it "online" would be a claim the schema cannot back.
+  const activity = document.createElement('div');
+  activity.className = 'admin-request-meta';
+  activity.textContent = [
+    entry.hasSession ? 'signed in (has a live credential)' : 'no stored credential',
+    entry.lastSeen ? `last active ${new Date(entry.lastSeen).toLocaleString()}` : 'never active',
+  ].join(' · ');
+  card.appendChild(activity);
 
   const motivation = document.createElement('p');
   motivation.className = 'admin-request-motivation';
   motivation.textContent = entry.motivation || '(no reason given yet)';
   card.appendChild(motivation);
 
-  if (entry.status === 'pending') {
-    const note = document.createElement('input');
-    note.type = 'text';
-    note.className = 'admin-note-input';
-    note.placeholder = 'Note (optional, shown to them if rejected)';
+  if (entry.status !== 'pending' && entry.adminNote) {
+    const note = document.createElement('div');
+    note.className = 'admin-request-meta';
+    note.textContent = `note: ${entry.adminNote}`;
     card.appendChild(note);
-
-    const actions = document.createElement('div');
-    actions.className = 'admin-request-actions';
-    for (const [decision, label, cls] of [['approve', 'Approve', ''], ['reject', 'Reject', 'secondary']]) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = `settings-btn${cls ? ` ${cls}` : ''}`;
-      btn.dataset.decision = decision;
-      btn.textContent = label;
-      actions.appendChild(btn);
-    }
-    card.appendChild(actions);
-  } else {
-    const decided = document.createElement('div');
-    decided.className = 'admin-request-meta';
-    decided.textContent = `${entry.status}${entry.adminNote ? ` — ${entry.adminNote}` : ''}`;
-    card.appendChild(decided);
   }
+
+  const noteInput = document.createElement('input');
+  noteInput.type = 'text';
+  noteInput.className = 'admin-note-input';
+  noteInput.placeholder = 'Note (optional, shown to them if declined)';
+  card.appendChild(noteInput);
+
+  // Actions on EVERY status, not just pending. Approval used to be a one-way
+  // door: approve/reject rendered for pending rows only, so an approved account
+  // could never be revoked from the UI even though the route always allowed it.
+  const actions = document.createElement('div');
+  actions.className = 'admin-request-actions';
+
+  const buttons = [];
+  if (entry.status !== 'approved') buttons.push(['approve', 'Approve', '']);
+  if (entry.status !== 'rejected') buttons.push(['reject', entry.status === 'approved' ? 'Revoke access' : 'Decline', 'secondary']);
+  if (entry.hasSession) buttons.push(['signout', 'Force sign-out', 'secondary']);
+
+  for (const [action, label, cls] of buttons) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `settings-btn${cls ? ` ${cls}` : ''}`;
+    btn.dataset.action = action;
+    btn.textContent = label;
+    actions.appendChild(btn);
+  }
+  card.appendChild(actions);
 
   return card;
 }
@@ -5346,10 +5367,17 @@ async function loadAdminQueue() {
     if (empty) empty.hidden = entries.length > 0;
 
     // The chip's count is how an admin learns anyone is waiting at all, so it
-    // tracks the PENDING total regardless of which filter is being viewed.
-    if (status === 'pending') {
-      const chip = document.getElementById('adminCount');
-      if (chip) chip.textContent = String(body.total ?? entries.length);
+    // tracks the PENDING total regardless of which filter is being viewed —
+    // which is why the server returns counts for every status on every call.
+    const counts = body.counts || {};
+    const chip = document.getElementById('adminCount');
+    if (chip) {
+      chip.textContent = String(counts.pending ?? 0);
+      chip.hidden = !(counts.pending > 0);
+    }
+    const summary = document.getElementById('adminCounts');
+    if (summary) {
+      summary.textContent = `${counts.pending ?? 0} waiting · ${counts.approved ?? 0} approved · ${counts.rejected ?? 0} declined`;
     }
 
     // The queue is paged server-side; say so rather than implying this is all
@@ -5369,29 +5397,62 @@ async function loadAdminQueue() {
 // ONE delegated listener, attached once — never per card. Re-rendering the
 // queue would otherwise leave dead buttons behind and grow a listener per row.
 document.getElementById('adminQueueList')?.addEventListener('click', async (e) => {
-  const btn = e.target.closest('button[data-decision]');
+  const btn = e.target.closest('button[data-action]');
   if (!btn) return;
   const card = btn.closest('.admin-request');
   if (!card) return;
 
-  const decision = btn.dataset.decision;
+  const action = btn.dataset.action;
   const who = card.querySelector('.admin-request-who')?.textContent || 'this person';
-  if (decision === 'reject' && !confirm(`Reject ${who}? They will not be able to ask again.`)) return;
+  const wasApproved = card.dataset.status === 'approved';
+
+  // Confirm only the destructive ones, and say what actually happens. Revoking
+  // an already-approved person is a different sentence from declining an
+  // applicant, and a confirm that lies is worse than none.
+  if (action === 'reject') {
+    const message = wasApproved
+      ? `Revoke access for ${who}? They lose access immediately and cannot ask again.`
+      : `Decline ${who}? They will not be able to ask again.`;
+    if (!confirm(message)) return;
+  }
+  if (action === 'signout' && !confirm(`Sign ${who} out on every device?`)) return;
+
+  const url = action === 'signout'
+    ? `/api/admin/users/${encodeURIComponent(card.dataset.userId)}/signout`
+    : `/api/admin/registrations/${encodeURIComponent(card.dataset.userId)}`;
+  const body = action === 'signout'
+    ? {}
+    : { decision: action, note: card.querySelector('.admin-note-input')?.value || '' };
 
   card.querySelectorAll('button').forEach((b) => { b.disabled = true; });
   try {
-    const res = await fetch(`/api/admin/registrations/${encodeURIComponent(card.dataset.userId)}`, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ decision, note: card.querySelector('.admin-note-input')?.value || '' }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      showToast('error', body.error?.message || 'That decision did not go through.');
+      const err = await res.json().catch(() => ({}));
+      showToast('error', err.error?.message || 'That did not go through.');
       card.querySelectorAll('button').forEach((b) => { b.disabled = false; });
       return;
     }
-    showToast('info', decision === 'approve' ? `${who} approved.` : `${who} rejected.`);
+
+    // Revoking is only half the job: a stateless session cookie stays valid
+    // until it expires, so a revoked person would keep working for up to a
+    // month. Ending their sessions is what makes the revocation take effect
+    // now, and doing it automatically means an admin cannot forget.
+    if (action === 'reject' && wasApproved) {
+      await fetch(`/api/admin/users/${encodeURIComponent(card.dataset.userId)}/signout`, {
+        method: 'POST',
+      }).catch(() => {});
+    }
+
+    showToast('info', {
+      approve: `${who} approved.`,
+      reject: wasApproved ? `${who}'s access revoked.` : `${who} declined.`,
+      signout: `${who} signed out everywhere.`,
+    }[action]);
     await loadAdminQueue();
   } catch {
     showToast('error', 'Could not reach the server.');

@@ -39,6 +39,7 @@ import {
   openSyncDb, upsertUser, getUser, pullEntries, pushEntries, userBytes, deleteUser,
   bumpTokenVersion, upsertAtprotoUser, saveAtprotoTokens, deleteAtprotoTokens,
   submitRegistration, decideRegistration, listRegistrations, setStatus,
+  touchLastSeen, forceSignOut,
 } from './syncStore.js';
 import {
   resolveAccount, createSession as atprotoCreateSession, deriveKey, encryptSecret,
@@ -764,6 +765,10 @@ function requireApproved(req, res, next) {
 
   if (user.status === 'approved') {
     req.echoUserId = uid;
+    // Throttled to one write per user per 15 minutes — see touchLastSeen. A
+    // write on every authorised request would put SQLite on the hot path of an
+    // app that streams long transcripts.
+    try { touchLastSeen(uid); } catch { /* never fail a request over telemetry */ }
     return next();
   }
 
@@ -1886,6 +1891,24 @@ app.post('/api/admin/registrations/:userId', requireAuthConfigured, requireAdmin
   }
 
   logEvent('admin-decision', { ok: true, decision });
+  return res.json({ ok: true });
+});
+
+/**
+ * End every session an account has, everywhere.
+ *
+ * Separate from revoking access on purpose: they answer different questions.
+ * Revoking says "you may not use this any more"; this says "whatever is holding
+ * a session right now, stop" — the move for a laptop left in a cafe, or for
+ * making a revocation take effect immediately rather than when a stateless
+ * cookie happens to expire.
+ */
+app.post('/api/admin/users/:userId/signout', requireAuthConfigured, requireAdmin, (req, res) => {
+  const result = forceSignOut(req.params.userId);
+  if (!result.ok) {
+    return sendError(res, 'API_FAILED', 'That account could not be signed out.', '', 404);
+  }
+  logEvent('admin-signout', { ok: true, self: req.params.userId === req.echoUserId });
   return res.json({ ok: true });
 });
 

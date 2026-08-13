@@ -59,6 +59,7 @@ export function openSyncDb(path) {
       decided_at      TEXT,
       decided_by      TEXT,   -- the admin DID that decided
       admin_note      TEXT,
+      last_seen       TEXT,   -- throttled; see touchLastSeen()
 
       -- Bumping this invalidates every session already issued for the account.
       -- It is the one column that buys back what stateless cookies give up:
@@ -183,27 +184,42 @@ function migrateUsersForAtproto(handle) {
  * @param {import('node:sqlite').DatabaseSync} handle
  */
 function migrateUsersForApproval(handle) {
-  const cols = handle.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
-  if (cols.includes('status')) return;
-
-  const added = [
-    "status TEXT NOT NULL DEFAULT 'pending'",
-    'motivation TEXT',
-    'referral_source TEXT',
-    'contact TEXT',
-    'requested_at TEXT',
-    'decided_at TEXT',
-    'decided_by TEXT',
-    'admin_note TEXT',
+  // Per-COLUMN, not all-or-nothing. An earlier version returned early if
+  // `status` existed and then added the whole list — which silently skipped any
+  // column introduced later, because by then `status` was always present. A
+  // database created between the two releases ended up with `status` and no
+  // `last_seen`, and every query naming that column failed. This shape
+  // self-heals for the next column too.
+  const columns = [
+    ['status', "status TEXT NOT NULL DEFAULT 'pending'"],
+    ['motivation', 'motivation TEXT'],
+    ['referral_source', 'referral_source TEXT'],
+    ['contact', 'contact TEXT'],
+    ['requested_at', 'requested_at TEXT'],
+    ['decided_at', 'decided_at TEXT'],
+    ['decided_by', 'decided_by TEXT'],
+    ['admin_note', 'admin_note TEXT'],
+    ['last_seen', 'last_seen TEXT'],
   ];
-  for (const spec of added) {
+
+  const existing = new Set(handle.prepare('PRAGMA table_info(users)').all().map((c) => c.name));
+  let addedStatus = false;
+
+  for (const [name, spec] of columns) {
+    if (existing.has(name)) continue;
     try {
       handle.exec(`ALTER TABLE users ADD COLUMN ${spec}`);
+      if (name === 'status') addedStatus = true;
     } catch (err) {
       if (!/duplicate column/i.test(err?.message || '')) throw err;
     }
   }
-  handle.exec("UPDATE users SET status = 'approved'");
+
+  // Only when `status` itself was just added: every row present at that moment
+  // predates the gate, and locking those people out on an instance whose admin
+  // may have no UI to unlock them with would be a self-inflicted outage. Running
+  // this on any later pass would silently approve the entire pending queue.
+  if (addedStatus) handle.exec("UPDATE users SET status = 'approved'");
 }
 
 /** Test seam: drop the handle so a suite can point at a fresh file. */
@@ -402,11 +418,21 @@ export function listRegistrations({ status = 'pending', limit = 50, offset = 0 }
   const from = Math.max(0, Number(offset) || 0);
 
   const total = Number(db.prepare('SELECT COUNT(*) AS n FROM users WHERE status = ?').get(status).n) || 0;
+
+  // LEFT JOIN, so a row without stored credentials still appears. hasSession
+  // answers "does this account have a working credential", NOT "is this person
+  // here right now" — sessions are stateless signed cookies with no table, so
+  // nothing on this server knows who has a tab open. Labelling it "online"
+  // would be a lie the schema cannot back.
   const rows = db.prepare(`
-    SELECT id, provider, did, handle, email, status, motivation, referral_source, contact,
-           requested_at, decided_at, decided_by, admin_note, createdAt
-    FROM users WHERE status = ?
-    ORDER BY COALESCE(requested_at, createdAt) ASC
+    SELECT u.id, u.provider, u.did, u.handle, u.email, u.status, u.motivation,
+           u.referral_source, u.contact, u.requested_at, u.decided_at, u.decided_by,
+           u.admin_note, u.createdAt, u.last_seen,
+           (s.userId IS NOT NULL) AS hasSession
+    FROM users u
+    LEFT JOIN atproto_sessions s ON s.userId = u.id
+    WHERE u.status = ?
+    ORDER BY COALESCE(u.requested_at, u.createdAt) ASC
     LIMIT ? OFFSET ?
   `).all(status, capped, from);
 
@@ -426,10 +452,61 @@ export function listRegistrations({ status = 'pending', limit = 50, offset = 0 }
       decidedBy: r.decided_by || '',
       adminNote: r.admin_note || '',
       createdAt: r.createdAt,
+      lastSeen: r.last_seen || null,
+      hasSession: Boolean(r.hasSession),
     })),
     total,
+    counts: statusCounts(),
     hasMore: from + rows.length < total,
   };
+}
+
+/** How many accounts sit in each status — the admin's at-a-glance figure. */
+export function statusCounts() {
+  const rows = db.prepare('SELECT status, COUNT(*) AS n FROM users GROUP BY status').all();
+  const out = { pending: 0, approved: 0, rejected: 0 };
+  for (const r of rows) out[r.status] = Number(r.n) || 0;
+  return out;
+}
+
+/**
+ * Record that an account was active, at most once every THROTTLE_MS.
+ *
+ * The naive version writes a row on EVERY authorised request, which puts a
+ * SQLite write on the hot path of an app whose whole point is streaming long
+ * transcripts. Throttling in memory means the timestamp is accurate to the
+ * quarter hour, which is all "last seen" ever needs to be, and the counter
+ * resets on restart — losing at most one write per user, which costs nothing.
+ *
+ * @param {string} userId
+ * @param {number} [now]
+ */
+const lastSeenWrites = new Map();
+const LAST_SEEN_THROTTLE_MS = 15 * 60_000;
+
+export function touchLastSeen(userId, now = Date.now()) {
+  const previous = lastSeenWrites.get(userId) || 0;
+  if (now - previous < LAST_SEEN_THROTTLE_MS) return false;
+  lastSeenWrites.set(userId, now);
+  db.prepare('UPDATE users SET last_seen = ? WHERE id = ?').run(new Date(now).toISOString(), userId);
+  return true;
+}
+
+/**
+ * End every session for an account and forget its Bluesky credentials.
+ *
+ * The two halves are both needed: bumping tokenVersion invalidates the signed
+ * cookies (which cannot otherwise be revoked before they expire), and dropping
+ * the stored refresh token stops the server acting for them afterwards.
+ *
+ * @param {string} userId
+ */
+export function forceSignOut(userId) {
+  const row = db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
+  if (!row) return { ok: false, reason: 'no_such_user' };
+  db.prepare('UPDATE users SET tokenVersion = tokenVersion + 1 WHERE id = ?').run(userId);
+  db.prepare('DELETE FROM atproto_sessions WHERE userId = ?').run(userId);
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------

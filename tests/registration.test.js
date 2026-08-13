@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import {
   openSyncDb, closeSyncDb, upsertUser, upsertAtprotoUser, getUser,
   submitRegistration, decideRegistration, listRegistrations, setStatus, getApproval,
+  saveAtprotoTokens, getAtprotoTokens, forceSignOut, touchLastSeen, statusCounts,
   FIELD_LIMITS,
 } from '../syncStore.js';
 
@@ -216,4 +217,129 @@ test('accounts that predate approval are grandfathered in, not locked out', () =
   // But the gate is live for everyone new.
   const n = upsertAtprotoUser({ did: 'did:plc:new', handle: 'new.bsky.social' });
   assert.equal(getUser(n.id).status, 'pending');
+});
+
+// ---------------------------------------------------------------------------
+// Admin maintenance: revoke, force sign-out, activity
+// ---------------------------------------------------------------------------
+
+test('approval is not a one-way door — an approved account can be revoked', () => {
+  fresh('revoke');
+  const u = upsertAtprotoUser({ did: 'did:plc:alice', handle: 'alice.bsky.social' });
+  submitRegistration(u.id, { motivation: 'please' });
+  decideRegistration(u.id, { status: 'approved', decidedBy: 'did:plc:admin' });
+  assert.equal(getUser(u.id).status, 'approved');
+
+  decideRegistration(u.id, { status: 'rejected', decidedBy: 'did:plc:admin', adminNote: 'changed my mind' });
+  assert.equal(getUser(u.id).status, 'rejected');
+  assert.equal(getUser(u.id).adminNote, 'changed my mind');
+});
+
+test('forceSignOut ends every session and forgets the credential', () => {
+  fresh('forcesignout');
+  const u = upsertAtprotoUser({ did: 'did:plc:alice', handle: 'alice.bsky.social' });
+  saveAtprotoTokens({ userId: u.id, did: 'did:plc:alice', pdsUrl: 'https://pds.example', refreshJwt: 'sealed' });
+  const before = getUser(u.id).tokenVersion;
+
+  assert.deepEqual(forceSignOut(u.id), { ok: true });
+
+  // Both halves are needed: the bump invalidates already-issued cookies (which
+  // are stateless and cannot otherwise be revoked), and dropping the token
+  // stops the server acting for them afterwards.
+  assert.equal(getUser(u.id).tokenVersion, before + 1, 'sessions invalidated');
+  assert.equal(getAtprotoTokens(u.id), null, 'credential forgotten');
+
+  assert.deepEqual(forceSignOut('nobody'), { ok: false, reason: 'no_such_user' });
+});
+
+test('the queue reports whether an account holds a live credential', () => {
+  fresh('hassession');
+  const a = upsertAtprotoUser({ did: 'did:plc:alice', handle: 'alice.bsky.social' });
+  const b = upsertAtprotoUser({ did: 'did:plc:bob', handle: 'bob.bsky.social' });
+  submitRegistration(a.id, { motivation: 'a' });
+  submitRegistration(b.id, { motivation: 'b' });
+  saveAtprotoTokens({ userId: a.id, did: 'did:plc:alice', pdsUrl: 'https://pds.example', refreshJwt: 'sealed' });
+
+  const rows = listRegistrations({ status: 'pending' }).entries;
+  const alice = rows.find((r) => r.did === 'did:plc:alice');
+  const bob = rows.find((r) => r.did === 'did:plc:bob');
+
+  // A LEFT JOIN, so the account WITHOUT credentials still appears — an inner
+  // join here would silently hide everyone who has never signed in.
+  assert.equal(rows.length, 2);
+  assert.equal(alice.hasSession, true);
+  assert.equal(bob.hasSession, false);
+});
+
+test('last-seen is throttled, not written on every request', () => {
+  fresh('lastseen');
+  const u = upsertAtprotoUser({ did: 'did:plc:alice' });
+  const t0 = Date.parse('2026-08-13T10:00:00.000Z');
+
+  assert.equal(touchLastSeen(u.id, t0), true, 'first touch writes');
+  assert.equal(touchLastSeen(u.id, t0 + 60_000), false, 'a minute later does not');
+  assert.equal(touchLastSeen(u.id, t0 + 14 * 60_000), false, 'still inside the window');
+  assert.equal(touchLastSeen(u.id, t0 + 16 * 60_000), true, 'past the window it writes again');
+
+  const [row] = listRegistrations({ status: 'pending' }).entries;
+  assert.equal(row.lastSeen, new Date(t0 + 16 * 60_000).toISOString());
+});
+
+test('the counts cover every status, not just the one being viewed', () => {
+  fresh('counts');
+  const mk = (did, status) => {
+    const u = upsertAtprotoUser({ did });
+    submitRegistration(u.id, { motivation: 'x' });
+    if (status !== 'pending') decideRegistration(u.id, { status, decidedBy: 'did:plc:admin' });
+    return u;
+  };
+  mk('did:plc:a', 'pending');
+  mk('did:plc:b', 'pending');
+  mk('did:plc:c', 'approved');
+  mk('did:plc:d', 'rejected');
+
+  // Viewing the approved list must still report how many are WAITING — that
+  // number is the admin's only notification that anyone is.
+  const viewingApproved = listRegistrations({ status: 'approved' });
+  assert.deepEqual(viewingApproved.counts, { pending: 2, approved: 1, rejected: 1 });
+  assert.deepEqual(statusCounts(), { pending: 2, approved: 1, rejected: 1 });
+});
+
+test('a database from BETWEEN two releases gets the columns it is missing', () => {
+  closeSyncDb();
+  const p = join(tmpdir(), `echo-test-reg-partial-${process.pid}-${Date.now()}.db`);
+  paths.push(p);
+
+  // The real shape that broke: a database created after `status` shipped but
+  // before `last_seen` did. The old guard returned early because `status`
+  // existed, so `last_seen` was never added and every query naming it failed.
+  const old = new DatabaseSync(p);
+  old.exec(`
+    CREATE TABLE users (
+      id TEXT PRIMARY KEY, provider TEXT NOT NULL DEFAULT 'google',
+      google_sub TEXT UNIQUE, did TEXT UNIQUE, handle TEXT, email TEXT,
+      createdAt TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending', motivation TEXT,
+      referral_source TEXT, contact TEXT, requested_at TEXT,
+      decided_at TEXT, decided_by TEXT, admin_note TEXT,
+      tokenVersion INTEGER NOT NULL DEFAULT 0
+    );
+    INSERT INTO users (id, provider, did, handle, createdAt, status, requested_at, motivation)
+      VALUES ('u1', 'atproto', 'did:plc:waiting', 'waiting.bsky.social',
+              '2026-08-01T00:00:00Z', 'pending', '2026-08-01T00:00:00Z', 'let me in');
+  `);
+  old.close();
+
+  openSyncDb(p);
+
+  // The missing column is added...
+  assert.doesNotThrow(() => listRegistrations({ status: 'pending' }));
+  const [row] = listRegistrations({ status: 'pending' }).entries;
+  assert.equal(row.lastSeen, null);
+  assert.equal(touchLastSeen('u1', Date.parse('2026-08-13T00:00:00Z')), true);
+  assert.equal(listRegistrations({ status: 'pending' }).entries[0].lastSeen, '2026-08-13T00:00:00.000Z');
+
+  // ...and the grandfather UPDATE does NOT re-run. Re-approving on every later
+  // migration pass would silently let the whole pending queue in.
+  assert.equal(getUser('u1').status, 'pending', 'a waiting applicant must stay waiting');
 });
