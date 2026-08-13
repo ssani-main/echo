@@ -34,8 +34,10 @@ import {
   touchLastSeen, forceSignOut,
 } from './syncStore.js';
 import {
-  resolveAccount, createSession as atprotoCreateSession, deriveKey, encryptSecret,
+  resolveAccount, createSession as atprotoCreateSession, deriveKey, encryptSecret, decryptSecret,
 } from './atproto.js';
+import { createPdsSync } from './pdsSync.js';
+import { COLLECTION as PDS_COLLECTION } from './pds.js';
 import { logEvent, errLabel } from './usagelog.js';
 import { validateApiKey } from './providers.js';
 
@@ -1560,6 +1562,55 @@ const ATPROTO_SIGNIN_LIMIT = numFromEnv('ECHO_ATPROTO_SIGNIN_LIMIT', 10, { min: 
 /** Either provider being configured means accounts exist on this instance. */
 const ACCOUNTS_ENABLED = AUTH_ENABLED || ATPROTO_ENABLED;
 
+// Mirroring a library into its owner's own atproto repository (ATPROTO.md
+// Phase 5). Off unless Bluesky sign-in is on, because it is the same
+// credentials — and off in web mode, where there is no server-side library to
+// mirror in the first place.
+const PDS_SYNC_ENABLED = ATPROTO_ENABLED && !isWeb
+  && !/^(0|false|no)$/i.test(process.env.ECHO_PDS_SYNC ?? '1');
+
+const pdsSync = PDS_SYNC_ENABLED
+  ? createPdsSync({
+    getTokens: (userId) => getAtprotoTokens(userId),
+    saveTokens: ({ userId, did, pdsUrl, refreshJwt }) => saveAtprotoTokens({ userId, did, pdsUrl, refreshJwt }),
+    seal: (plain) => encryptSecret(plain, ATPROTO_KEY),
+    open: (blob) => decryptSecret(blob, ATPROTO_KEY),
+  })
+  : null;
+
+/**
+ * Mirror a library change into the owner's repository, in the background.
+ *
+ * Deliberately NOT awaited by the routes. Saving a video must not get slower,
+ * or fail, because someone else's PDS is slow or down — the library write has
+ * already succeeded and is the thing the user asked for. A failure here is
+ * logged and the next save re-pushes, because putRecord is idempotent on the
+ * video id.
+ *
+ * @param {string|null} userId
+ * @param {'push'|'remove'} action
+ * @param {object|string} payload an entry to push, or a videoId to remove
+ */
+function mirrorToPds(userId, action, payload) {
+  if (!pdsSync || !userId || userId === DEFAULT_OWNER) return;
+  const run = action === 'push'
+    // Re-read the entry rather than mirroring the request body: the stored
+    // entry is the canonical one — it carries the tags, the normalised URL and
+    // the updatedAt the client never sent.
+    ? payload.lib.getEntry(payload.videoId).then((entry) => (
+      entry ? pdsSync.pushEntry(userId, entry) : { ok: false, reason: 'gone' }
+    ))
+    : pdsSync.removeEntry(userId, payload);
+
+  run.then((r) => {
+    if (r && r.ok === false && r.reason !== 'no_credentials') {
+      console.warn(`[echo] pds ${action} skipped: ${r.reason}`);
+    }
+  }).catch((err) => {
+    console.warn(`[echo] pds ${action} failed: ${err?.message || err}`);
+  });
+}
+
 // Who may approve people. Comma-separated DIDs — the operator's own Bluesky
 // account(s). Held in the environment rather than a database flag so that no
 // sequence of requests can promote anyone: becoming an admin requires access to
@@ -1930,6 +1981,60 @@ app.post('/api/admin/registrations/:userId', requireAuthConfigured, requireAdmin
  * making a revocation take effect immediately rather than when a stateless
  * cookie happens to expire.
  */
+// ---------------------------------------------------------------------------
+// Repository mirror (ATPROTO.md Phase 5)
+// ---------------------------------------------------------------------------
+
+app.get('/api/pds/status', requireApproved, (req, res) => {
+  if (!pdsSync) return res.json({ enabled: false, collection: null, connected: false });
+  return res.json({
+    enabled: true,
+    collection: PDS_COLLECTION,
+    connected: Boolean(req.echoUserId && getAtprotoTokens(req.echoUserId)),
+  });
+});
+
+/**
+ * Pull a library back out of the owner's repository.
+ *
+ * The portability payoff: everything Echo knows can be rebuilt from records the
+ * person owns. Writes each entry as it arrives rather than collecting them —
+ * a library is the biggest thing in this app and holding one in memory with
+ * transcripts attached is the unbounded read this codebase has got wrong seven
+ * times.
+ */
+app.post('/api/pds/restore', requireApproved, async (req, res) => {
+  if (!pdsSync) {
+    return sendError(res, 'WEB_MODE_UNSUPPORTED', 'Repository sync is not enabled on this instance.', '', 503);
+  }
+
+  const lib = libraryFor(req);
+  try {
+    const result = await pdsSync.pullAll(req.echoUserId, {
+      onEntry: async (entry) => {
+        await lib.saveEntry(entry);
+        // NOT mirrored back: these entries came FROM the repository, and
+        // pushing them straight back would be a write per restored video for
+        // no change at all.
+      },
+    });
+    if (result.reason === 'no_credentials') {
+      return sendError(res, 'API_NOT_AUTHED', 'Sign in with Bluesky again to restore.', '', 401);
+    }
+    logEvent('pds-restore', { ok: true, restored: result.restored });
+    return res.json(result);
+  } catch (err) {
+    return sendError(
+      res,
+      err?.echoCode || 'API_FAILED',
+      err?.message || 'Could not restore from your repository.',
+      err?.hint || '',
+      err?.status || 502,
+      err?.detail ? { detail: err.detail } : {}
+    );
+  }
+});
+
 app.post('/api/admin/users/:userId/signout', requireAuthConfigured, requireAdmin, (req, res) => {
   const result = forceSignOut(req.params.userId);
   if (!result.ok) {
@@ -2125,7 +2230,9 @@ app.patch('/api/saved/:videoId/tags', blockInWeb, requireApproved, async (req, r
     if (!Array.isArray(tags)) {
       return sendError(res, 'INTERNAL', 'tags must be an array.', '', 400);
     }
-    const entry = await libraryFor(req).setTags(req.params.videoId, tags);
+    const lib = libraryFor(req);
+    const entry = await lib.setTags(req.params.videoId, tags);
+    if (entry) mirrorToPds(req.echoUserId, 'push', { lib, videoId: req.params.videoId });
     if (!entry) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
     res.json(entry);
   } catch (err) {
@@ -2205,7 +2312,9 @@ app.post('/api/saved', blockInWeb, requireApproved, async (req, res) => {
     if (!videoId || !Array.isArray(segments) || segments.length === 0) {
       return sendError(res, 'INTERNAL', 'videoId and segments are required.', '', 400);
     }
-    const meta = await libraryFor(req).saveEntry({ url, videoId, title, segments, digest, channel, channelUrl, transcriptSource, whisperModel });
+    const lib = libraryFor(req);
+    const meta = await lib.saveEntry({ url, videoId, title, segments, digest, channel, channelUrl, transcriptSource, whisperModel });
+    mirrorToPds(req.echoUserId, 'push', { lib, videoId });
     logEvent('save', { videoId, hadDigest: Boolean(digest), ok: true, ms: Date.now() - t0 });
     res.json(meta);
   } catch (err) {
@@ -2217,6 +2326,7 @@ app.delete('/api/saved/:videoId', blockInWeb, requireApproved, async (req, res) 
   const t0 = Date.now();
   try {
     const ok = await libraryFor(req).deleteEntry(req.params.videoId);
+    if (ok) mirrorToPds(req.echoUserId, 'remove', req.params.videoId);
     if (!ok) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
     logEvent('unsave', { videoId: req.params.videoId, ok: true, ms: Date.now() - t0 });
     res.json({ ok: true });

@@ -62,6 +62,7 @@
       "../auth.js": "auth.js",
       "../atproto.js": "atproto.js",
       "../pds.js": "pds.js",
+      "../pdsSync.js": "pdsSync.js",
       "../syncStore.js": "syncStore.js",
       "../usagelog.js": "usagelog.js",
       "../package.json": "package.json",

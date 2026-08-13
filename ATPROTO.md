@@ -1,6 +1,6 @@
 # Bluesky accounts, registration and approval
 
-Status: **Phases 1–4 built** (2026-08-13, branch `feat/atproto-signin`).
+Status: **Phases 1–5 built** (2026-08-13, branch `feat/atproto-signin`).
 Sign-in, registration, admin approval and the access gate all work end to end
 against a real Bluesky account, and every account has its own library. Phase 5
 is the only one left.
