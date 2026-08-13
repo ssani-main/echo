@@ -17,16 +17,20 @@
            inside it) while "Markdown vault" used a third treatment borrowed
            from the checkbox rows. One class per level now. -->
       <span class="settings-section-title">Account</span>
+      <!-- Identity and sign-out only. Sign-in and the access request moved
+           out to the gate screens, and the approval queue to its own pane:
+           a first-time visitor was being sent here to find a sign-in field,
+           past the Whisper and Obsidian sections. Sign-in is not a setting.
+
+           Keeping a second copy of either form here would be the
+           extractSummary drift and the duplicated reading controls in a
+           third costume — one control that carries state, in one place. -->
       <div id="accountSignedOut">
-        <p class="settings-note">
-          Sign in to keep your saved videos in step across your devices. Your
-          library is stored in this browser; signing in adds a synced copy.
-        </p>
-        <button type="button" id="signInBtn" class="settings-btn">Sign in with Google</button>
+        <p class="settings-note" id="accountSignedOutNote">Not signed in.</p>
       </div>
       <div id="accountSignedIn" hidden>
         <p class="settings-note">
-          Signed in as <strong id="accountEmail"></strong> · <span id="syncStatus">library syncing</span>
+          Signed in as <strong id="accountEmail"></strong><span id="syncStatus"> · library syncing</span>
         </p>
         <div class="account-actions">
           <button type="button" id="syncNowBtn" class="settings-btn">Sync now</button>

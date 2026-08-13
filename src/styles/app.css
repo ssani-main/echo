@@ -247,6 +247,8 @@ body.printing-digest::after { display: none; }
 .local-file-row,
 #status,
 .next-action-nudge,
+.gate,
+.admin-pane,
 .site-footer {
   /* max(), not a flat --chrome-max: the reading column can be widened to 940px
      by the Wide setting, and a 760px command bar above a 940px reader put two
@@ -270,6 +272,13 @@ body.pane-library .local-file-row,
 body.pane-library #status,
 body.pane-library .next-action-nudge,
 body.pane-library .site-footer {
+  max-width: var(--col-max);
+}
+
+/* Same rule for the admin queue: a request card grid under a 760px header
+   would put two left edges on screen, exactly as the Library did. */
+body.pane-admin .site-header,
+body.pane-admin .site-footer {
   max-width: var(--col-max);
 }
 
@@ -3053,6 +3062,256 @@ kbd {
   border-top: 1px solid var(--rule);
   margin: var(--space-9) 0;
 }
+
+/* ---------------------------------------------------------------------------
+   The access gate, and the admin queue
+   ---------------------------------------------------------------------------
+   Hidden by default and revealed via :not([hidden]) rather than relying on the
+   UA [hidden] rule — every one of these sets `display`, which is an author rule
+   and beats it. That is the trap that left .local-file-row permanently visible;
+   the guard goes in with the element, not after someone notices.
+
+   No new colour, no new face, no larger type. Hierarchy here is weight and
+   --title, same as everywhere else in Plaintext. */
+
+.gate,
+.gate-screen,
+.admin-pane {
+  display: none;
+}
+.gate:not([hidden]),
+.gate-screen:not([hidden]) {
+  display: block;
+}
+.admin-pane:not([hidden]) {
+  display: block;
+  margin-top: var(--space-9);
+}
+
+.gate {
+  margin-top: var(--space-10);
+  margin-bottom: var(--space-10);
+}
+
+/* A heading at body size, carrying its weight through --title — the theme's
+   rule. If this ever needs more emphasis, reach for weight, never font-size. */
+.gate-title {
+  font-family: var(--font-stack);
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--title);
+  margin: 0 0 var(--space-5);
+}
+
+.gate-lede {
+  margin: 0 0 var(--space-8);
+  max-width: 62ch;
+  color: var(--ink);
+}
+
+.gate-form {
+  display: flex;
+  flex-direction: column;
+  max-width: 46ch;
+}
+
+.gate-form .digest-opt-label { margin-bottom: var(--space-2); }
+
+#gateHandle,
+#gatePassword,
+#gateMotivation,
+#gateReferral,
+#gateContact,
+.admin-note-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-4) var(--space-6);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  outline: none;
+  margin: 0 0 var(--space-6);
+  transition: border-color var(--dur), box-shadow var(--dur);
+}
+#gateHandle:focus,
+#gatePassword:focus,
+#gateMotivation:focus,
+#gateReferral:focus,
+#gateContact:focus,
+.admin-note-input:focus {
+  border-color: var(--title);
+}
+#gateMotivation {
+  resize: vertical;
+  min-height: 5.5em;
+}
+
+/* The sentence that turns a reasonable suspicion into a decision. It sits
+   between the password field and the button on purpose — after the ask, before
+   the commit. */
+.gate-note {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  margin: 0 0 var(--space-7);
+}
+
+.gate-form .settings-btn { align-self: flex-start; }
+
+/* --warn stays chromatic here on purpose: it is semantic, not decorative, and
+   an invisible error is a bug rather than restraint. */
+.gate-error {
+  margin: var(--space-5) 0 0;
+  font-size: var(--text-sm);
+  color: var(--warn);
+}
+.gate-error[hidden] { display: none; }
+
+/* While gated, controls that cannot work are not rendered at all. An enabled
+   paste box that silently does nothing was the single worst thing about the
+   first version of this flow — a dead control is a worse first impression than
+   an absent one. */
+body.gate-welcome .hero-landing,
+body.gate-request .hero-landing,
+body.gate-waiting .hero-landing,
+body.gate-declined .hero-landing,
+body.gate-welcome .command-bar,
+body.gate-request .command-bar,
+body.gate-waiting .command-bar,
+body.gate-declined .command-bar,
+body.gate-welcome .local-file-row,
+body.gate-request .local-file-row,
+body.gate-waiting .local-file-row,
+body.gate-declined .local-file-row,
+body.gate-welcome #libraryBtn,
+body.gate-request #libraryBtn,
+body.gate-waiting #libraryBtn,
+body.gate-declined #libraryBtn,
+body.gate-welcome #status,
+body.gate-request #status,
+body.gate-waiting #status,
+body.gate-declined #status,
+/* #output carries the first-run onboarding card, whose copy is "paste a link
+   above … no account needed" — a direct contradiction of an invite-only gate,
+   pointing at a paste box that isn't there. It has to go with the rest. */
+body.gate-welcome #output,
+body.gate-request #output,
+body.gate-waiting #output,
+body.gate-declined #output,
+body.gate-welcome .content-header,
+body.gate-request .content-header,
+body.gate-waiting .content-header,
+body.gate-declined .content-header,
+body.gate-welcome .lens-row,
+body.gate-request .lens-row,
+body.gate-waiting .lens-row,
+body.gate-declined .lens-row {
+  display: none;
+}
+
+/* [hidden] guard for the Requests chip. It borrows .library-btn, which sets
+   `display: flex` — an author rule, so `adminBtn.hidden = true` did nothing and
+   the chip showed "Requests 0" to signed-out strangers. Same trap as
+   .local-file-row and .mini-btn, third time in this file. */
+#adminBtn[hidden] { display: none; }
+
+/* Links inside the gate copy follow the footer's treatment: ink plus an
+   underline, never a blue. Plaintext has zero accent hue — the default UA link
+   colour was the one chromatic thing on the whole screen. */
+.gate-note a,
+.gate-lede a {
+  color: var(--title);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.gate-note a:hover,
+.gate-lede a:hover { color: var(--ink); }
+.gate-note a:focus-visible,
+.gate-lede a:focus-visible {
+  outline: 2px solid var(--title);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   Admin queue
+   -------------------------------------------------------------------------- */
+
+.admin-pane-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-7);
+}
+.admin-pane-title {
+  font-family: var(--font-stack);
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--title);
+  margin: 0;
+}
+.admin-pane-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.admin-pane-controls .digest-opt-label { margin: 0; }
+
+.admin-pane-counts {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* [hidden] guard: .library-btn-count sets `display`, so the badge would stay
+   visible at zero. Same trap as #adminBtn above it. */
+#adminCount[hidden] { display: none; }
+
+#adminQueueEmpty[hidden] { display: none; }
+
+.admin-request {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  padding: var(--space-6);
+  margin-bottom: var(--space-6);
+}
+.admin-request-who {
+  font-weight: 600;
+  color: var(--title);
+  overflow-wrap: anywhere;
+}
+.admin-request-meta {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  margin-top: var(--space-2);
+  overflow-wrap: anywhere;
+}
+/* Someone else's free text, so it wraps rather than stretching the pane. */
+.admin-request-motivation {
+  margin: var(--space-5) 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.admin-request-actions {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.admin-request-actions[hidden] { display: none; }
+
+/* Phones: the gate is the first thing a visitor sees, and a two-line button or
+   a field wider than the viewport would be the first thing they judge. */
+@media (max-width: 520px) {
+  .gate-form { max-width: none; }
+  .gate-lede { max-width: none; }
+  .gate-form .settings-btn { align-self: stretch; text-align: center; }
+  .admin-pane-head { flex-direction: column; align-items: flex-start; }
+}
+
 
 .settings-toggle-row {
   display: flex;

@@ -484,6 +484,28 @@ function idbCaughtError(err) {
    The Anthropic API key is not part of any of this and never leaves this
    browser — signing in changes where your LIBRARY lives, not your key.
 =============================================== */
+/**
+ * Is this /api/auth/me user object a signed-in person?
+ *
+ * NOT `user.email`, which is what this used to check: a Bluesky account has no
+ * email here, so an atproto session read as signed-OUT while the sync code —
+ * which tests `state.user` alone — happily synced under it. Two places
+ * disagreeing about whether someone is signed in is worse than either answer.
+ *
+ * @param {{email?: string, did?: string}|null} user
+ */
+function isSignedIn(user) {
+  return !!(user && (user.email || user.did));
+}
+
+/** What to show as "you are signed in as": an email, a handle, or a bare DID. */
+function identityLabel(user) {
+  if (!user) return '';
+  if (user.email) return user.email;
+  if (user.handle) return `@${user.handle}`;
+  return user.did || '';
+}
+
 const EchoSync = (() => {
   const CURSOR_KEY = 'echo-sync-cursor';
   // Bound on how many pages one sync will walk: 20 x 500 = 10k entries,
@@ -515,7 +537,12 @@ const EchoSync = (() => {
   }
 
   async function syncNow({ silent = true } = {}) {
-    if (!signedIn || syncing) return { skipped: true };
+    // Sync is web-mode only, and the guard lives HERE rather than at each call
+    // site. refresh() now runs in every mode so that sign-in and the approval
+    // gate work on a locally-hosted instance — which means `signedIn` can be
+    // true in local mode, where the library is server-side and there is nothing
+    // to reconcile. One guard at the door beats remembering it at four of them.
+    if (ECHO.mode !== 'web' || !signedIn || syncing) return { skipped: true };
     syncing = true;
     try {
       const cursor = localStorage.getItem(CURSOR_KEY) || '';
@@ -642,14 +669,22 @@ const EchoSync = (() => {
     pending = setTimeout(() => syncNow({ silent: true }), 1500);
   }
 
-  /** Ask the server who we are; returns the account state. */
+  /**
+   * Ask the server who we are; returns the account state.
+   *
+   * Deliberately NOT gated on web mode, unlike the sync it sits next to.
+   * Accounts are config-gated rather than mode-gated on the server, and the
+   * case that matters is a LOCAL instance published over a tunnel: sign-in and
+   * the approval gate are the whole point there, while the library stays
+   * server-side and there is nothing to sync. Asking in every mode costs one
+   * request that answers `{enabled:false}` on an unconfigured install.
+   */
   async function refresh() {
-    if (ECHO.mode !== 'web') return { enabled: false, user: null };
     try {
       const res = await fetch('/api/auth/me');
       const body = await res.json();
       enabled = !!body.enabled;
-      signedIn = !!(body.user && body.user.email);
+      signedIn = isSignedIn(body.user);
       return body;
     } catch {
       enabled = false; signedIn = false;
@@ -1201,10 +1236,44 @@ function buildErrorCard({ headline, hint, detail }) {
  *
  * @param {object} data - parsed response JSON (structured error envelope)
  */
+/**
+ * Reasons the access gate refuses, as sent by requireApproved() on the server.
+ *
+ * Four different situations that would otherwise all render as one generic
+ * "something went wrong": you are not signed in, you have not asked yet, you
+ * have asked and are waiting, or you were declined. Only the last is final, and
+ * only the first two are things the person can act on.
+ */
+const ACCESS_REASONS = new Set(['signed_out', 'unsubmitted', 'pending', 'rejected']);
+
+/** @param {{reason?: string}|undefined} env */
+function isAccessDenied(env) {
+  return Boolean(env && ACCESS_REASONS.has(env.reason));
+}
+
+/**
+ * A refusal from the gate means the account state changed under us — signed out
+ * in another tab, approved, or declined. Re-reading /api/auth/me and letting
+ * applyGateState() repaint is the ONLY correct response.
+ *
+ * The previous version painted an error card into a pane and left it there.
+ * Nothing repainted it when the state changed, so after signing in AND after
+ * submitting a request the page still read "Sign in to use this Echo" — a user
+ * was told to do the thing they had just done. Deriving the screen from state
+ * rather than from the last error makes that class of bug unrepresentable.
+ *
+ * @param {object} env the error envelope (unused; state is authoritative)
+ */
+function reportAccessDenied() {
+  setStatus('');
+  renderAccountState();
+}
+
 function renderTranscriptError(data) {
   console.error('[echo] transcript error:', data);
 
   const env     = data?.error;
+  if (isAccessDenied(env)) return void reportAccessDenied(env);
   const headline = env?.message || 'Could not fetch the transcript.';
   const hint     = env?.hint || '';
   const detail   = env?.detail || '';
@@ -1256,6 +1325,9 @@ function renderDigestError(data) {
   console.error('[echo] digest error:', data);
 
   const env      = data?.error;
+  if (isAccessDenied(env)) {
+    return void reportAccessDenied(env, document.getElementById('digestOutput'));
+  }
   const code     = env?.code;
   let headline   = env?.message || 'Failed to generate the digest.';
   let hint       = env?.hint || '';
@@ -1333,6 +1405,12 @@ function handleApiError(data, fallback) {
   console.error('[echo] API error:', data);
 
   const env = data?.error;
+
+  // The library flows toast rather than render a card, so the gate refusal
+  // arrives here too — including from the background loads a gated instance
+  // refuses on every page view.
+  if (isAccessDenied(env)) return void reportAccessDenied(env);
+
   let message, hint;
 
   // Desktop-specific: the CLI isn't installed/authed and the user hasn't
@@ -4985,28 +5063,421 @@ document.getElementById('settingsBackdrop')?.addEventListener('click', closeSett
  *  - Web mode with an empty field: treat Save as a clear (no validation needed).
  */
 /* ==============================================
-   ACCOUNT — Google sign-in for library sync (web mode)
-   Only appears when the server has accounts configured; a deployment
-   without them shows nothing and behaves exactly as before.
+   ACCOUNT + ACCESS GATE
+   The gate state is the PAGE's state, not an error that happened to arrive.
+   Exactly one of five screens is live at a time, derived from /api/auth/me:
+   welcome · request · waiting · declined · the app. On an instance with no
+   identity provider configured none of it exists and the page is the app,
+   byte-identical to before.
 =============================================== */
-async function renderAccountState() {
-  const section = document.getElementById('accountSection');
-  if (!section || ECHO.mode !== 'web') return;
 
-  const state = await EchoSync.refresh();
-  if (!state.enabled) { section.hidden = true; return; }
-  section.hidden = false;
+/** The four gated states, in the order someone passes through them. */
+const GATE_CLASSES = ['gate-welcome', 'gate-request', 'gate-waiting', 'gate-declined'];
 
-  const signedIn = !!(state.user && state.user.email);
-  document.getElementById('accountSignedOut').hidden = signedIn;
-  document.getElementById('accountSignedIn').hidden = !signedIn;
-  if (signedIn) document.getElementById('accountEmail').textContent = state.user.email;
+/**
+ * Which screen does this account state call for?
+ * @param {object|null} user the /api/auth/me user object
+ * @returns {string} '' when the app itself should show
+ */
+function gateStateFor(user) {
+  if (!isSignedIn(user)) return 'gate-welcome';
+  if (user.status === 'approved') return '';
+  if (user.status === 'rejected') return 'gate-declined';
+  return user.submitted ? 'gate-waiting' : 'gate-request';
+}
+
+/**
+ * Put the page into one gate state, or none.
+ *
+ * Every control that cannot work in a gated state is HIDDEN rather than
+ * disabled — the paste box was the largest, brightest thing on the page and did
+ * nothing, which is a worse first impression than no box at all. The hiding is
+ * CSS on body.gate-*; this sets the class and fills the screens.
+ *
+ * @param {object|null} user
+ */
+function applyGateState(user) {
+  const state = gateStateFor(user);
+  document.body.classList.remove(...GATE_CLASSES);
+  if (state) document.body.classList.add(state);
+
+  const section = document.getElementById('gateScreens');
+  if (section) section.hidden = !state;
+
+  const screens = {
+    'gate-welcome': 'gateWelcome',
+    'gate-request': 'gateRequest',
+    'gate-waiting': 'gateWaiting',
+    'gate-declined': 'gateDeclined',
+  };
+  for (const [cls, id] of Object.entries(screens)) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = cls !== state;
+  }
+
+  const who = identityLabel(user);
+  const whoRequest = document.getElementById('gateWhoRequest');
+  if (whoRequest) whoRequest.textContent = who;
+  const whoWaiting = document.getElementById('gateWhoWaiting');
+  if (whoWaiting) whoWaiting.textContent = who;
+
+  const note = document.getElementById('gateDeclinedNote');
+  if (note) {
+    note.textContent = user && user.adminNote
+      ? user.adminNote
+      : 'The person who runs this Echo declined the request.';
+  }
   return state;
 }
 
-document.getElementById('signInBtn')?.addEventListener('click', () => {
-  // Full navigation, not fetch: this is an OAuth redirect to Google.
-  window.location.href = '/api/auth/google';
+async function renderAccountState() {
+  const state = await EchoSync.refresh();
+  const user = state.user;
+
+  // Ungated instance: no gate class, no gate screens, no account section.
+  // This is the default everywhere.
+  if (!state.enabled) {
+    document.body.classList.remove(...GATE_CLASSES);
+    const section = document.getElementById('gateScreens');
+    if (section) section.hidden = true;
+    const off = document.getElementById('accountSection');
+    if (off) off.hidden = true;
+    return state;
+  }
+
+  applyGateState(user);
+
+  const account = document.getElementById('accountSection');
+  if (account) account.hidden = false;
+
+  const signedIn = isSignedIn(user);
+  document.getElementById('accountSignedOut').hidden = signedIn;
+  document.getElementById('accountSignedIn').hidden = !signedIn;
+  if (signedIn) document.getElementById('accountEmail').textContent = identityLabel(user);
+
+  // Sync is a web-mode idea: elsewhere the library already lives on the server
+  // this is signed in to, so there is nothing to reconcile and offering the
+  // button would promise something that quietly does nothing.
+  const syncable = ECHO.mode === 'web';
+  const syncBtn = document.getElementById('syncNowBtn');
+  if (syncBtn) syncBtn.hidden = !syncable;
+  const syncStatusEl = document.getElementById('syncStatus');
+  if (syncStatusEl) syncStatusEl.hidden = !syncable;
+
+  // Admin chip. The count is the notification.
+  const adminBtn = document.getElementById('adminBtn');
+  const wasAdmin = adminBtn && !adminBtn.hidden;
+  if (adminBtn) adminBtn.hidden = !(signedIn && user.isAdmin);
+  if (adminBtn && !adminBtn.hidden && !wasAdmin) loadAdminQueue();
+
+  return state;
+}
+
+/** Show an inline error under a form, or clear it when message is falsy. */
+function setFormError(id, message) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = message || '';
+  el.hidden = !message;
+}
+
+/** Turn an error envelope into one line of human text. */
+function envText(body, fallback) {
+  const err = (body && body.error) || {};
+  return [err.message, err.hint].filter(Boolean).join(' ') || fallback;
+}
+
+document.getElementById('gateSignInForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('gateSignInBtn');
+  const passwordEl = document.getElementById('gatePassword');
+
+  setFormError('gateSignInError', '');
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
+  try {
+    const res = await fetch('/api/auth/atproto', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        identifier: document.getElementById('gateHandle').value,
+        password: passwordEl.value,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setFormError('gateSignInError', envText(body, 'Sign-in failed.'));
+      return;
+    }
+    // Clear the credential out of the DOM the moment it is spent: the server
+    // holds a refresh token now, and a password sitting in a form field on a
+    // shared machine is free risk.
+    passwordEl.value = '';
+    await renderAccountState();
+  } catch {
+    setFormError('gateSignInError', 'Could not reach the server. Check your connection and try again.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sign in with Bluesky';
+  }
+});
+
+document.getElementById('gateRequestForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('gateRequestBtn');
+  setFormError('gateRequestError', '');
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  try {
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        motivation: document.getElementById('gateMotivation').value,
+        referralSource: document.getElementById('gateReferral').value,
+        contact: document.getElementById('gateContact').value,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setFormError('gateRequestError', envText(body, 'Could not send your request.'));
+      return;
+    }
+    await renderAccountState();
+  } catch {
+    setFormError('gateRequestError', 'Could not reach the server. Check your connection and try again.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Send request';
+  }
+});
+
+// Sign out from inside the gate, for someone who wants to try another account.
+for (const gateOutId of ['gateSignOutBtn', 'gateSignOutBtn2']) {
+  document.getElementById(gateOutId)?.addEventListener('click', async () => {
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    EchoSync.clearLocalSyncState();
+    await renderAccountState();
+  });
+}
+
+
+/* ==============================================
+   ADMIN — the access-request queue
+   Visible only to a DID listed in ECHO_ADMIN_DIDS. The route 404s for anyone
+   else, so this is presentation, not the security boundary.
+=============================================== */
+
+/**
+ * Build one request card.
+ *
+ * Built as NODES with textContent, never as an innerHTML string. Every field
+ * here is text a stranger typed — a handle they chose, a motivation they wrote
+ * — and it is being rendered in the admin's own browser, which is the one
+ * session on the instance worth stealing.
+ */
+function buildAdminRequestCard(entry) {
+  const card = document.createElement('div');
+  card.className = 'admin-request';
+  card.dataset.userId = entry.id;
+  card.dataset.status = entry.status;
+
+  const who = document.createElement('div');
+  who.className = 'admin-request-who';
+  who.textContent = entry.handle ? `@${entry.handle}` : (entry.email || entry.did || 'unknown');
+  card.appendChild(who);
+
+  const meta = document.createElement('div');
+  meta.className = 'admin-request-meta';
+  const when = entry.requestedAt || entry.createdAt;
+  meta.textContent = [
+    entry.did,
+    entry.referralSource ? `found via ${entry.referralSource}` : '',
+    when ? `applied ${new Date(when).toLocaleDateString()}` : '',
+    entry.contact || '',
+  ].filter(Boolean).join(' · ');
+  card.appendChild(meta);
+
+  // Activity. "Has a live credential" is the honest phrasing: sessions are
+  // stateless signed cookies with no table, so nothing here knows who has a tab
+  // open. Calling it "online" would be a claim the schema cannot back.
+  const activity = document.createElement('div');
+  activity.className = 'admin-request-meta';
+  activity.textContent = [
+    entry.hasSession ? 'signed in (has a live credential)' : 'no stored credential',
+    entry.lastSeen ? `last active ${new Date(entry.lastSeen).toLocaleString()}` : 'never active',
+  ].join(' · ');
+  card.appendChild(activity);
+
+  const motivation = document.createElement('p');
+  motivation.className = 'admin-request-motivation';
+  motivation.textContent = entry.motivation || '(no reason given yet)';
+  card.appendChild(motivation);
+
+  if (entry.status !== 'pending' && entry.adminNote) {
+    const note = document.createElement('div');
+    note.className = 'admin-request-meta';
+    note.textContent = `note: ${entry.adminNote}`;
+    card.appendChild(note);
+  }
+
+  const noteInput = document.createElement('input');
+  noteInput.type = 'text';
+  noteInput.className = 'admin-note-input';
+  noteInput.placeholder = 'Note (optional, shown to them if declined)';
+  card.appendChild(noteInput);
+
+  // Actions on EVERY status, not just pending. Approval used to be a one-way
+  // door: approve/reject rendered for pending rows only, so an approved account
+  // could never be revoked from the UI even though the route always allowed it.
+  const actions = document.createElement('div');
+  actions.className = 'admin-request-actions';
+
+  const buttons = [];
+  if (entry.status !== 'approved') buttons.push(['approve', 'Approve', '']);
+  if (entry.status !== 'rejected') buttons.push(['reject', entry.status === 'approved' ? 'Revoke access' : 'Decline', 'secondary']);
+  if (entry.hasSession) buttons.push(['signout', 'Force sign-out', 'secondary']);
+
+  for (const [action, label, cls] of buttons) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `settings-btn${cls ? ` ${cls}` : ''}`;
+    btn.dataset.action = action;
+    btn.textContent = label;
+    actions.appendChild(btn);
+  }
+  card.appendChild(actions);
+
+  return card;
+}
+
+async function loadAdminQueue() {
+  const list = document.getElementById('adminQueueList');
+  const empty = document.getElementById('adminQueueEmpty');
+  if (!list) return;
+
+  const status = document.getElementById('adminQueueFilter')?.value || 'pending';
+  try {
+    const res = await fetch(`/api/admin/registrations?status=${encodeURIComponent(status)}`);
+    if (!res.ok) { list.replaceChildren(); if (empty) empty.hidden = false; return; }
+    const body = await res.json();
+    const entries = Array.isArray(body.entries) ? body.entries : [];
+
+    list.replaceChildren(...entries.map(buildAdminRequestCard));
+    if (empty) empty.hidden = entries.length > 0;
+
+    // The chip's count is how an admin learns anyone is waiting at all, so it
+    // tracks the PENDING total regardless of which filter is being viewed —
+    // which is why the server returns counts for every status on every call.
+    const counts = body.counts || {};
+    const chip = document.getElementById('adminCount');
+    if (chip) {
+      chip.textContent = String(counts.pending ?? 0);
+      chip.hidden = !(counts.pending > 0);
+    }
+    const summary = document.getElementById('adminCounts');
+    if (summary) {
+      summary.textContent = `${counts.pending ?? 0} waiting · ${counts.approved ?? 0} approved · ${counts.rejected ?? 0} declined`;
+    }
+
+    // The queue is paged server-side; say so rather than implying this is all
+    // of it, which is how a bounded list quietly becomes a wrong one.
+    if (body.hasMore) {
+      const more = document.createElement('p');
+      more.className = 'settings-note';
+      more.textContent = `Showing ${entries.length} of ${body.total}. Decide these to see the rest.`;
+      list.appendChild(more);
+    }
+  } catch {
+    list.replaceChildren();
+    if (empty) empty.hidden = false;
+  }
+}
+
+// ONE delegated listener, attached once — never per card. Re-rendering the
+// queue would otherwise leave dead buttons behind and grow a listener per row.
+document.getElementById('adminQueueList')?.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const card = btn.closest('.admin-request');
+  if (!card) return;
+
+  const action = btn.dataset.action;
+  const who = card.querySelector('.admin-request-who')?.textContent || 'this person';
+  const wasApproved = card.dataset.status === 'approved';
+
+  // Confirm only the destructive ones, and say what actually happens. Revoking
+  // an already-approved person is a different sentence from declining an
+  // applicant, and a confirm that lies is worse than none.
+  if (action === 'reject') {
+    const message = wasApproved
+      ? `Revoke access for ${who}? They lose access immediately and cannot ask again.`
+      : `Decline ${who}? They will not be able to ask again.`;
+    if (!confirm(message)) return;
+  }
+  if (action === 'signout' && !confirm(`Sign ${who} out on every device?`)) return;
+
+  const url = action === 'signout'
+    ? `/api/admin/users/${encodeURIComponent(card.dataset.userId)}/signout`
+    : `/api/admin/registrations/${encodeURIComponent(card.dataset.userId)}`;
+  const body = action === 'signout'
+    ? {}
+    : { decision: action, note: card.querySelector('.admin-note-input')?.value || '' };
+
+  card.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showToast('error', err.error?.message || 'That did not go through.');
+      card.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+      return;
+    }
+
+    // Revoking is only half the job: a stateless session cookie stays valid
+    // until it expires, so a revoked person would keep working for up to a
+    // month. Ending their sessions is what makes the revocation take effect
+    // now, and doing it automatically means an admin cannot forget.
+    if (action === 'reject' && wasApproved) {
+      await fetch(`/api/admin/users/${encodeURIComponent(card.dataset.userId)}/signout`, {
+        method: 'POST',
+      }).catch(() => {});
+    }
+
+    showToast('info', {
+      approve: `${who} approved.`,
+      reject: wasApproved ? `${who}'s access revoked.` : `${who} declined.`,
+      signout: `${who} signed out everywhere.`,
+    }[action]);
+    await loadAdminQueue();
+  } catch {
+    showToast('error', 'Could not reach the server.');
+    card.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+  }
+});
+
+document.getElementById('adminQueueFilter')?.addEventListener('change', loadAdminQueue);
+document.getElementById('adminRefreshBtn')?.addEventListener('click', loadAdminQueue);
+
+/**
+ * The Requests chip opens the queue as a pane, the way the Library does.
+ *
+ * An approval queue is a place you go to do work, not a preference — it used to
+ * live inside the Settings modal below Whisper and Obsidian, where an admin
+ * would never think to look and nothing told them anyone was waiting.
+ */
+document.getElementById('adminBtn')?.addEventListener('click', () => {
+  const pane = document.getElementById('adminPane');
+  if (!pane) return;
+  const opening = pane.hidden;
+  pane.hidden = !opening;
+  document.getElementById('adminBtn').setAttribute('aria-pressed', String(opening));
+  document.body.classList.toggle('pane-admin', opening);
+  if (opening) loadAdminQueue();
 });
 
 document.getElementById('signOutBtn')?.addEventListener('click', async () => {
@@ -5042,7 +5513,10 @@ document.getElementById('syncNowBtn')?.addEventListener('click', async () => {
 // On load: work out the account state, sync if signed in, and report the
 // outcome of a sign-in redirect we have just come back from.
 (async function initAccount() {
-  if (ECHO.mode !== 'web') return;
+  // Runs in every mode now. The account section hides itself when the server
+  // says accounts are off, so an unconfigured install still shows nothing —
+  // but a locally-hosted instance with Bluesky sign-in configured is exactly
+  // the case that used to return here and render no account UI at all.
   const state = await renderAccountState();
 
   const params = new URLSearchParams(location.search);

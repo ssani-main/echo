@@ -1,0 +1,98 @@
+<!-- ACCESS GATE — the four screens someone sees before they are let in.
+     Exactly one is visible at a time, chosen by applyGateState() from
+     /api/auth/me. On an ungated instance (no identity provider configured) all
+     four stay hidden and the page is the app, exactly as it always was.
+
+     These live in the page rather than in the Settings modal on purpose: a
+     first-time visitor was being dropped into a panel of Whisper model pickers
+     and Obsidian vault sync to find a sign-in field. Sign-in is not a setting.
+-->
+<section class="gate" id="gateScreens" hidden aria-live="polite">
+
+  <!-- 1. WELCOME — signed out -->
+  <div class="gate-screen" id="gateWelcome" hidden>
+    <h2 class="gate-title">This Echo is invite-only.</h2>
+    <p class="gate-lede">
+      Echo turns a YouTube link into the full transcript and an AI digest, so you
+      can read in minutes what would take an hour to watch. This one runs on
+      someone's own machine, so access is granted a person at a time.
+    </p>
+
+    <form id="gateSignInForm" class="gate-form">
+      <label class="digest-opt-label" for="gateHandle">Your Bluesky handle</label>
+      <input
+        id="gateHandle"
+        type="text"
+        autocomplete="username"
+        spellcheck="false"
+        placeholder="you.bsky.social"
+      />
+
+      <label class="digest-opt-label" for="gatePassword">App password</label>
+      <input
+        id="gatePassword"
+        type="password"
+        autocomplete="current-password"
+        spellcheck="false"
+        placeholder="abcd-efgh-ijkl-mnop"
+      />
+
+      <!-- The explanation belongs at the point of asking, not in a settings
+           note nobody reads. This paragraph is what turns a reasonable
+           suspicion ("why would I type a password into a stranger's box?")
+           into a decision. -->
+      <p class="gate-note">
+        Use an <strong>app password</strong> — never your real Bluesky password.
+        An app password can be revoked at any time and cannot change or delete
+        your account. Create one at
+        <a href="https://bsky.app/settings/app-passwords" target="_blank" rel="noopener noreferrer">Bluesky → Settings → App passwords</a>.
+      </p>
+
+      <button type="submit" id="gateSignInBtn" class="settings-btn">Sign in with Bluesky</button>
+      <p id="gateSignInError" class="gate-error" aria-live="polite" hidden></p>
+    </form>
+  </div>
+
+  <!-- 2. REQUEST — signed in, has not asked yet -->
+  <div class="gate-screen" id="gateRequest" hidden>
+    <h2 class="gate-title">Ask for access</h2>
+    <p class="gate-lede">
+      Signed in as <strong id="gateWhoRequest"></strong>. Tell the person who runs
+      this Echo a little about yourself and they'll take a look.
+    </p>
+
+    <form id="gateRequestForm" class="gate-form">
+      <label class="digest-opt-label" for="gateMotivation">Why would you like access?</label>
+      <textarea id="gateMotivation" rows="4" placeholder="A sentence or two is plenty."></textarea>
+
+      <label class="digest-opt-label" for="gateReferral">Where did you find Echo?</label>
+      <input id="gateReferral" type="text" placeholder="Bluesky, a friend, a search…" />
+
+      <label class="digest-opt-label" for="gateContact">Contact (optional)</label>
+      <input id="gateContact" type="text" autocomplete="off" placeholder="Email or handle, if you'd like a reply" />
+
+      <button type="submit" id="gateRequestBtn" class="settings-btn">Send request</button>
+      <p id="gateRequestError" class="gate-error" aria-live="polite" hidden></p>
+    </form>
+  </div>
+
+  <!-- 3. WAITING — asked, no decision yet. Nothing to poll, so nothing spins. -->
+  <div class="gate-screen" id="gateWaiting" hidden>
+    <h2 class="gate-title">Your request is in.</h2>
+    <p class="gate-lede">
+      Signed in as <strong id="gateWhoWaiting"></strong>. There's nothing more to
+      do — you can close this tab. Come back and sign in again once you hear
+      that you're in.
+    </p>
+    <button type="button" id="gateSignOutBtn" class="settings-btn secondary">Sign out</button>
+  </div>
+
+  <!-- 4. DECLINED — final. No button, because there is no action. -->
+  <div class="gate-screen" id="gateDeclined" hidden>
+    <h2 class="gate-title">This request wasn't granted.</h2>
+    <p class="gate-lede">
+      <span id="gateDeclinedNote">The person who runs this Echo declined the request.</span>
+    </p>
+    <button type="button" id="gateSignOutBtn2" class="settings-btn secondary">Sign out</button>
+  </div>
+</section>

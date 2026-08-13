@@ -15,15 +15,7 @@ import {
 } from './transcript.js';
 import { WHISPER_MODELS, DEFAULT_WHISPER_MODEL, modelCacheDir, downloadState, startModelDownload } from './whisperModel.js';
 import { resolveWhisperBinary, transcribeFile, LOCAL_MEDIA_EXTENSIONS } from './whisper.js';
-import {
-  listEntries,
-  countEntries,
-  getEntry,
-  saveEntry,
-  deleteEntry,
-  setTags,
-  searchSummaries,
-} from './store.js';
+import { forOwner, DEFAULT_OWNER, adoptDefaultLibrary } from './store.js';
 import { entryToMarkdown } from './markdown.js';
 import { syncVault } from './vault.js';
 import {
@@ -37,8 +29,15 @@ import {
 } from './auth.js';
 import {
   openSyncDb, upsertUser, getUser, pullEntries, pushEntries, userBytes, deleteUser,
-  bumpTokenVersion,
+  bumpTokenVersion, upsertAtprotoUser, saveAtprotoTokens, deleteAtprotoTokens,
+  submitRegistration, decideRegistration, listRegistrations, setStatus,
+  touchLastSeen, forceSignOut,
 } from './syncStore.js';
+import {
+  resolveAccount, createSession as atprotoCreateSession, deriveKey, encryptSecret, decryptSecret,
+} from './atproto.js';
+import { createPdsSync } from './pdsSync.js';
+import { COLLECTION as PDS_COLLECTION } from './pds.js';
 import { logEvent, errLabel } from './usagelog.js';
 import { validateApiKey } from './providers.js';
 
@@ -627,6 +626,40 @@ function webLimit(max, windowMs) {
 }
 
 /**
+ * Like webLimit, but applies in EVERY mode.
+ *
+ * webLimit exists to protect a hosted multi-tenant deployment and correctly
+ * no-ops in local mode, where the only caller is the person at the keyboard.
+ * Sign-in breaks that assumption: a local instance published over a tunnel is
+ * reachable by anyone, and the thing being guessed is somebody else's Bluesky
+ * app password. A limiter that switches itself off in the mode this instance
+ * actually runs in would guard nothing.
+ *
+ * @param {number} max
+ * @param {number} windowMs
+ */
+function alwaysLimit(max, windowMs) {
+  const store = new Map();
+  let lastSweep = 0;
+  return (req, res, next) => {
+    const now = Date.now();
+    if (now - lastSweep > RATE_LIMIT_SWEEP_INTERVAL_MS) {
+      lastSweep = now;
+      sweepStaleEntries(store, windowMs, now);
+    }
+    if (rateLimitHit(req.ip || 'unknown', max, windowMs, store)) {
+      return sendError(
+        res,
+        'RATE_LIMITED',
+        'Too many sign-in attempts — please slow down.',
+        `Limit is ${max} per ${Math.round(windowMs / 60_000)} minutes. Try again shortly.`
+      );
+    }
+    next();
+  };
+}
+
+/**
  * Guards AI endpoints in web mode against oversize payloads before they ever
  * reach digest.js. NO-OP in local mode (returns false). `text` and/or
  * `segments` may be passed; whichever is present is measured.
@@ -677,6 +710,155 @@ function blockInWeb(req, res, next) {
   }
   next();
 }
+
+// Per-account budgets, defined here rather than beside the other account config
+// because the route registrations below reference them at module-eval time and
+// a `const` declared later would still be in its temporal dead zone.
+//
+// The defaults are deliberately generous: this is a backstop against one person
+// running away with the operator's Claude quota, not a metering scheme.
+const USER_DIGEST_LIMIT = numFromEnv('ECHO_USER_DIGEST_LIMIT', 30, { min: 1 });
+const USER_FETCH_LIMIT = numFromEnv('ECHO_USER_FETCH_LIMIT', 90, { min: 1 });
+const USER_LIMIT_WINDOW_MS = 60 * 60_000;
+
+/**
+ * Whose library is this request about?
+ *
+ * With no identity provider configured there is one person — the one at the
+ * keyboard — and they get DEFAULT_OWNER, which is the original database file at
+ * the original path. Nothing about a plain local install changes.
+ *
+ * With accounts on, every approved account gets its own library FILE. That is
+ * why this returns an id rather than adding a filter: the isolation is the file
+ * boundary, so a route that forgets to scope cannot leak anything — it simply
+ * has no handle on anyone else's data. requireApproved has already run and set
+ * echoUserId by the time any library route reaches this.
+ *
+ * @param {import('express').Request} req
+ */
+function libraryFor(req) {
+  return forOwner(ACCOUNTS_ENABLED ? (req.echoUserId || DEFAULT_OWNER) : DEFAULT_OWNER);
+}
+
+/**
+ * The access gate: only approved accounts may use the instance.
+ *
+ * NO-OPS ENTIRELY when no identity provider is configured, which is the default
+ * everywhere. That is not a convenience — it is the hard constraint. A personal
+ * local install must keep working exactly as it always has, with no sign-in and
+ * no gate, and the only way to be sure of that is for this to return before it
+ * touches anything.
+ *
+ * Once accounts ARE configured the gate is real, and it applies to anonymous
+ * visitors too: an instance published over a tunnel is reachable by anyone, and
+ * "signed out" is the state every stranger arrives in. The alternative — gating
+ * only signed-in users — would leave the front door open and put a lock on the
+ * inside of it.
+ *
+ * The refusal carries a machine-readable `reason` so the client can say
+ * something useful (sign in / finish your request / it was declined) rather
+ * than showing one generic error for four different situations.
+ */
+function requireApproved(req, res, next) {
+  if (!ACCOUNTS_ENABLED) return next();
+
+  const uid = sessionUserId(req);
+  const user = uid ? getUser(uid) : null;
+
+  if (!user) {
+    return sendError(
+      res,
+      'API_NOT_AUTHED',
+      'Sign in to use this Echo.',
+      'Open Settings and sign in with your Bluesky handle.',
+      401,
+      { reason: 'signed_out' }
+    );
+  }
+
+  if (user.status === 'approved') {
+    req.echoUserId = uid;
+    // Throttled to one write per user per 15 minutes — see touchLastSeen. A
+    // write on every authorised request would put SQLite on the hot path of an
+    // app that streams long transcripts.
+    try { touchLastSeen(uid); } catch { /* never fail a request over telemetry */ }
+    return next();
+  }
+
+  if (user.status === 'rejected') {
+    return sendError(
+      res,
+      'API_NOT_AUTHED',
+      'Your request for access was declined.',
+      user.adminNote || '',
+      403,
+      { reason: 'rejected' }
+    );
+  }
+
+  return sendError(
+    res,
+    'API_NOT_AUTHED',
+    user.submitted ? 'Your request is still awaiting approval.' : 'Ask for access first.',
+    user.submitted
+      ? 'The admin has your request — nothing more to do for now.'
+      : 'Open Settings and tell the admin why you would like access.',
+    403,
+    { reason: user.submitted ? 'pending' : 'unsubmitted' }
+  );
+}
+
+/**
+ * Per-ACCOUNT rate limit for the expensive paths.
+ *
+ * webLimit keys on IP, which is the right key for a hosted multi-tenant
+ * deployment and the wrong one here: the resources being protected are the
+ * operator's Claude quota and their residential IP's standing with YouTube, and
+ * both are spent per person, not per address. Two approved users behind one NAT
+ * should not share a budget, and one user on a phone plus a laptop should not
+ * get two.
+ *
+ * Only enforced when accounts exist. With them off there is exactly one user —
+ * the person at the keyboard — and rate-limiting them would be new behaviour in
+ * a mode that must not change.
+ *
+ * @param {number} max
+ * @param {number} windowMs
+ */
+function userLimit(max, windowMs) {
+  const store = new Map();
+  let lastSweep = 0;
+  return (req, res, next) => {
+    if (!ACCOUNTS_ENABLED) return next();
+
+    const now = Date.now();
+    if (now - lastSweep > RATE_LIMIT_SWEEP_INTERVAL_MS) {
+      lastSweep = now;
+      sweepStaleEntries(store, windowMs, now);
+    }
+    // requireApproved runs first and sets echoUserId; the IP fallback only
+    // matters if this is ever mounted on its own.
+    const key = req.echoUserId || `ip:${req.ip || 'unknown'}`;
+    if (rateLimitHit(key, max, windowMs, store)) {
+      return sendError(
+        res,
+        'RATE_LIMITED',
+        'You have hit your limit for now.',
+        `This Echo allows ${max} of these per ${Math.round(windowMs / 60_000)} minutes. Try again a bit later.`
+      );
+    }
+    next();
+  };
+}
+
+// ONE limiter instance per budget, shared across every route that spends it.
+// Calling userLimit() separately at each route would give each its own store,
+// so "90 fetches an hour" would silently become 90 transcripts AND 90 metadata
+// lookups AND 90 language probes — three budgets wearing one number's name.
+// What is being protected is the IP's standing with YouTube, and YouTube does
+// not care which endpoint spent it.
+const userFetchLimit = userLimit(USER_FETCH_LIMIT, USER_LIMIT_WINDOW_MS);
+const userDigestLimit = userLimit(USER_DIGEST_LIMIT, USER_LIMIT_WINDOW_MS);
 
 // ---------------------------------------------------------------------------
 // Health
@@ -736,7 +918,7 @@ let openProgressStreams = 0;
 // /api/transcript ignores `jobId` there and forces transcription off, so this
 // route could only ever heartbeat at a hosted visitor, while still costing a
 // socket and a timer per connection. Gating it removes that sink outright.
-app.get('/api/transcript/progress', blockInWeb, (req, res) => {
+app.get('/api/transcript/progress', blockInWeb, requireApproved, (req, res) => {
   const jobId = String(req.query.jobId || '');
   if (!jobId) { res.status(400).end(); return; }
 
@@ -799,7 +981,7 @@ app.get('/api/transcript/progress', blockInWeb, (req, res) => {
   res.on('close', finish);
 });
 
-app.post('/api/transcript', webLimit(20, 60_000), async (req, res) => {
+app.post('/api/transcript', requireApproved, userFetchLimit, webLimit(20, 60_000), async (req, res) => {
   const { url, lang, transcribe, whisperModel } = req.body;
 
   const videoId = extractVideoId(url);
@@ -930,6 +1112,8 @@ function localMediaId(name, buf) {
 app.post(
   '/api/transcript/file',
   blockInWeb,
+  requireApproved,
+  userFetchLimit,
   express.raw({ type: '*/*', limit: ECHO_MAX_UPLOAD_BYTES }),
   async (req, res) => {
     const rawName = typeof req.query.name === 'string' ? req.query.name : '';
@@ -1008,7 +1192,7 @@ app.post(
 );
 
 // --- Whisper model management (local/desktop only) ---
-app.get('/api/whisper/status', blockInWeb, (req, res) => {
+app.get('/api/whisper/status', blockInWeb, requireApproved, (req, res) => {
   const binaryPresent = !!resolveWhisperBinary();
   const models = Object.keys(WHISPER_MODELS).map((n) => {
     const m = WHISPER_MODELS[n];
@@ -1017,7 +1201,7 @@ app.get('/api/whisper/status', blockInWeb, (req, res) => {
   return res.json({ binaryPresent, defaultModel: DEFAULT_WHISPER_MODEL, cacheDir: modelCacheDir(), models });
 });
 
-app.post('/api/whisper/model', blockInWeb, (req, res) => {
+app.post('/api/whisper/model', blockInWeb, requireApproved, (req, res) => {
   const { model } = req.body || {};
   if (!model || !WHISPER_MODELS[model]) {
     return sendError(res, 'WHISPER_MODEL_UNKNOWN', `Unknown model: ${model}`, 'Choose base or small.');
@@ -1034,7 +1218,7 @@ app.post('/api/whisper/model', blockInWeb, (req, res) => {
 // Languages
 // ---------------------------------------------------------------------------
 
-app.get('/api/languages', webLimit(20, 60_000), async (req, res) => {
+app.get('/api/languages', requireApproved, userFetchLimit, webLimit(20, 60_000), async (req, res) => {
   const { videoId: rawId } = req.query;
   if (!rawId) {
     return sendError(res, 'INTERNAL', 'videoId query parameter is required.', '', 400);
@@ -1061,7 +1245,7 @@ app.get('/api/languages', webLimit(20, 60_000), async (req, res) => {
 // info on saved library entries created before channelUrl was stored)
 // ---------------------------------------------------------------------------
 
-app.get('/api/video-meta', webLimit(20, 60_000), async (req, res) => {
+app.get('/api/video-meta', requireApproved, userFetchLimit, webLimit(20, 60_000), async (req, res) => {
   const { videoId: rawId, url: rawUrl } = req.query;
   const videoId = extractVideoId(rawId || rawUrl);
   if (!videoId) {
@@ -1166,7 +1350,7 @@ function openDigestStream(res) {
   };
 }
 
-app.post('/api/digest', webLimit(20, 60_000), async (req, res) => {
+app.post('/api/digest', requireApproved, userDigestLimit, webLimit(20, 60_000), async (req, res) => {
   const { text, length, format, language, title, videoId } = req.body;
 
   if (!requireText(res, text, 'No transcript text provided.', 'Load a transcript before generating a digest.')) return;
@@ -1308,7 +1492,7 @@ async function digestStreaming(req, res, { text, length, format, language, title
 // (via a cheap, token-free models.list() call) instead of the user only
 // finding out it's invalid on their first AI call.
 
-app.post('/api/validate-key', webLimit(20, 60_000), async (req, res) => {
+app.post('/api/validate-key', requireApproved, webLimit(20, 60_000), async (req, res) => {
   if (!isWeb && !isDesktop) {
     return sendError(
       res,
@@ -1355,25 +1539,150 @@ const PUBLIC_URL = (process.env.ECHO_PUBLIC_URL || '').replace(/\/+$/, '');
 
 const AUTH_ENABLED = Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && SESSION_SECRET);
 
+// Sign in with Bluesky. Config-gated exactly like the Google path and entirely
+// independent of it: with these unset — the default everywhere — there is no
+// sign-in route, no database file and no behaviour change of any kind, which is
+// what keeps local mode's promise intact.
+//
+// ECHO_ATPROTO_SECRET is separate from ECHO_SESSION_SECRET because it protects
+// something categorically different: session cookies are Echo's own and expire,
+// while these seal other people's Bluesky refresh tokens. Rotating one should
+// not have to mean rotating the other.
+const ATPROTO_SECRET = process.env.ECHO_ATPROTO_SECRET || '';
+const ATPROTO_ENABLED = Boolean(
+  /^(1|true|yes)$/i.test(process.env.ECHO_ATPROTO_ENABLED || '') && SESSION_SECRET && ATPROTO_SECRET
+);
+const ATPROTO_KEY = ATPROTO_ENABLED ? deriveKey(ATPROTO_SECRET) : null;
+
+// Sign-in attempts per IP. Bluesky's own ceiling is 30 per 5 minutes per
+// ACCOUNT; this is the per-caller half, so one IP cannot walk a list of handles
+// and burn every one of their rate limits for them.
+const ATPROTO_SIGNIN_LIMIT = numFromEnv('ECHO_ATPROTO_SIGNIN_LIMIT', 10, { min: 1 });
+
+/** Either provider being configured means accounts exist on this instance. */
+const ACCOUNTS_ENABLED = AUTH_ENABLED || ATPROTO_ENABLED;
+
+// Mirroring a library into its owner's own atproto repository (ATPROTO.md
+// Phase 5). Off unless Bluesky sign-in is on, because it is the same
+// credentials — and off in web mode, where there is no server-side library to
+// mirror in the first place.
+const PDS_SYNC_ENABLED = ATPROTO_ENABLED && !isWeb
+  && !/^(0|false|no)$/i.test(process.env.ECHO_PDS_SYNC ?? '1');
+
+const pdsSync = PDS_SYNC_ENABLED
+  ? createPdsSync({
+    getTokens: (userId) => getAtprotoTokens(userId),
+    saveTokens: ({ userId, did, pdsUrl, refreshJwt }) => saveAtprotoTokens({ userId, did, pdsUrl, refreshJwt }),
+    seal: (plain) => encryptSecret(plain, ATPROTO_KEY),
+    open: (blob) => decryptSecret(blob, ATPROTO_KEY),
+  })
+  : null;
+
+/**
+ * Mirror a library change into the owner's repository, in the background.
+ *
+ * Deliberately NOT awaited by the routes. Saving a video must not get slower,
+ * or fail, because someone else's PDS is slow or down — the library write has
+ * already succeeded and is the thing the user asked for. A failure here is
+ * logged and the next save re-pushes, because putRecord is idempotent on the
+ * video id.
+ *
+ * @param {string|null} userId
+ * @param {'push'|'remove'} action
+ * @param {object|string} payload an entry to push, or a videoId to remove
+ */
+function mirrorToPds(userId, action, payload) {
+  if (!pdsSync || !userId || userId === DEFAULT_OWNER) return;
+  const run = action === 'push'
+    // Re-read the entry rather than mirroring the request body: the stored
+    // entry is the canonical one — it carries the tags, the normalised URL and
+    // the updatedAt the client never sent.
+    ? payload.lib.getEntry(payload.videoId).then((entry) => (
+      entry ? pdsSync.pushEntry(userId, entry) : { ok: false, reason: 'gone' }
+    ))
+    : pdsSync.removeEntry(userId, payload);
+
+  run.then((r) => {
+    if (r && r.ok === false && r.reason !== 'no_credentials') {
+      console.warn(`[echo] pds ${action} skipped: ${r.reason}`);
+    }
+  }).catch((err) => {
+    console.warn(`[echo] pds ${action} failed: ${err?.message || err}`);
+  });
+}
+
+// Who may approve people. Comma-separated DIDs — the operator's own Bluesky
+// account(s). Held in the environment rather than a database flag so that no
+// sequence of requests can promote anyone: becoming an admin requires access to
+// the machine, which is the property that makes the approval gate worth having.
+const ADMIN_DIDS = new Set(
+  (process.env.ECHO_ADMIN_DIDS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
+
+/** @param {{did?: string}|null} user */
+function isAdmin(user) {
+  return Boolean(user && user.did && ADMIN_DIDS.has(user.did));
+}
+
+// An approval queue with no approver is a locked door with no key: every
+// Bluesky account would sit at 'pending' forever, including the operator's.
+// Loud at boot, because the symptom otherwise is "sign-in works but nothing
+// does", which reads as a bug rather than as missing configuration.
+if (ATPROTO_ENABLED && ADMIN_DIDS.size === 0) {
+  console.warn(
+    '[echo] Bluesky sign-in is on but ECHO_ADMIN_DIDS is empty — nobody can approve '
+    + 'anyone, so every account will stay pending. Set it to your own DID.'
+  );
+}
+
 // Per-user storage ceiling. A synced library is transcripts, which are text but
 // not small; this keeps one account from filling the volume.
 const ECHO_MAX_SYNC_BYTES = numFromEnv('ECHO_MAX_SYNC_BYTES', 100_000_000, { min: 1 });
 
-if (AUTH_ENABLED) openSyncDb(SYNC_DB_PATH);
+if (ACCOUNTS_ENABLED) openSyncDb(SYNC_DB_PATH);
 
 function redirectUri(req) {
   const origin = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
   return `${origin}/api/auth/callback`;
 }
 
-/** Blocks a route unless accounts are configured. */
+/** Blocks a route unless SOME identity provider is configured. */
 function requireAuthConfigured(req, res, next) {
-  if (!AUTH_ENABLED) {
+  if (!ACCOUNTS_ENABLED) {
     return sendError(
       res,
       'WEB_MODE_UNSUPPORTED',
       'Accounts are not enabled on this instance.',
-      'Your library is stored in this browser. Set ECHO_GOOGLE_CLIENT_ID, ECHO_GOOGLE_CLIENT_SECRET and ECHO_SESSION_SECRET to enable sign-in.'
+      'Your library is stored in this browser. Set ECHO_SESSION_SECRET plus either the ECHO_GOOGLE_* pair or ECHO_ATPROTO_ENABLED + ECHO_ATPROTO_SECRET to enable sign-in.'
+    );
+  }
+  next();
+}
+
+/** Blocks the Google-specific routes, which need Google's own credentials. */
+function requireGoogleConfigured(req, res, next) {
+  if (!AUTH_ENABLED) {
+    return sendError(
+      res,
+      'WEB_MODE_UNSUPPORTED',
+      'Google sign-in is not enabled on this instance.',
+      'Set ECHO_GOOGLE_CLIENT_ID, ECHO_GOOGLE_CLIENT_SECRET and ECHO_SESSION_SECRET to enable it.'
+    );
+  }
+  next();
+}
+
+/** Blocks the Bluesky routes when that provider is not configured. */
+function requireAtprotoConfigured(req, res, next) {
+  if (!ATPROTO_ENABLED) {
+    return sendError(
+      res,
+      'WEB_MODE_UNSUPPORTED',
+      'Bluesky sign-in is not enabled on this instance.',
+      'Set ECHO_ATPROTO_ENABLED=1, ECHO_ATPROTO_SECRET and ECHO_SESSION_SECRET to enable it.'
     );
   }
   next();
@@ -1388,7 +1697,7 @@ function requireAuthConfigured(req, res, next) {
  * one integer buys it back.
  */
 function sessionUserId(req) {
-  if (!AUTH_ENABLED) return null;
+  if (!ACCOUNTS_ENABLED) return null;
   const token = parseCookies(req.get('cookie'))[SESSION_COOKIE];
   const payload = verifyToken(token, SESSION_SECRET);
   if (!payload || !payload.uid) return null;
@@ -1403,13 +1712,31 @@ function sessionUserId(req) {
 function requireSession(req, res, next) {
   const uid = sessionUserId(req);
   if (!uid) {
-    return sendError(res, 'API_NOT_AUTHED', 'Sign in to sync your library.', 'Sign in with Google to use sync.', 401);
+    return sendError(res, 'API_NOT_AUTHED', 'Sign in to sync your library.', 'Sign in to use sync.', 401);
   }
   req.echoUserId = uid;
   next();
 }
 
-app.get('/api/auth/google', requireAuthConfigured, (req, res) => {
+/**
+ * Guards the admin routes.
+ *
+ * Deliberately answers 404 rather than 403 to a signed-in non-admin: a 403
+ * confirms the route exists and that admins exist, which is a small thing to
+ * hand someone probing an instance. The admin already knows where it is.
+ */
+function requireAdmin(req, res, next) {
+  const uid = sessionUserId(req);
+  const user = uid ? getUser(uid) : null;
+  if (!isAdmin(user)) {
+    return sendError(res, 'NOT_FOUND', 'Not found.', '', 404);
+  }
+  req.echoUserId = uid;
+  req.echoAdminDid = user.did;
+  next();
+}
+
+app.get('/api/auth/google', requireGoogleConfigured, (req, res) => {
   const state = randomToken();
   const verifier = randomToken();
 
@@ -1427,7 +1754,7 @@ app.get('/api/auth/google', requireAuthConfigured, (req, res) => {
   }));
 });
 
-app.get('/api/auth/callback', requireAuthConfigured, async (req, res) => {
+app.get('/api/auth/callback', requireGoogleConfigured, async (req, res) => {
   const fail = (why) => {
     console.error(`[echo] sign-in failed: ${why}`);
     // Back to the app with a flag rather than a bare error page — the UI can
@@ -1473,22 +1800,269 @@ app.get('/api/auth/callback', requireAuthConfigured, async (req, res) => {
   }
 });
 
+/**
+ * Sign in with Bluesky.
+ *
+ * One POST rather than a redirect pair: there is no third-party consent screen
+ * on this path, so there is nothing to redirect to. The app password is used
+ * once — resolve the account, exchange it for tokens — and is never written
+ * anywhere, not to the database, not to the log, and not into an error detail.
+ * What survives the request is a sealed refresh token.
+ */
+app.post('/api/auth/atproto', requireAtprotoConfigured, alwaysLimit(ATPROTO_SIGNIN_LIMIT, 5 * 60_000), async (req, res) => {
+  const identifier = String(req.body?.identifier || '');
+  const password = String(req.body?.password || '');
+
+  try {
+    const { did, pdsUrl } = await resolveAccount(identifier);
+    const session = await atprotoCreateSession({ pdsUrl, identifier: did, password });
+
+    const user = upsertAtprotoUser({ did: session.did, handle: session.handle });
+
+    // An admin never waits in their own queue. Without this, the first sign-in
+    // on a fresh instance lands the operator in 'pending' with nobody able to
+    // approve them — the gate locked from the inside.
+    if (isAdmin({ did: session.did })) {
+      setStatus(user.id, 'approved');
+
+      // The operator's pre-accounts library becomes theirs, once. Without this,
+      // switching accounts on looks exactly like data loss: they sign in, get a
+      // brand-new empty library, and everything they ever saved is sitting in
+      // the default owner's file with nothing left to show it to them.
+      // No-op in web mode, where the whole library layer is blockInWeb'd.
+      if (!isWeb) {
+        try {
+          const adopted = adoptDefaultLibrary(user.id);
+          if (adopted.adopted) console.log(`[echo] moved the existing library to @${session.handle}`);
+        } catch (err) {
+          console.error(`[echo] could not adopt the existing library: ${err.message}`);
+        }
+      }
+    }
+
+    // Persisted before the cookie is issued: a session the server cannot act
+    // through later is worse than a sign-in that visibly failed.
+    saveAtprotoTokens({
+      userId: user.id,
+      did: session.did,
+      pdsUrl,
+      refreshJwt: encryptSecret(session.refreshJwt, ATPROTO_KEY),
+    });
+
+    const cookie = signToken({
+      uid: user.id,
+      tv: user.tokenVersion || 0,
+      exp: Date.now() + SESSION_TTL_MS,
+    }, SESSION_SECRET);
+    res.set('Set-Cookie', serializeCookie(SESSION_COOKIE, cookie, { maxAgeMs: SESSION_TTL_MS, secure: isWeb }));
+
+    logEvent('signin', { ok: true, provider: 'atproto' });
+    return res.json({ ok: true, user: { provider: 'atproto', did: session.did, handle: session.handle } });
+  } catch (err) {
+    logEvent('signin', { ok: false, provider: 'atproto', err: errLabel(err) });
+    return sendError(
+      res,
+      err?.echoCode || 'API_FAILED',
+      err?.message || 'Sign-in failed.',
+      err?.hint || '',
+      err?.status || 502,
+      err?.detail ? { detail: err.detail } : {}
+    );
+  }
+});
+
 app.get('/api/auth/me', (req, res) => {
-  if (!AUTH_ENABLED) return res.json({ enabled: false, user: null });
+  // `providers` is additive: existing clients read `enabled` and `user.email`,
+  // both of which still mean what they always did.
+  const providers = { google: AUTH_ENABLED, atproto: ATPROTO_ENABLED };
+  if (!ACCOUNTS_ENABLED) return res.json({ enabled: false, providers, user: null });
+
   const uid = sessionUserId(req);
-  if (!uid) return res.json({ enabled: true, user: null });
+  if (!uid) return res.json({ enabled: true, providers, user: null });
   const user = getUser(uid);
-  return res.json({ enabled: true, user: user ? { email: user.email } : null });
+  return res.json({
+    enabled: true,
+    providers,
+    user: user
+      ? {
+        provider: user.provider,
+        email: user.email,
+        did: user.did,
+        handle: user.handle,
+        // What the client needs to decide which screen to show: the app, the
+        // registration form, or "we have your request".
+        status: user.status,
+        submitted: user.submitted,
+        adminNote: user.adminNote,
+        isAdmin: isAdmin(user),
+      }
+      : null,
+  });
+});
+
+/**
+ * Ask for access.
+ *
+ * Separate from sign-in because they answer different questions: sign-in
+ * establishes who someone is, this says why they should be let in. Somebody can
+ * be signed in and still have no access, which is exactly the state the pending
+ * screen renders.
+ */
+app.post('/api/auth/register', requireAuthConfigured, requireSession, alwaysLimit(20, 60 * 60_000), (req, res) => {
+  const result = submitRegistration(req.echoUserId, {
+    motivation: req.body?.motivation,
+    referralSource: req.body?.referralSource,
+    contact: req.body?.contact,
+  });
+
+  if (!result.ok) {
+    const messages = {
+      motivation_required: ['Tell us a little about why you want access.', 'A sentence or two is plenty.', 400],
+      rejected: ['This request has already been decided.', '', 403],
+      already_approved: ['You already have access.', 'Try reloading the page.', 400],
+      no_such_user: ['That account no longer exists.', '', 401],
+    };
+    const [message, hint, status] = messages[result.reason] || ['Could not submit your request.', '', 400];
+    return sendError(res, 'API_FAILED', message, hint, status);
+  }
+
+  logEvent('register', { ok: true });
+  return res.json({ ok: true, status: 'pending' });
+});
+
+// ---------------------------------------------------------------------------
+// Admin: the approval queue
+// ---------------------------------------------------------------------------
+
+app.get('/api/admin/registrations', requireAuthConfigured, requireAdmin, (req, res) => {
+  const status = ['pending', 'approved', 'rejected'].includes(req.query.status) ? req.query.status : 'pending';
+  try {
+    return res.json(listRegistrations({
+      status,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+      offset: req.query.offset ? Number(req.query.offset) : undefined,
+    }));
+  } catch (err) {
+    return sendCaughtError(res, err);
+  }
+});
+
+app.post('/api/admin/registrations/:userId', requireAuthConfigured, requireAdmin, (req, res) => {
+  const decision = req.body?.decision;
+  if (decision !== 'approve' && decision !== 'reject') {
+    return sendError(res, 'API_FAILED', 'Decision must be approve or reject.', '', 400);
+  }
+
+  // An admin rejecting themselves would lock the instance's only operator out
+  // of the queue that could undo it.
+  if (req.params.userId === req.echoUserId && decision === 'reject') {
+    return sendError(res, 'API_FAILED', 'You cannot reject your own account.', '', 400);
+  }
+
+  const result = decideRegistration(req.params.userId, {
+    status: decision === 'approve' ? 'approved' : 'rejected',
+    decidedBy: req.echoAdminDid,
+    adminNote: req.body?.note,
+  });
+  if (!result.ok) {
+    return sendError(res, 'API_FAILED', 'That request could not be decided.', '', result.reason === 'no_such_user' ? 404 : 400);
+  }
+
+  logEvent('admin-decision', { ok: true, decision });
+  return res.json({ ok: true });
+});
+
+/**
+ * End every session an account has, everywhere.
+ *
+ * Separate from revoking access on purpose: they answer different questions.
+ * Revoking says "you may not use this any more"; this says "whatever is holding
+ * a session right now, stop" — the move for a laptop left in a cafe, or for
+ * making a revocation take effect immediately rather than when a stateless
+ * cookie happens to expire.
+ */
+// ---------------------------------------------------------------------------
+// Repository mirror (ATPROTO.md Phase 5)
+// ---------------------------------------------------------------------------
+
+app.get('/api/pds/status', requireApproved, (req, res) => {
+  if (!pdsSync) return res.json({ enabled: false, collection: null, connected: false });
+  return res.json({
+    enabled: true,
+    collection: PDS_COLLECTION,
+    connected: Boolean(req.echoUserId && getAtprotoTokens(req.echoUserId)),
+  });
+});
+
+/**
+ * Pull a library back out of the owner's repository.
+ *
+ * The portability payoff: everything Echo knows can be rebuilt from records the
+ * person owns. Writes each entry as it arrives rather than collecting them —
+ * a library is the biggest thing in this app and holding one in memory with
+ * transcripts attached is the unbounded read this codebase has got wrong seven
+ * times.
+ */
+app.post('/api/pds/restore', requireApproved, async (req, res) => {
+  if (!pdsSync) {
+    return sendError(res, 'WEB_MODE_UNSUPPORTED', 'Repository sync is not enabled on this instance.', '', 503);
+  }
+
+  const lib = libraryFor(req);
+  try {
+    const result = await pdsSync.pullAll(req.echoUserId, {
+      onEntry: async (entry) => {
+        await lib.saveEntry(entry);
+        // NOT mirrored back: these entries came FROM the repository, and
+        // pushing them straight back would be a write per restored video for
+        // no change at all.
+      },
+    });
+    if (result.reason === 'no_credentials') {
+      return sendError(res, 'API_NOT_AUTHED', 'Sign in with Bluesky again to restore.', '', 401);
+    }
+    logEvent('pds-restore', { ok: true, restored: result.restored });
+    return res.json(result);
+  } catch (err) {
+    return sendError(
+      res,
+      err?.echoCode || 'API_FAILED',
+      err?.message || 'Could not restore from your repository.',
+      err?.hint || '',
+      err?.status || 502,
+      err?.detail ? { detail: err.detail } : {}
+    );
+  }
+});
+
+app.post('/api/admin/users/:userId/signout', requireAuthConfigured, requireAdmin, (req, res) => {
+  const result = forceSignOut(req.params.userId);
+  if (!result.ok) {
+    return sendError(res, 'API_FAILED', 'That account could not be signed out.', '', 404);
+  }
+  logEvent('admin-signout', { ok: true, self: req.params.userId === req.echoUserId });
+  return res.json({ ok: true });
 });
 
 app.post('/api/auth/logout', (req, res) => {
+  // Clears THIS browser's cookie and nothing else — deliberately.
+  //
+  // An earlier version also deleted the stored Bluesky token here, on the
+  // reasoning that signing out should leave no live credential behind. That was
+  // wrong: the token is per-ACCOUNT, not per-device, so logging out on one
+  // machine would have silently revoked Echo's ability to act for that account
+  // everywhere else. "Sign out everywhere" is the route that means it, and it
+  // deletes the token there.
   res.set('Set-Cookie', serializeCookie(SESSION_COOKIE, '', { maxAgeMs: 0, secure: isWeb }));
   return res.json({ ok: true });
 });
 
 app.post('/api/auth/signout-everywhere', requireAuthConfigured, requireSession, (req, res) => {
-  // Every session for this account, on every device, stops working now.
+  // Every session for this account, on every device, stops working now — and
+  // the stored Bluesky token goes with them, since "everywhere" that excluded
+  // the server's own copy would not mean what it says.
   bumpTokenVersion(req.echoUserId);
+  try { deleteAtprotoTokens(req.echoUserId); } catch { /* nothing to forget */ }
   res.set('Set-Cookie', serializeCookie(SESSION_COOKIE, '', { maxAgeMs: 0, secure: isWeb }));
   logEvent('signout-all', { ok: true });
   return res.json({ ok: true });
@@ -1503,7 +2077,10 @@ app.delete('/api/auth/account', requireAuthConfigured, requireSession, (req, res
   return res.json({ ok: true });
 });
 
-app.get('/api/sync/pull', requireAuthConfigured, requireSession, webLimit(60, 60_000), (req, res) => {
+// Gated like everything else: sync writes transcripts into server storage, so
+// an unapproved account filling the volume is exactly the abuse the gate is
+// for. requireSession alone would have let a rejected user keep syncing.
+app.get('/api/sync/pull', requireAuthConfigured, requireApproved, requireSession, webLimit(60, 60_000), (req, res) => {
   try {
     const since = typeof req.query.since === 'string' && req.query.since ? req.query.since : undefined;
     return res.json(pullEntries(req.echoUserId, since));
@@ -1512,7 +2089,7 @@ app.get('/api/sync/pull', requireAuthConfigured, requireSession, webLimit(60, 60
   }
 });
 
-app.post('/api/sync/push', requireAuthConfigured, requireSession, webLimit(60, 60_000), (req, res) => {
+app.post('/api/sync/push', requireAuthConfigured, requireApproved, requireSession, webLimit(60, 60_000), (req, res) => {
   const entries = req.body && req.body.entries;
   if (!Array.isArray(entries)) {
     return sendError(res, 'INTERNAL', 'entries must be an array.', '', 400);
@@ -1554,10 +2131,10 @@ app.post('/api/sync/push', requireAuthConfigured, requireSession, webLimit(60, 6
  * rest in the background. `total` is sent so the library count is right from
  * the first paint rather than climbing as pages land.
  */
-app.get('/api/saved', blockInWeb, async (req, res) => {
+app.get('/api/saved', blockInWeb, requireApproved, async (req, res) => {
   try {
     const limit = req.query.limit === undefined ? null : Number(req.query.limit);
-    if (limit === null) return res.json(await listEntries());
+    if (limit === null) return res.json(await libraryFor(req).listEntries());
 
     if (!Number.isFinite(limit) || limit < 1) {
       return sendError(res, 'INTERNAL', 'limit must be a positive number.', '', 400);
@@ -1569,8 +2146,8 @@ app.get('/api/saved', blockInWeb, async (req, res) => {
 
     const capped = Math.min(limit, 500);
     const [entries, total] = await Promise.all([
-      listEntries({ limit: capped, offset }),
-      countEntries(),
+      libraryFor(req).listEntries({ limit: capped, offset }),
+      libraryFor(req).countEntries(),
     ]);
     res.json({ entries, total, hasMore: offset + entries.length < total });
   } catch (err) {
@@ -1594,10 +2171,13 @@ app.get('/api/saved', blockInWeb, async (req, res) => {
  * which the client sees as a failed download rather than a truncated file it
  * might mistake for a good one.
  */
-app.get('/api/saved/export', blockInWeb, async (req, res) => {
+app.get('/api/saved/export', blockInWeb, requireApproved, async (req, res) => {
+  // Resolved once, not per entry: the export streams the WHOLE library, and
+  // re-resolving inside the loop would be a lookup per row for no reason.
+  const lib = libraryFor(req);
   let meta;
   try {
-    meta = await listEntries();
+    meta = await lib.listEntries();
   } catch (err) {
     return sendCaughtError(res, err);
   }
@@ -1627,7 +2207,7 @@ app.get('/api/saved/export', blockInWeb, async (req, res) => {
     await write('{"entries":[');
     let first = true;
     for (const m of meta) {
-      const entry = await getEntry(m.videoId);
+      const entry = await lib.getEntry(m.videoId);
       if (!entry) continue;
       await write(first ? '' : ',');
       await write(JSON.stringify(entry));
@@ -1644,13 +2224,15 @@ app.get('/api/saved/export', blockInWeb, async (req, res) => {
 
 // Sub-routes for a saved entry — all before the bare /:videoId GET/DELETE
 
-app.patch('/api/saved/:videoId/tags', blockInWeb, async (req, res) => {
+app.patch('/api/saved/:videoId/tags', blockInWeb, requireApproved, async (req, res) => {
   try {
     const { tags } = req.body;
     if (!Array.isArray(tags)) {
       return sendError(res, 'INTERNAL', 'tags must be an array.', '', 400);
     }
-    const entry = await setTags(req.params.videoId, tags);
+    const lib = libraryFor(req);
+    const entry = await lib.setTags(req.params.videoId, tags);
+    if (entry) mirrorToPds(req.echoUserId, 'push', { lib, videoId: req.params.videoId });
     if (!entry) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
     res.json(entry);
   } catch (err) {
@@ -1658,9 +2240,9 @@ app.patch('/api/saved/:videoId/tags', blockInWeb, async (req, res) => {
   }
 });
 
-app.get('/api/saved/:videoId', blockInWeb, async (req, res) => {
+app.get('/api/saved/:videoId', blockInWeb, requireApproved, async (req, res) => {
   try {
-    const e = await getEntry(req.params.videoId);
+    const e = await libraryFor(req).getEntry(req.params.videoId);
     if (!e) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
     res.json(e);
   } catch (err) {
@@ -1668,9 +2250,9 @@ app.get('/api/saved/:videoId', blockInWeb, async (req, res) => {
   }
 });
 
-app.get('/api/saved/:videoId/export.md', blockInWeb, async (req, res) => {
+app.get('/api/saved/:videoId/export.md', blockInWeb, requireApproved, async (req, res) => {
   try {
-    const entry = await getEntry(req.params.videoId);
+    const entry = await libraryFor(req).getEntry(req.params.videoId);
     if (!entry) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
 
     const transcriptParam = req.query.transcript;
@@ -1695,7 +2277,7 @@ app.get('/api/saved/:videoId/export.md', blockInWeb, async (req, res) => {
  * should use the existing ZIP export instead.
  * Body: { dir?: string, includeTranscript?: boolean }
  */
-app.post('/api/vault/sync', blockInWeb, async (req, res) => {
+app.post('/api/vault/sync', blockInWeb, requireApproved, async (req, res) => {
   const { dir, includeTranscript } = req.body || {};
   const resolvedDir = (typeof dir === 'string' && dir.trim()) ? dir.trim() : process.env.ECHO_VAULT_DIR;
 
@@ -1711,7 +2293,7 @@ app.post('/api/vault/sync', blockInWeb, async (req, res) => {
 
   const t0 = Date.now();
   try {
-    const result = await syncVault(resolvedDir, { includeTranscript });
+    const result = await syncVault(resolvedDir, { includeTranscript, library: libraryFor(req) });
     logEvent('vault-sync', {
       total: result.total, written: result.written, unchanged: result.unchanged, failed: result.failed,
       ok: true, ms: Date.now() - t0,
@@ -1723,14 +2305,16 @@ app.post('/api/vault/sync', blockInWeb, async (req, res) => {
   }
 });
 
-app.post('/api/saved', blockInWeb, async (req, res) => {
+app.post('/api/saved', blockInWeb, requireApproved, async (req, res) => {
   const t0 = Date.now();
   try {
     const { url, videoId, title, segments, digest, channel, channelUrl, transcriptSource, whisperModel } = req.body;
     if (!videoId || !Array.isArray(segments) || segments.length === 0) {
       return sendError(res, 'INTERNAL', 'videoId and segments are required.', '', 400);
     }
-    const meta = await saveEntry({ url, videoId, title, segments, digest, channel, channelUrl, transcriptSource, whisperModel });
+    const lib = libraryFor(req);
+    const meta = await lib.saveEntry({ url, videoId, title, segments, digest, channel, channelUrl, transcriptSource, whisperModel });
+    mirrorToPds(req.echoUserId, 'push', { lib, videoId });
     logEvent('save', { videoId, hadDigest: Boolean(digest), ok: true, ms: Date.now() - t0 });
     res.json(meta);
   } catch (err) {
@@ -1738,10 +2322,11 @@ app.post('/api/saved', blockInWeb, async (req, res) => {
   }
 });
 
-app.delete('/api/saved/:videoId', blockInWeb, async (req, res) => {
+app.delete('/api/saved/:videoId', blockInWeb, requireApproved, async (req, res) => {
   const t0 = Date.now();
   try {
-    const ok = await deleteEntry(req.params.videoId);
+    const ok = await libraryFor(req).deleteEntry(req.params.videoId);
+    if (ok) mirrorToPds(req.echoUserId, 'remove', req.params.videoId);
     if (!ok) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
     logEvent('unsave', { videoId: req.params.videoId, ok: true, ms: Date.now() - t0 });
     res.json({ ok: true });
@@ -1754,7 +2339,7 @@ app.delete('/api/saved/:videoId', blockInWeb, async (req, res) => {
 // Search helpers
 // ---------------------------------------------------------------------------
 
-app.get('/api/search', blockInWeb, async (req, res) => {
+app.get('/api/search', blockInWeb, requireApproved, async (req, res) => {
   const q     = String(req.query.q || '').trim();
   const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
   const t0 = Date.now();
@@ -1767,7 +2352,7 @@ app.get('/api/search', blockInWeb, async (req, res) => {
     // full entry — transcript and all — purely to slice ~200 characters out of
     // it, which on a 300-entry library meant reading 2.0 MB of transcript per
     // search to produce about 4 KB of output.
-    const results = await searchSummaries(q, limit);
+    const results = await libraryFor(req).searchSummaries(q, limit);
     logEvent('search', { qLen: q.length, mode: 'keyword', results: results.length, ok: true, ms: Date.now() - t0 });
     return res.json({ results, mode: 'keyword' });
   } catch (err) {
