@@ -2,8 +2,12 @@
 
 Status: **Phases 1–5 built** (2026-08-13, branch `feat/atproto-signin`).
 Sign-in, registration, admin approval and the access gate all work end to end
-against a real Bluesky account, and every account has its own library. Phase 5
-is the only one left.
+against a real Bluesky account, every account has its own library, and every
+save mirrors into that person's own repository.
+
+**The mirror has never run against a real account.** Every test uses an injected
+fetch and every probe sets `ECHO_PDS_SYNC=0`. Verified by reading the live
+repository: zero records. One live write is the remaining verification.
 
 **Libraries are now per-account** (Phase 4), so approving someone no longer hands them yours. They still spend your Claude quota and your residential IP.
 
@@ -62,7 +66,7 @@ The atproto tokens live server-side only. The browser never sees them.
 
 ## Phases
 
-Phases 1–4 are built. Phase 5 is independent and belongs on its own branch.
+All five are built.
 
 ### Phase 1 — sign in with Bluesky (`atproto.js`) — BUILT
 
@@ -188,12 +192,40 @@ schema migration, no FTS rebuild, and `store.js`'s queries are untouched.
 - Costs, honestly: no cross-owner query is possible (nothing wants one), and one
   handle is held per active owner (`closeAllLibraries()` releases them).
 
-### Phase 5 — libraries in the user's PDS
+### Phase 5 — libraries in the user's PDS — BUILT
 
-Records at `dev.ssani.echo.entry` via `putRecord`; transcript as a blob via
-`uploadBlob`. `store.js` stays the local cache that keeps FTS5 search fast; the
-PDS becomes the portable source of truth. Reconcile with the existing
-last-write-wins-by-`updatedAt` + tombstone semantics in `syncStore.js`.
+Records at `dev.ssani.echo.entry`; transcript as a blob. `store.js` stays the
+cache that keeps FTS5 search fast; the repository is the portable copy.
+
+**What this is now for changed.** Phase 4 solved isolation, so this is
+portability — and it is the first phase that spends someone else's storage
+quota. Worth taking deliberately rather than by momentum.
+
+- **The record/blob split** is the design. The record holds everything a library
+  row or reader header needs; the transcript is a blob. Opening a library costs
+  one `listRecords` call and **zero** blob fetches, and no record grows past
+  what a record should be however long the talk was.
+- **Automatic, for everyone.** Save, delete or retag mirrors the change.
+  `POST /api/pds/restore` pulls it all back, streaming each entry as it arrives.
+- **The rotated refresh token is persisted BEFORE the access token is used.**
+  Refresh tokens rotate; persisting after the write means a crash mid-write
+  signs someone out of Bluesky permanently.
+- **The blob is uploaded before the record that points at it.** An orphan blob
+  is collectable garbage; an orphan record is a row that cannot be opened.
+- **The mirror is not awaited.** Saving must not get slower, or fail, because
+  someone else's PDS is down. `putRecord` is idempotent on the video id, so the
+  next save re-pushes.
+- One unreadable blob does not end a restore; a record with no `videoId` is
+  skipped rather than restored as a blank (a repository is shared with every
+  other atproto app, so foreign records there are normal); an unsealable token
+  reads as "no credentials", because after a secret rotation there is nothing to
+  do but sign in again.
+- Pacing is **per instance**, not per user: the 3,000/5min limit is per IP and
+  every user's sync leaves from the same one.
+- `ECHO_PDS_SYNC=0` turns it off.
+
+**Not built:** any UI. There is no toggle and no restore button — the mirror
+runs on save and restore is a route you have to call. That is the next piece.
 
 ## Traps specific to this work
 
