@@ -3325,16 +3325,16 @@ body.gate-declined .lens-row {
 .settings-toggle-row {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  margin-top: 18px;
+  gap: var(--space-6);
+  margin-top: var(--space-10);
   cursor: pointer;
 }
 .settings-toggle-row input[type="checkbox"] {
-  margin-top: 3px;
+  margin-top: var(--space-2);
   flex-shrink: 0;
   cursor: pointer;
 }
-.settings-toggle-text { display: flex; flex-direction: column; gap: 2px; }
+.settings-toggle-text { display: flex; flex-direction: column; gap: var(--space-1); }
 .settings-toggle-title { font-weight: 600; font-size: var(--text-lg); }
 
 /* One class per level of the settings hierarchy.
@@ -3370,13 +3370,13 @@ body.gate-declined .lens-row {
 }
 
 .settings-block {
-  margin-top: 18px;
-  padding-top: 14px;
+  margin-top: var(--space-10);
+  padding-top: var(--space-8);
   border-top: 1px solid var(--rule);
 }
 .settings-block .settings-toggle-title {
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-5);
 }
 .settings-block input[type="text"] {
   width: 100%;
