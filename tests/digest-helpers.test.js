@@ -112,3 +112,39 @@ test('buildSpawnTarget: wires an isolated --system-prompt that is cmd.exe-safe, 
   assert.ok(args.includes('--output-format'));
   assert.ok(args.includes('json'));
 });
+
+// ---------------------------------------------------------------------------
+// Single-line transcripts (the shape every real client actually sends)
+// ---------------------------------------------------------------------------
+
+test('chunkText: a long SINGLE-LINE transcript still splits — the real client sends no newlines', () => {
+  // buildPlainTranscript() in src/client/main.js strips newlines out of every
+  // segment and joins with a space, and the Obsidian plugin joins with a space
+  // too. So the text reaching generateDigest() is one enormous line. While
+  // chunkText only split on '\n', that returned a single chunk at any length,
+  // `chunks.length > 1` was false, and the map-reduce long path could never be
+  // entered — a ~10-hour video went down the fast path with its whole
+  // transcript in one prompt. Guard the shape that actually ships.
+  const budget = 1000;
+  const oneLine = 'word '.repeat(2000).trim(); // ~10k chars, zero newlines
+  const chunks = chunkText(oneLine, budget);
+
+  assert.ok(chunks.length > 1, 'a single long line must still produce multiple chunks');
+  for (const chunk of chunks) {
+    assert.ok(chunk.length <= budget, `chunk length ${chunk.length} exceeds budget ${budget}`);
+  }
+  // Splitting happens on spaces, so rejoining with a space restores the text.
+  assert.equal(chunks.join(' '), oneLine, 'no content was lost or duplicated');
+});
+
+test('chunkText: a single unbroken run longer than the budget is hard-cut rather than emitted oversized', () => {
+  // No space to split on. Emitting one over-budget piece would defeat the
+  // budget, so the splitter cuts mid-run on purpose.
+  const budget = 100;
+  const chunks = chunkText('x'.repeat(350), budget);
+  assert.ok(chunks.length > 1, 'an unbreakable run still gets divided');
+  for (const chunk of chunks) {
+    assert.ok(chunk.length <= budget, `chunk length ${chunk.length} exceeds budget ${budget}`);
+  }
+  assert.equal(chunks.join(''), 'x'.repeat(350), 'no content was lost');
+});

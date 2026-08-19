@@ -597,8 +597,49 @@ async function callProviderStreaming(prompt, opts = {}) {
  * @param {number} [budgetChars]
  * @returns {string[]}
  */
+/**
+ * Break any single line longer than the budget into word-boundary pieces.
+ *
+ * chunkText() splits on newlines, which quietly assumed the transcript had
+ * some. It does not: every real client flattens segments into ONE line before
+ * posting — `buildPlainTranscript()` in src/client/main.js strips newlines out
+ * of each segment and joins with a space, and the Obsidian plugin joins with a
+ * space too. So a transcript of any length arrived as a single line, chunkText
+ * returned exactly one chunk, `chunks.length > 1` was false, and the whole
+ * map-reduce long path was unreachable — a ~10-hour video went down the fast
+ * path with its entire transcript in one prompt instead of being chunked.
+ *
+ * Splitting on spaces rather than mid-word keeps each piece readable to the
+ * model. A run of non-space characters longer than the budget (no boundary to
+ * find) is hard-cut, because emitting an over-budget piece would defeat the
+ * point of having a budget.
+ *
+ * @param {string[]} lines
+ * @param {number} budgetChars
+ * @returns {string[]}
+ */
+function splitOversizedLines(lines, budgetChars) {
+  const out = [];
+  for (const line of lines) {
+    if (line.length <= budgetChars) {
+      out.push(line);
+      continue;
+    }
+    let rest = line;
+    while (rest.length > budgetChars) {
+      // Prefer the last space inside the budget, so words stay intact.
+      let cut = rest.lastIndexOf(' ', budgetChars);
+      if (cut <= 0) cut = budgetChars; // no boundary available — hard-cut
+      out.push(rest.slice(0, cut));
+      rest = rest.slice(cut).replace(/^ /, '');
+    }
+    if (rest) out.push(rest);
+  }
+  return out;
+}
+
 export function chunkText(text, budgetChars = CHUNK_CONTENT_CHARS) {
-  const lines = text.split('\n');
+  const lines = splitOversizedLines(text.split('\n'), budgetChars);
   const chunks = [];
   let current = [];
   let currentChars = 0;
