@@ -52,7 +52,7 @@ test('the database is not opened until the store is actually used', async () => 
   }
 });
 
-test('saveEntry then getEntry round-trips title, url, segments, digest, and default favorite=false', async () => {
+test('saveEntry then getEntry round-trips title, url, segments, and digest', async () => {
   const segments = [{ text: 'hello there', offset: 0 }, { text: 'world', offset: 5 }];
   await store.saveEntry({
     videoId: 'vid001',
@@ -68,7 +68,6 @@ test('saveEntry then getEntry round-trips title, url, segments, digest, and defa
   assert.equal(entry.url, 'https://www.youtube.com/watch?v=vid001');
   assert.deepEqual(entry.segments, segments);
   assert.equal(entry.digest, 'a short digest');
-  assert.equal(entry.favorite, false);
 });
 
 // ---------------------------------------------------------------------------
@@ -152,14 +151,13 @@ test('setTags mutates the entry as expected', async () => {
 // listEntries metadata
 // ---------------------------------------------------------------------------
 
-test('listEntries returns metadata with correct counts, tags, and favorite', async () => {
+test('listEntries returns metadata with correct counts and tags', async () => {
   await store.saveEntry({
     videoId: 'vid004',
     url: 'https://www.youtube.com/watch?v=vid004',
     title: 'Metadata Video',
     segments: [{ text: 'a', offset: 0 }, { text: 'b', offset: 1 }],
     tags: ['x', 'y'],
-    favorite: true,
   });
 
   const all = await store.listEntries();
@@ -167,7 +165,6 @@ test('listEntries returns metadata with correct counts, tags, and favorite', asy
   assert.ok(meta);
   assert.equal(meta.segmentCount, 2);
   assert.deepEqual(meta.tags.sort(), ['x', 'y']);
-  assert.equal(meta.favorite, true);
 });
 
 // ---------------------------------------------------------------------------
@@ -203,7 +200,7 @@ test('searchSummaries returns only what a result row shows — never the transcr
   // 300-entry library that was 2.0 MB read per search to produce about 4 KB.
   const hit = (await store.searchSummaries('Zorbnaxaquil')).find((h) => h.videoId === 'vid005');
   assert.deepEqual(Object.keys(hit).sort(),
-    ['favorite', 'snippet', 'tags', 'title', 'url', 'videoId']);
+    ['snippet', 'tags', 'title', 'url', 'videoId']);
   assert.equal(hit.segments, undefined, 'transcript segments must not be loaded');
   assert.equal(hit.digest, undefined, 'the digest must not be loaded');
 });

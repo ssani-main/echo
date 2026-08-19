@@ -321,7 +321,6 @@ export function recordToEntry(record, transcriptBytes) {
     channelUrl: record?.channelUrl ?? null,
     transcriptSource: record?.transcriptSource ?? null,
     whisperModel: record?.whisperModel ?? null,
-    favorite: false,
     segmentCount: Number(record?.segmentCount) || 0,
   };
 }
