@@ -127,6 +127,21 @@ export function closeAllLibraries() {
   handles.clear();
 }
 
+/**
+ * Close one owner's handle, if open. Narrower sibling of closeAllLibraries()
+ * for callers (adoptDefaultLibrary) that must not disturb every other
+ * approved user's in-flight connection just to shut the two handles they
+ * actually touch.
+ *
+ * @param {string} owner
+ */
+function closeLibrary(owner) {
+  const handle = handles.get(owner);
+  if (!handle) return;
+  try { handle.close(); } catch { /* already gone */ }
+  handles.delete(owner);
+}
+
 // ---------------------------------------------------------------------------
 // Schema
 // ---------------------------------------------------------------------------
@@ -265,7 +280,6 @@ function fetchFullEntry(owner, videoId) {
     updatedAt:  row.updatedAt,
     segments:   JSON.parse(row.segments || '[]'),
     digest:     row.digest ?? null,
-    favorite:   row.favorite === 1,
     tags:       tags.map((t) => t.tag),
     channel:    row.channel ?? null,
     channelUrl: row.channelUrl ?? null,
@@ -287,7 +301,6 @@ function toMeta(entry) {
     hasDigest:      !!entry.digest,
     segmentCount:   entry.segments?.length || 0,
     tags:           Array.isArray(entry.tags)       ? entry.tags             : [],
-    favorite:       typeof entry.favorite === 'boolean' ? entry.favorite     : false,
     channel:        entry.channel    ?? null,
     channelUrl:     entry.channelUrl ?? null,
     transcriptSource: entry.transcriptSource ?? null,
@@ -297,7 +310,7 @@ function toMeta(entry) {
 
 /**
  * Map a raw (unparsed, snake_case) videos-table row — as produced by the
- * projected listEntries() SELECT — plus its tags array to the same 12-field
+ * projected listEntries() SELECT — plus its tags array to the same 11-field
  * metadata shape toMeta() produces. Kept in sync with toMeta() by hand;
  * listEntries()'s own row→object mapping used to drift from it.
  */
@@ -310,7 +323,6 @@ function metaFromRow(row, tags) {
     hasDigest:      !!row.hasDigest,
     segmentCount:   row.segment_count || 0,
     tags:           Array.isArray(tags) ? tags : [],
-    favorite:       row.favorite === 1,
     channel:        row.channel ?? null,
     channelUrl:     row.channelUrl ?? null,
     transcriptSource: row.transcript_source ?? null,
@@ -400,8 +412,8 @@ function migrateFromLegacyJson(owner) {
   }
 
   const insertVideo = getDb(owner).prepare(`
-    INSERT OR IGNORE INTO videos (videoId, url, title, savedAt, updatedAt, segments, digest, favorite, segment_count)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO videos (videoId, url, title, savedAt, updatedAt, segments, digest, segment_count)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertTag = getDb(owner).prepare(
     'INSERT OR IGNORE INTO tags (videoId, tag) VALUES (?, ?)'
@@ -422,7 +434,6 @@ function migrateFromLegacyJson(owner) {
         entry.updatedAt ?? new Date().toISOString(),
         JSON.stringify(entry.segments || []),
         entry.digest    ?? null,
-        entry.favorite  ? 1 : 0,
         Array.isArray(entry.segments) ? entry.segments.length : 0,
       );
 
@@ -475,7 +486,7 @@ async function listEntriesFor(owner, opts = {}) {
   const offset = Number.isFinite(opts.offset) && opts.offset > 0 ? Math.floor(opts.offset) : 0;
 
   const rows = getDb(owner).prepare(`
-    SELECT videoId, url, title, savedAt, favorite, segment_count, channel, channelUrl,
+    SELECT videoId, url, title, savedAt, segment_count, channel, channelUrl,
            transcript_source, whisper_model, (digest IS NOT NULL) AS hasDigest
     FROM videos
     ORDER BY savedAt DESC
@@ -516,11 +527,11 @@ async function getEntryFor(owner, videoId) {
 
 /**
  * Upsert an entry by videoId.
- * Preserves existing digest, tags, favorite when the
+ * Preserves existing digest, tags when the
  * incoming payload omits them.
  * Returns the metadata object for the saved entry.
  */
-async function saveEntryFor(owner, { url, videoId, title, segments, digest, tags, favorite, channel, channelUrl, transcriptSource, whisperModel }) {
+async function saveEntryFor(owner, { url, videoId, title, segments, digest, tags, channel, channelUrl, transcriptSource, whisperModel }) {
   const now      = new Date().toISOString();
   const existing = getDb(owner).prepare('SELECT * FROM videos WHERE videoId = ?').get(videoId);
   const safeUrl  = safeHttpUrl(url);
@@ -528,8 +539,8 @@ async function saveEntryFor(owner, { url, videoId, title, segments, digest, tags
   if (!existing) {
     // ---- New entry --------------------------------------------------------
     getDb(owner).prepare(`
-      INSERT INTO videos (videoId, url, title, savedAt, updatedAt, segments, digest, favorite, segment_count, channel, channelUrl, transcript_source, whisper_model)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO videos (videoId, url, title, savedAt, updatedAt, segments, digest, segment_count, channel, channelUrl, transcript_source, whisper_model)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       videoId,
       safeUrl,
@@ -537,7 +548,6 @@ async function saveEntryFor(owner, { url, videoId, title, segments, digest, tags
       now, now,
       JSON.stringify(segments || []),
       digest || null,
-      typeof favorite === 'boolean' ? (favorite ? 1 : 0) : 0,
       Array.isArray(segments) ? segments.length : 0,
       channel    || null,
       channelUrl || null,
@@ -552,7 +562,6 @@ async function saveEntryFor(owner, { url, videoId, title, segments, digest, tags
   } else {
     // ---- Existing entry — preserve savedAt and extension fields not in payload ----
     const keepDigest     = digest   ? digest   : existing.digest;
-    const keepFavorite   = typeof favorite === 'boolean' ? (favorite ? 1 : 0) : existing.favorite;
     const keepChannel    = channel    !== undefined ? (channel    || null) : existing.channel;
     const keepChannelUrl = channelUrl !== undefined ? (channelUrl || null) : existing.channelUrl;
     const keepTranscriptSource = transcriptSource != null ? transcriptSource : existing.transcript_source;
@@ -560,7 +569,7 @@ async function saveEntryFor(owner, { url, videoId, title, segments, digest, tags
 
     getDb(owner).prepare(`
       UPDATE videos
-      SET url = ?, title = ?, updatedAt = ?, segments = ?, digest = ?, favorite = ?, segment_count = ?, channel = ?, channelUrl = ?, transcript_source = ?, whisper_model = ?
+      SET url = ?, title = ?, updatedAt = ?, segments = ?, digest = ?, segment_count = ?, channel = ?, channelUrl = ?, transcript_source = ?, whisper_model = ?
       WHERE videoId = ?
     `).run(
       url != null ? safeUrl : existing.url,
@@ -568,7 +577,6 @@ async function saveEntryFor(owner, { url, videoId, title, segments, digest, tags
       now,
       JSON.stringify(segments || []),
       keepDigest,
-      keepFavorite,
       Array.isArray(segments) ? segments.length : 0,
       keepChannel,
       keepChannelUrl,
@@ -663,7 +671,7 @@ async function setTagsFor(owner, videoId, tags) {
  *
  * @param {string} query
  * @param {number} [limit]
- * @returns {Array<{videoId, title, url, snippet, tags, favorite}>}
+ * @returns {Array<{videoId, title, url, snippet, tags}>}
  */
 async function searchSummariesFor(owner, query, limit = 20) {
   if (!query || !String(query).trim()) return [];
@@ -675,7 +683,6 @@ async function searchSummariesFor(owner, query, limit = 20) {
       SELECT f.videoId,
              v.title,
              v.url,
-             v.favorite,
              snippet(videos_fts, -1, '', '', '…', 24) AS snippet
       FROM   videos_fts f
       JOIN   videos v ON v.videoId = f.videoId
@@ -683,8 +690,12 @@ async function searchSummariesFor(owner, query, limit = 20) {
       ORDER  BY rank
       LIMIT  ?
     `).all(String(query).trim(), capped);
-  } catch {
-    // Tolerate malformed FTS queries gracefully (bad operators, special chars)
+  } catch (err) {
+    // Tolerate malformed FTS queries gracefully (bad operators, special
+    // chars) — but log first, because a bare `return []` here also swallows a
+    // genuine SQLite lock/corruption/disk error and makes it indistinguishable
+    // from "no results", both to the user and in the logs.
+    console.error('[store] searchSummariesFor query failed:', err.message);
     return [];
   }
 
@@ -709,7 +720,6 @@ async function searchSummariesFor(owner, query, limit = 20) {
     url: r.url,
     snippet: String(r.snippet || '').replace(/\s+/g, ' ').trim(),
     tags: tagsByVideo[r.videoId] || [],
-    favorite: r.favorite === 1,
   }));
 }
 
@@ -780,7 +790,11 @@ export function adoptDefaultLibrary(owner) {
   if (existsSync(to)) {
     const { n } = getDb(owner).prepare('SELECT COUNT(*) AS n FROM videos').get();
     if (n > 0) return { adopted: false, reason: 'owner_has_library' };
-    closeAllLibraries();
+    // Only the target owner's handle is open on `to` at this point — closing
+    // every open handle here would also force-close any OTHER approved user's
+    // in-flight connection for no reason (adoptDefaultLibrary fires from
+    // admin sign-in, which has nothing to do with anyone else's request).
+    closeLibrary(owner);
     for (const suffix of ['', '-wal', '-shm']) {
       if (existsSync(to + suffix)) rmSync(to + suffix, { force: true });
     }
@@ -788,7 +802,10 @@ export function adoptDefaultLibrary(owner) {
 
   // Both handles must be shut before the file moves, or SQLite keeps writing
   // through a descriptor pointing at a path that no longer means what it did.
-  closeAllLibraries();
+  // Narrowed to just these two owners for the same reason as above — every
+  // other approved user's handle must survive this untouched.
+  closeLibrary(DEFAULT_OWNER);
+  closeLibrary(owner);
   mkdirSync(dirname(to), { recursive: true });
   renameSync(from, to);
   // WAL and shared-memory siblings travel with it; a checkpointed database can
