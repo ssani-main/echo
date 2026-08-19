@@ -87,13 +87,12 @@ the user's audio on the user's machine.
   cap (`server.js:520`), find-in-transcript, jump-to-time, and library save all keep
   working untouched. Copy the stamping idiom from `fetchViaPackage`
   (`transcript.js:138`).
-- **ffmpeg becomes a hard requirement for this feature.** Today it's only needed by
-  `frames.js`. whisper.cpp requires 16 kHz mono 16-bit WAV *specifically*
-  (whisper.cpp issue #909), and only ffmpeg gets us there.
+- **ffmpeg becomes a hard requirement for this feature.** whisper.cpp requires 16 kHz
+  mono 16-bit WAV *specifically* (whisper.cpp issue #909), and only ffmpeg gets us there.
 
 ## Web-mode gate — the real reason
 
-Guard with `blockInWeb` (`server.js:448`), **but the reason is not cost or policy:**
+Guard with `blockInWeb` (`server.js:718`), **but the reason is not cost or policy:**
 
 **yt-dlp's PO tokens are bound to the originating IP/network, and audio streams
 (`gvs` tokens) are gated harder than captions (`subs`).** Audio downloads break from
@@ -302,8 +301,14 @@ resolveWhisper(opts)                -> { binPath, modelPath } | null
 mapWhisperError(err)                -> { echoCode, message, hint }
 ```
 
-**Binary discovery follows the existing `frames.js` convention** (`frames.js:31–32`,
-`opts.ffmpegPath || process.env.ECHO_FFMPEG || 'ffmpeg'`). Mirror it exactly:
+**Binary discovery follows this pattern** (see `whisper.js:44–50`):
+
+```
+opts.whisperPath || process.env.ECHO_WHISPER || <vendored path> || 'whisper-cli'
+opts.modelPath   || process.env.ECHO_WHISPER_MODEL || <cache path>
+```
+
+Mirror this for ffmpeg:
 
 ```
 opts.whisperPath || process.env.ECHO_WHISPER || <vendored path> || 'whisper-cli'
@@ -312,8 +317,8 @@ opts.modelPath   || process.env.ECHO_WHISPER_MODEL || <cache path>
 
 ### Pipeline
 
-1. **Duration guard** — cheap `yt-dlp --print '%(duration)s'` probe first (copy
-   `frames.js:41–61`). Over `ECHO_WHISPER_MAX_MINUTES` (default 180) →
+1. **Duration guard** — cheap `yt-dlp --print '%(duration)s'` probe first (see
+   `whisper.js:395–418`). Over `ECHO_WHISPER_MAX_MINUTES` (default 180) →
    `WHISPER_AUDIO_TOO_LONG`. Given the speed table, consider surfacing the estimate
    to the UI rather than only rejecting.
 
@@ -337,7 +342,7 @@ opts.modelPath   || process.env.ECHO_WHISPER_MODEL || <cache path>
 
    **The WAV is the expensive artifact: 16 kHz mono 16-bit = ~115 MB/hour, ~5× the
    download.** Feed it to whisper-cli and delete it. **Never cache it.** `rm -rf` the
-   temp dir in a `finally` (copy `cleanupFrames`, `frames.js:383`).
+   temp dir in a `finally` (see `whisper.js:485–487`).
 
 3. **Transcribe** — spawn `whisper-cli` with JSON output and segment timestamps
    (the whisper.cpp equivalent of `response_format=verbose_json`). Point it at the
@@ -349,13 +354,13 @@ opts.modelPath   || process.env.ECHO_WHISPER_MODEL || <cache path>
    non-enumerably.
 
 Guardrails: overall op timeout `ECHO_WHISPER_TIMEOUT_MS` — **default it generously
-(≥30 min) and derive it from duration**, because unlike the frames path the work here
-is legitimately minutes-long → `WHISPER_TIMEOUT`.
+(≥30 min) and derive it from duration**, because this work is legitimately minutes-long
+→ `WHISPER_TIMEOUT`.
 
 ## Integration point — the exact hook site
 
-**One hook only**, in `fetchTranscript` (`transcript.js:359`), in the `catch (ytDlpErr)`
-block, **immediately before the `TRANSCRIPT_UNAVAILABLE` throw** — i.e. after *both*
+**One hook only**, in `fetchTranscript` (`transcript.js:497`), in the `catch (ytDlpErr)`
+block at line `~575`, **immediately before the `TRANSCRIPT_UNAVAILABLE` throw** — i.e. after *both*
 the package fetcher and the yt-dlp caption fallback have failed. The real code today:
 
 ```js
@@ -404,18 +409,18 @@ installer bloats the artifact ~180 MB for a feature most users may never trigger
 
 ## Server surface (`server.js`)
 
-- `POST /api/transcript` (`:497`): accept `transcribe` in the body; pass
+- `POST /api/transcript` (`server.js:1000`): accept `transcribe` in the body; pass
   `{ transcribe }` into `fetchTranscript`. **In web mode, force `transcribe:'off'`**
   regardless of body. Add `transcriptSource: 'captions'|'whisper'` to the response.
   **No key header** — there is no key. (The old spec's `readWhisperKey` /
   `X-Echo-Whisper-Key` / `/api/validate-whisper-key` are all deleted with the hosted
   decision. Good riddance: the frontend transcript fetch stays a plain `fetch`.)
-- New `ECHO_ERROR_STATUS` codes (`:208`): `WHISPER_MISSING→503`,
+- New `ECHO_ERROR_STATUS` codes (`server.js:422`): `WHISPER_MISSING→503`,
   `WHISPER_MODEL_MISSING→503`, `WHISPER_FAILED→502`, `WHISPER_AUDIO_TOO_LONG→422`,
   `WHISPER_TIMEOUT→504`. **`FFMPEG_MISSING→503` and `YTDLP_MISSING→503` already
-  exist** (`:214`, `:221`) — reuse them, don't add duplicates.
-- `mapWhisperError` follows `mapFramesError` (`frames.js:396`) exactly: `err.echoCode`
-  passthrough, then **`ENOENT` + binary-name detection** (`err.code === 'ENOENT' &&
+  exist** — reuse them, don't add duplicates.
+- `mapWhisperError` (`whisper.js:610`): `err.echoCode` passthrough, then **`ENOENT`
+  + binary-name detection** (`err.code === 'ENOENT' &&
   /whisper/i.test((err.path || '') + message)`) → `{ echoCode, message, hint }`, so
   `sendCaughtError` (`:250`) handles them unchanged.
 
@@ -453,7 +458,7 @@ re-open knows the transcript's provenance. Non-breaking; old entries default to
 
 ## Tauri (`src-tauri/tauri.conf.json`)
 
-- **Register `whisper.js` in `bundle.resources`** (`:42`): `"../whisper.js": "whisper.js"`.
+- **Register `whisper.js` in `bundle.resources`** (`tauri.conf.json:43–55`): `"../whisper.js": "whisper.js"`.
   Miss this and the desktop sidecar crashes at runtime with `ERR_MODULE_NOT_FOUND` —
   and neither `node --test` nor the `.deb`/`.rpm` bundlers catch it (they don't start
   the backend). `tests/tauri-bundle.test.js` **does** guard it, and it derives the
@@ -514,6 +519,5 @@ spawns.
    `base` q5 is 3× faster and 3× smaller with worse accuracy. Only real usage decides.
 8. **Timeout policy.** A fixed `ECHO_WHISPER_TIMEOUT_MS` will be wrong at both ends
    (a 5-min video and a 3-hr video). Spec suggests deriving from duration. Unvalidated.
-9. **`ffmpeg` now hard-required** for a *transcript* — previously only a *digest*
-   nicety. Does that change the install story enough to justify bundling ffmpeg for
-   desktop (deferred to P3 in [`FRAMES.md`](FRAMES.md))? Two features now want it.
+9. **`ffmpeg` now hard-required** for a *transcript*. Desktop bundling remains
+   optional — either the user has it on PATH, or Whisper degrades to off.
