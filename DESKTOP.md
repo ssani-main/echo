@@ -114,7 +114,9 @@ The frontend is built separately from the dependency staging: `beforeBuildComman
 in via `bundle.resources`. That is why `tauri:build` does *not* itself run the build — it
 would run twice.
 
-AppImage bundling also requires two env vars, which `npm run tauri:build` sets automatically: `APPIMAGE_EXTRACT_AND_RUN=1` (linuxdeploy is itself an AppImage and needs this where FUSE is unavailable, e.g. CI/containers) and `NO_STRIP=1` (linuxdeploy ships an old `strip` that fails on the `.relr.dyn` sections of modern system libraries on bleeding-edge distros such as Arch). The `.deb` and `.rpm` bundles are unaffected and build without these. Verified 2026-07-06: all three Linux installers (AppImage, .deb, .rpm) build on Arch/Linux.
+AppImage bundling also requires two env vars, which `npm run tauri:build` sets automatically **only when running on Linux** (`tools/tauri-build.mjs` checks `process.platform`): `APPIMAGE_EXTRACT_AND_RUN=1` (linuxdeploy is itself an AppImage and needs this where FUSE is unavailable, e.g. CI/containers) and `NO_STRIP=1` (linuxdeploy ships an old `strip` that fails on the `.relr.dyn` sections of modern system libraries on bleeding-edge distros such as Arch). The `.deb` and `.rpm` bundles are unaffected and build without these, and neither var means anything to the Windows `.msi`/`.exe` or macOS `.dmg`/`.app` bundlers, so they are no longer set outside Linux. Verified 2026-07-06: all three Linux installers (AppImage, .deb, .rpm) build on Arch/Linux.
+
+Both `tauri:build` and `pkg:stage-deps` are now cross-platform Node scripts (`tools/tauri-build.mjs`, `tools/stage-deps.mjs`) rather than POSIX shell one-liners — the old versions used `rm -rf`/`mkdir -p`/`cp` and an inline `VAR=1 cmd` env prefix, none of which cmd.exe/PowerShell understand, so they failed outright on Windows. Behaviour (staging dir, install flags, cleanup) is unchanged.
 
 `tauri:dev` uses `devUrl: http://localhost:8000` in `tauri.conf.json`, so
 for the dev workflow, run `npm start` in a separate terminal first — it builds
