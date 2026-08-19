@@ -619,17 +619,28 @@ async function callProviderStreaming(prompt, opts = {}) {
  * @returns {string[]}
  */
 function splitOversizedLines(lines, budgetChars) {
+  // Every cut must consume at least one character, or the loop below makes no
+  // progress and spins until the output array hits V8's length limit. A budget
+  // of 0 or a negative number did exactly that: lastIndexOf(' ', 0) returns
+  // -1, the hard-cut fallback set cut to the budget (0), and slice(0, 0) fed
+  // an empty string back in forever. No caller passes such a budget today —
+  // chunkText's default is CHUNK_CONTENT_CHARS — but it is exported, so the
+  // floor is cheaper than the assumption.
+  const budget = Number.isFinite(budgetChars) && budgetChars >= 1
+    ? Math.floor(budgetChars)
+    : CHUNK_CONTENT_CHARS;
+
   const out = [];
   for (const line of lines) {
-    if (line.length <= budgetChars) {
+    if (line.length <= budget) {
       out.push(line);
       continue;
     }
     let rest = line;
-    while (rest.length > budgetChars) {
+    while (rest.length > budget) {
       // Prefer the last space inside the budget, so words stay intact.
-      let cut = rest.lastIndexOf(' ', budgetChars);
-      if (cut <= 0) cut = budgetChars; // no boundary available — hard-cut
+      let cut = rest.lastIndexOf(' ', budget);
+      if (cut <= 0) cut = budget; // no boundary available — hard-cut
       out.push(rest.slice(0, cut));
       rest = rest.slice(cut).replace(/^ /, '');
     }

@@ -148,3 +148,18 @@ test('chunkText: a single unbroken run longer than the budget is hard-cut rather
   }
   assert.equal(chunks.join(''), 'x'.repeat(350), 'no content was lost');
 });
+
+test('chunkText: a degenerate budget terminates instead of spinning', () => {
+  // splitOversizedLines() cuts at `lastIndexOf(' ', budget)` and hard-cuts at
+  // `budget` when there is no space. With a budget of 0 that made every cut
+  // zero-width, so `rest` never shrank and the loop appended empty strings
+  // until the array hit V8's length limit ("Invalid array length"). No caller
+  // passes such a budget — chunkText defaults to CHUNK_CONTENT_CHARS — but it
+  // is exported, so the floor is guarded rather than assumed.
+  for (const budget of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    const chunks = chunkText('a bb ccc dddd eeeee', budget);
+    assert.ok(Array.isArray(chunks), `budget ${budget} returned an array`);
+    assert.ok(chunks.length >= 1 && chunks.length < 100,
+      `budget ${budget} produced ${chunks.length} chunks — the split made no progress`);
+  }
+});
