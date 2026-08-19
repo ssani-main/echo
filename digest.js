@@ -58,6 +58,14 @@ function buildClaudeStreamArgs() {
 
 const CHARS_PER_TOKEN = 4;
 
+// Caps how many map-phase chunks run concurrently (see digestMapReduce below).
+// Bare Number(...) || fallback matches whisper.js's existing env-var
+// convention here: a malformed value just falls back to the default rather
+// than needing the stricter numFromEnv() validation server.js uses for
+// security-sensitive size caps — a bad concurrency number can't be abused
+// into a bypass, only a slower digest.
+const MAP_CONCURRENCY = Number(process.env.ECHO_DIGEST_MAP_CONCURRENCY) || 3;
+
 // Enter the long (map-reduce) path when estimated transcript chars exceed
 // this. Below this threshold behaviour is IDENTICAL to today — single call.
 const LONG_PATH_THRESHOLD_CHARS = 480_000; // ~120 k tokens
@@ -641,18 +649,50 @@ function sanitizeTitle(s) {
 }
 
 /**
+ * Runs `worker` over `items` with at most `limit` concurrent in-flight calls,
+ * writing each result to its original index so callers get results back in
+ * item order regardless of which one finishes first. Mirrors Promise.all()'s
+ * fail-fast semantics (the first rejection is the one that propagates) so
+ * swapping a Promise.all(items.map(worker)) call for this one changes only
+ * the concurrency, not the error/ordering behaviour callers already rely on.
+ *
+ * @template T, R
+ * @param {T[]} items
+ * @param {number} limit
+ * @param {(item: T, index: number) => Promise<R>} worker
+ * @returns {Promise<R[]>}
+ */
+async function runWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function runNext() {
+    while (nextIndex < items.length) {
+      const i = nextIndex++;
+      results[i] = await worker(items[i], i);
+    }
+  }
+
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: workerCount }, runNext));
+  return results;
+}
+
+/**
  * Map-reduce for generateDigest.
  * Map: summarise each chunk into compact key-points.
  * Reduce: synthesise all chunk summaries into the final structured digest.
  *
  * Cancellation (`opts.signal`) needs no extra plumbing here: every map call
- * below shares the same signal, so an abort kills every in-flight chunk's
- * `claude` process at once — none of the "remaining" ones get a head start
- * finishing, because they were all running concurrently in the first place —
- * and `Promise.all` rejects with the resulting AbortError, which skips the
- * reduce phase entirely. If the abort instead lands in the gap between map
- * finishing and reduce starting, spawnClaudeProcess's already-aborted check
- * stops the reduce call before it spawns anything.
+ * below shares the same signal, so an abort kills every *in-flight* chunk's
+ * `claude` process at once, and any chunk still queued behind the
+ * MAP_CONCURRENCY cap simply never starts (its worker loop is still waiting
+ * on an in-flight `await`, which is about to reject) — either way `runWithConcurrency`
+ * rejects with the resulting AbortError, which skips the reduce phase
+ * entirely, same as the old unbounded `Promise.all` did. If the abort instead
+ * lands in the gap between map finishing and reduce starting,
+ * spawnClaudeProcess's already-aborted check stops the reduce call before it
+ * spawns anything.
  *
  * @param {string[]} chunks
  * @param {string} structureInstructions
@@ -667,8 +707,13 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
   const total = chunks.length;
   let completedChunks = 0;
 
-  // --- MAP phase: summarise all chunks concurrently ---
-  const mapResults = await Promise.all(chunks.map(async (chunk, i) => {
+  // --- MAP phase: summarise chunks with bounded concurrency ---
+  // Was Promise.all(chunks.map(...)) — one `claude` process per chunk, no cap.
+  // Only reachable above LONG_PATH_THRESHOLD_CHARS, so local/desktop only, but
+  // desktop supports BYOK straight to the Anthropic API on the user's own
+  // key: a 6-hour transcript (~10 chunks) fired ~10 simultaneous requests and
+  // came back as a fistful of 429s instead of one clean digest.
+  const mapResults = await runWithConcurrency(chunks, MAP_CONCURRENCY, async (chunk, i) => {
     const mapPrompt =
       `You are summarising chunk ${i + 1} of ${total} of a long YouTube video transcript. ` +
       'Extract only the key points from THIS PORTION of the transcript. ' +
@@ -697,7 +742,7 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
     }
 
     return { summary: `### Part ${i + 1} of ${total}\n\n${result}`, usage };
-  }));
+  });
 
   for (const { summary, usage } of mapResults) {
     chunkSummaries.push(summary);
