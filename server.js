@@ -15,7 +15,7 @@ import {
 } from './transcript.js';
 import { WHISPER_MODELS, DEFAULT_WHISPER_MODEL, modelCacheDir, downloadState, startModelDownload } from './whisperModel.js';
 import { resolveWhisperBinary, transcribeFile, LOCAL_MEDIA_EXTENSIONS } from './whisper.js';
-import { forOwner, DEFAULT_OWNER, adoptDefaultLibrary } from './store.js';
+import { forOwner, DEFAULT_OWNER, adoptDefaultLibrary, closeAllLibraries } from './store.js';
 import { entryToMarkdown } from './markdown.js';
 import { syncVault } from './vault.js';
 import {
@@ -31,7 +31,7 @@ import {
   openSyncDb, upsertUser, getUser, pullEntries, pushEntries, userBytes, deleteUser,
   bumpTokenVersion, upsertAtprotoUser, saveAtprotoTokens, deleteAtprotoTokens, getAtprotoTokens,
   submitRegistration, decideRegistration, listRegistrations, setStatus,
-  touchLastSeen, forceSignOut, setPdsSync, getPdsSync,
+  touchLastSeen, forceSignOut, setPdsSync, getPdsSync, closeSyncDb,
 } from './syncStore.js';
 import {
   resolveAccount, createSession as atprotoCreateSession, deriveKey, encryptSecret, decryptSecret,
@@ -2475,6 +2475,47 @@ if (isDirectRun) {
     }
     throw err;
   });
+
+  // Fly/Docker send SIGTERM on every deploy and hard-kill shortly after if the
+  // process hasn't exited — with no handler here that hard-kill was landing
+  // mid-write. Evidence: this machine's own data/library.db sits at 4 KB next
+  // to a 1.6 MB WAL file that has never been checkpointed. Registered only
+  // inside isDirectRun (never on import) so `node --test` — which imports this
+  // module in every worker — never attaches a handler that would outlive the
+  // test and leak into the next process's signal handling.
+  let shuttingDown = false;
+  function shutdown(signal) {
+    // A second SIGTERM (or SIGINT following a SIGTERM) must not re-run the
+    // close calls — closing an already-closed DatabaseSync handle throws, and
+    // closing an already-closed server callback twice is likewise unsafe.
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`${signal} received, shutting down...`);
+
+    // Belt-and-braces: if a connection is hung open, `server.close()`'s
+    // callback never fires and the process would sit there until Fly's own
+    // hard-kill timeout. Force the exit ourselves so the deploy's kill signal
+    // is never the thing that ends this cleanly.
+    // Close the databases here too, not only in the happy path: a hung
+    // connection is precisely the case where the WAL would otherwise be left
+    // uncheckpointed, which is the whole reason this handler exists. Whichever
+    // branch runs first exits the process, so these can never both fire.
+    const forceExit = setTimeout(() => {
+      closeAllLibraries();
+      closeSyncDb();
+      process.exit(1);
+    }, 5000);
+    forceExit.unref();
+
+    server.close(() => {
+      closeAllLibraries();
+      closeSyncDb();
+      clearTimeout(forceExit);
+      process.exit(0);
+    });
+  }
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 export { app, rateLimitHit, buildConfigScript, localMediaId, ECHO_MODE, isWeb, isDesktop, ECHO_ERROR_STATUS, brotliReady };
