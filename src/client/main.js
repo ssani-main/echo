@@ -268,7 +268,7 @@ function entryToMarkdownClient(entry, opts = {}) {
    Schema: a single object store "videos" (keyPath
    videoId, index on savedAt) holding the FULL entry
    object { videoId, url, title, savedAt, updatedAt,
-   segments, digest, favorite, tags }
+   segments, digest, tags }
    — this matches the shape store.getEntry() returns on
    the server, so listEntries()/getEntry() render
    identically in both modes. (A normalized 4-store form
@@ -450,7 +450,6 @@ function idbToMeta(entry) {
     hasDigest:      !!entry.digest,
     segmentCount:   entry.segments?.length || 0,
     tags:           Array.isArray(entry.tags)       ? entry.tags        : [],
-    favorite:       typeof entry.favorite === 'boolean' ? entry.favorite : false,
   };
 }
 
@@ -733,13 +732,13 @@ const IndexedDbLibrary = {
   },
 
   /**
-   * Upsert an entry by videoId, preserving digest/tags/favorite
+   * Upsert an entry by videoId, preserving digest/tags
    * when the payload omits them — same semantics as
    * store.js's saveEntry(). -> saved meta, 200 | 400
    */
   async saveEntry(payload) {
     try {
-      const { url, videoId, title, channel, channelUrl, segments, digest, tags, favorite } = payload || {};
+      const { url, videoId, title, channel, channelUrl, segments, digest, tags } = payload || {};
       if (!videoId || !Array.isArray(segments) || segments.length === 0) {
         return idbErr('videoId and segments are required.', 400);
       }
@@ -758,7 +757,6 @@ const IndexedDbLibrary = {
           updatedAt:  now,
           segments:   segments || [],
           digest:     digest || null,
-          favorite:   typeof favorite === 'boolean' ? favorite : false,
           tags:       idbSanitizeTags(tags),
         };
       } else {
@@ -771,7 +769,6 @@ const IndexedDbLibrary = {
           updatedAt:  now,
           segments:   segments || existing.segments,
           digest:     digest ? digest : existing.digest,
-          favorite:   typeof favorite === 'boolean' ? favorite : existing.favorite,
           tags:       Array.isArray(tags) ? idbSanitizeTags(tags) : existing.tags,
         };
       }
@@ -951,6 +948,7 @@ const radios          = document.querySelectorAll('input[name="viewMode"]');
 const saveBtn         = document.getElementById('saveBtn');
 const saveBtnLabel    = document.getElementById('saveBtnLabel');
 const digestStatus    = document.getElementById('digestStatus');
+const digestReadyAnnouncer = document.getElementById('digestReadyAnnouncer');
 const digestOutput    = document.getElementById('digestOutput');
 const topIndicator    = document.getElementById('topIndicator');
 const paneTranscript  = document.getElementById('paneTranscript');
@@ -1099,6 +1097,25 @@ function setStatus(msg, isError = false) {
 function setDigestStatus(msg, isError = false) {
   digestStatus.textContent = msg;
   digestStatus.className   = isError ? '' : 'info';
+}
+
+/**
+ * Announces "Digest ready." once, into a dedicated sr-only aria-live region
+ * (#digestReadyAnnouncer) — called at every point a finished digest (fresh,
+ * restored from a saved entry, or from a session snapshot) replaces
+ * #digestOutput's content. Deliberately NOT the same region digestOutput
+ * renders into: that fills token-by-token during streaming, and making it
+ * live would announce every requestAnimationFrame repaint. Clearing the text
+ * before re-setting it forces a re-announcement even when the message is
+ * identical to the last one (e.g. two digests in a row) — most screen
+ * readers only fire on a live-region mutation, not on unchanged text.
+ */
+function announceDigestReady() {
+  if (!digestReadyAnnouncer) return;
+  digestReadyAnnouncer.textContent = '';
+  requestAnimationFrame(() => {
+    digestReadyAnnouncer.textContent = 'Digest ready.';
+  });
 }
 
 /* ==============================================
@@ -2237,6 +2254,50 @@ const DIALOG_CLOSE_FNS = {
   settingsOverlay:    closeSettingsModal,
   legalOverlay:       closeLegalOverlay,
 };
+
+/**
+ * Shared open/close bookkeeping for all three `[role="dialog"]` overlays
+ * (#shortcutsOverlay, #settingsOverlay, #legalOverlay). Each declares
+ * aria-modal="true" but a browser does not enforce that on its own — Tab
+ * would otherwise walk focus out into the page behind the backdrop.
+ *
+ * Approach: mark #pageContainer `inert` while a dialog is open instead of
+ * hand-rolling a Tab-wraparound trap. This is safe here specifically
+ * because all three dialogs are siblings of #pageContainer in
+ * src/pages/index.astro, not descendants of it — inert-ing the container
+ * never touches the dialog subtree itself. (If a future dialog is ever
+ * nested inside #pageContainer, this would need the Tab-wraparound
+ * approach instead.) `inert` also implicitly moves any already-focused
+ * descendant of #pageContainer out of the way and blocks it from
+ * regaining focus while set.
+ *
+ * dialogOpenDepth guards the (currently theoretical, since nothing opens
+ * a second dialog on top of one already open) case of nested opens: only
+ * the outermost open/close pair remembers/restores focus and toggles
+ * `inert`, so an inner open+close can't clobber the outer dialog's return
+ * focus.
+ */
+let dialogOpenDepth  = 0;
+let dialogReturnFocusEl = null;
+
+function dialogWillOpen() {
+  if (dialogOpenDepth === 0) {
+    dialogReturnFocusEl = document.activeElement;
+    if (pageContainerEl) pageContainerEl.inert = true;
+  }
+  dialogOpenDepth++;
+}
+
+function dialogDidClose() {
+  dialogOpenDepth = Math.max(0, dialogOpenDepth - 1);
+  if (dialogOpenDepth === 0) {
+    if (pageContainerEl) pageContainerEl.inert = false;
+    const el = dialogReturnFocusEl;
+    dialogReturnFocusEl = null;
+    if (el && typeof el.focus === 'function' && document.contains(el)) el.focus();
+  }
+}
+
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
 
@@ -2531,7 +2592,7 @@ async function fetchTranscript() {
  */
 function startWhisperProgress(jobId) {
   let es = null, timerIv = null, started = 0;
-  let card = null, fill = null, pctEl = null, phaseEl = null, elapsedEl = null;
+  let card = null, fill = null, pctEl = null, phaseEl = null, elapsedEl = null, bar = null;
 
   // 'model' fires when the server upgrades the model because the video is not
   // in English — the one moment worth naming, since the run is about to take
@@ -2556,13 +2617,14 @@ function startWhisperProgress(jobId) {
     card = document.createElement('div');
     card.className = 'whisper-progress';
     card.innerHTML =
-      '<div class="wp-row"><span class="wp-phase"></span><span class="wp-elapsed">00:00</span></div>' +
-      '<div class="wp-bar"><div class="wp-fill"></div></div>' +
+      '<div class="wp-row"><span class="wp-phase" aria-live="polite"></span><span class="wp-elapsed">00:00</span></div>' +
+      '<div class="wp-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Whisper transcription progress"><div class="wp-fill"></div></div>' +
       '<div class="wp-pct">0%</div>';
     phaseEl   = card.querySelector('.wp-phase');
     elapsedEl = card.querySelector('.wp-elapsed');
     fill      = card.querySelector('.wp-fill');
     pctEl     = card.querySelector('.wp-pct');
+    bar       = card.querySelector('.wp-bar');
     outputEl.innerHTML = '';
     outputEl.appendChild(card);
     outputEl.classList.add('visible');
@@ -2580,6 +2642,7 @@ function startWhisperProgress(jobId) {
       if (phaseEl) phaseEl.textContent = phaseLabel(d.phase);
       if (fill)    fill.style.width = pct + '%';
       if (pctEl)   pctEl.textContent = pct + '%';
+      if (bar)     bar.setAttribute('aria-valuenow', String(pct));
     };
     es.onerror = () => { /* EventSource auto-retries; stop() will close it */ };
   } catch { /* EventSource unsupported — fetch still works, just no live progress */ }
@@ -3148,6 +3211,7 @@ async function runDigest() {
     digestDot.classList.remove('is-hidden');
     stopDigestTimer();
     setDigestStatus(''); // the digest itself is the "ready" signal
+    announceDigestReady();
     setTopIndicator('done');
 
     // Usage readouts
@@ -4042,6 +4106,7 @@ async function openSavedEntry(videoId) {
       digestEmptySt.classList.add('is-hidden');
       digestDot.classList.remove('is-hidden');
       setDigestStatus(''); // the digest itself is the "ready" signal
+      announceDigestReady();
     }
 
     // Render transcript and enable action buttons
@@ -4393,6 +4458,7 @@ const shortcutsOverlayEl = document.getElementById('shortcutsOverlay');
 
 function openShortcutsOverlay() {
   if (!shortcutsOverlayEl) return;
+  dialogWillOpen();
   shortcutsOverlayEl.hidden = false;
   document.getElementById('shortcutsClose')?.focus();
 }
@@ -4400,6 +4466,7 @@ function openShortcutsOverlay() {
 function closeShortcutsOverlay() {
   if (!shortcutsOverlayEl) return;
   shortcutsOverlayEl.hidden = true;
+  dialogDidClose();
 }
 
 document.getElementById('shortcutsBtn')?.addEventListener('click', openShortcutsOverlay);
@@ -5029,6 +5096,7 @@ function setKeyStatus(text, level) {
 
 function openSettingsModal() {
   if (!settingsOverlayEl) return;
+  dialogWillOpen();
   if (apiKeyInputEl) apiKeyInputEl.value = getApiKey();
   setKeyStatus('', '');
   if (autoDigestToggleEl) autoDigestToggleEl.checked = getAutoDigest();
@@ -5051,6 +5119,7 @@ function openSettingsModal() {
 function closeSettingsModal() {
   if (!settingsOverlayEl) return;
   settingsOverlayEl.hidden = true;
+  dialogDidClose();
 }
 
 document.getElementById('settingsBtn')?.addEventListener('click', openSettingsModal);
@@ -5814,15 +5883,18 @@ const LEGAL_CONTENT = {
 
 function openLegalOverlay(kind) {
   if (!legalOverlayEl) return;
+  dialogWillOpen();
   const content = LEGAL_CONTENT[kind] || LEGAL_CONTENT.privacy;
   if (legalModalTitleEl) legalModalTitleEl.textContent = content.title;
   if (legalModalBodyEl)  legalModalBodyEl.innerHTML    = content.body;
   legalOverlayEl.hidden = false;
+  document.getElementById('legalClose')?.focus();
 }
 
 function closeLegalOverlay() {
   if (!legalOverlayEl) return;
   legalOverlayEl.hidden = true;
+  dialogDidClose();
 }
 
 document.getElementById('footerAboutBtn')?.addEventListener('click', () => openLegalOverlay('about'));
@@ -6164,6 +6236,7 @@ function restoreSession() {
       digestEmptySt.classList.add('is-hidden');
       digestDot.classList.remove('is-hidden');
       setDigestStatus(''); // the digest itself is the "ready" signal
+      announceDigestReady();
       if (snap.digestUsageLine) {
         usageStatsEl.innerHTML = snap.digestUsageLine;
         usageStatsEl.classList.add('visible');
