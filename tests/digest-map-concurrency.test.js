@@ -27,14 +27,15 @@ import { join } from 'node:path';
 const isWin = process.platform === 'win32';
 
 // The fake CLI, as a standalone module. It reads the prompt digest.js writes to
-// stdin, records its own lifetime so the test can reconstruct overlap, sleeps
-// long enough for that overlap to be observable, then emits the same success
-// envelope the real CLI emits under `--output-format json`.
+// stdin, records its own lifetime so the test can reconstruct overlap, waits
+// for the rest of its wave to be in flight so that overlap is a fact rather
+// than a race, then emits the same success envelope the real CLI emits under
+// `--output-format json`.
 //
 // Kept as a plain string rather than a template literal so the regex below is
 // not fighting two levels of escaping.
 const FAKE_RUNNER = [
-  "import { appendFileSync, writeFileSync } from 'node:fs';",
+  "import { appendFileSync, writeFileSync, readFileSync } from 'node:fs';",
   "const LOG = process.env.FAKE_CLAUDE_LOG;",
   "const PROMPTS = process.env.FAKE_CLAUDE_PROMPTS;",
   "let input = '';",
@@ -46,8 +47,37 @@ const FAKE_RUNNER = [
   // prompt has no such marker, so it lands as 'reduce'.
   "  const m = input.match(/chunk (\\d+) of (\\d+)/);",
   "  const n = m ? m[1] : 'reduce';",
+  "  const total = m ? Number(m[2]) : 1;",
   "  if (n === 'reduce') writeFileSync(PROMPTS, input);",
   "  appendFileSync(LOG, 'start ' + n + ' ' + Date.now() + '\\n');",
+  // Hold until the rest of this chunk's wave is live, THEN sleep. A fixed
+  // sleep alone measured how fast this machine spawns processes, not the
+  // pool: under full-suite load a Windows `cmd.exe /c node` bootstrap costs
+  // more than 150 ms, so early calls had already exited before later ones
+  // logged their start and the observed peak collapsed to 2 at a cap of 6.
+  // With the barrier, every wave is a wave by construction and the peak is a
+  // property of runWithConcurrency. The pool dispatches in order and each
+  // wave releases together, so chunk n sits in wave floor((n-1)/cap) and the
+  // final short wave waits for nobody. The deadline only exists so a
+  // pathological host degrades to the old timing instead of hanging.
+  "  const cap = Number(process.env.ECHO_DIGEST_MAP_CONCURRENCY) || 3;",
+  "  const wave = n === 'reduce' ? 0 : Math.floor((Number(n) - 1) / cap);",
+  "  const target = n === 'reduce' ? 1 : Math.min(cap, total - wave * cap);",
+  "  const deadline = Date.now() + 5000;",
+  "  for (;;) {",
+  "    let live = 0;",
+  "    try {",
+  "      for (const line of readFileSync(LOG, 'utf8').split('\\n')) {",
+  "        if (line.startsWith('start')) live++;",
+  "        else if (line.startsWith('end')) live--;",
+  "      }",
+  "    } catch (_) { live = 0; }",
+  "    if (live >= target || Date.now() > deadline) break;",
+  "    await new Promise((r) => setTimeout(r, 10));",
+  "  }",
+  // Kept on top of the barrier: the abort test needs the first wave to still
+  // be in flight when it fires, and a barrier that released instantly would
+  // let the pool race on to the next wave first.
   "  await new Promise((r) => setTimeout(r, 150));",
   "  appendFileSync(LOG, 'end ' + n + ' ' + Date.now() + '\\n');",
   "  process.stdout.write(JSON.stringify({",
