@@ -362,6 +362,14 @@ function spawnClaudeProcess({ args, prompt, timeoutMs, onStdoutChunk, signal }) 
     child.stderr.on('data', (chunk) => stderrChunks.push(chunk));
 
     // --- write prompt and close stdin ---
+    // A map prompt is hundreds of kilobytes, so the write does not land in one
+    // go — it drains while the child runs. Kill that child first (an abort or a
+    // timeout, both of which we do deliberately) and the pipe errors with EPIPE
+    // or "write EOF" on a stream nobody is listening to, which Node escalates
+    // to an uncaught exception and takes the whole server down. The outcome is
+    // already carried by the abort/timeout rejection above; a dead pipe here is
+    // the expected consequence of that, not new information.
+    child.stdin.on('error', () => { /* child is gone; the exit path owns it */ });
     child.stdin.write(prompt, 'utf8');
     child.stdin.end();
 
