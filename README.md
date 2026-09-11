@@ -43,6 +43,9 @@ so there is nothing to compile). Three optional extras, each unlocking one thing
 | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | the caption-fetch fallback when YouTube shifts its internals |
 | [ffmpeg](https://ffmpeg.org/) | Whisper transcription for videos with no captions, and local audio/video files |
 
+Or, instead of Claude Code, bring an API key for Anthropic or DeepSeek — see
+[Choosing the model](#choosing-the-model). The default stays keyless.
+
 > On Windows PowerShell, if `npm start` trips the execution policy, use `npm.cmd start`.
 
 ---
@@ -408,7 +411,7 @@ manually and paste the code into its URL field. Or just open
 ## Development
 
 ```bash
-npm test                  # 711 tests, no dependencies, ~9s
+npm test                  # 714 tests, no dependencies, ~9s
 npm run test:page         # renders the real page in Chrome and asserts layout invariants
 npm run digest:fidelity   # how faithfully digests carry the transcript's specifics
 npm run digest:aitell     # score digests for AI-writing tells

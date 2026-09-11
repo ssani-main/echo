@@ -1,12 +1,19 @@
 # Deploying Echo (hosted web mode)
 
 Echo's hosted web mode is **BYOK** (bring-your-own-key) and stateless on the
-server: each visitor supplies their own Anthropic API key from the browser
-(`X-Echo-Api-Key` header, stored in their own `localStorage`) and their
-library lives in their own browser's IndexedDB. The server never sees or
-stores an API key, and needs no persistent volume. That means deploying it
-needs **no secrets** and **no database provisioning** — just build the
-existing `Dockerfile` and run it.
+server: each visitor supplies their own API key from the browser — for whichever
+provider the picker offers, with `X-Echo-Provider` naming it and `X-Echo-Api-Key`
+carrying the key, both in their own `localStorage` — and their library lives in
+their own browser's IndexedDB. The server relays each request's key to that
+provider and **writes nothing down** and needs no persistent volume. That means
+deploying it needs **no secrets** and **no database provisioning** — just build
+the existing `Dockerfile` and run it.
+
+There are two server-side key fallbacks (`ANTHROPIC_API_KEY`,
+`ECHO_DEEPSEEK_API_KEY`), and **neither can be spent by a visitor**: web mode
+refuses a keyless AI request before it ever reaches a provider, so a hosted
+instance cannot be turned into a way to burn the operator's quota. Don't set them
+anyway — see the checklist at the end.
 
 Optionally, accounts can be switched on so a library follows someone between
 devices; that adds one small SQLite file and a Google OAuth client, and nothing
@@ -162,7 +169,12 @@ intentionally brief.
 - **Don't set `ANTHROPIC_API_KEY` on the server.** This is a BYOK
   deployment — visitors bring their own key from the browser. Setting a
   server-side key isn't needed and isn't the intended usage model for
-  hosted web mode.
+  hosted web mode. The same goes for `ECHO_DEEPSEEK_API_KEY`, which arrived
+  with the second provider: it is a fallback for a single-user local install,
+  not a hosted one. Web mode would refuse a keyless AI request before that
+  fallback could be reached, so it is not exploitable — but relying on one
+  guard for a property you can also just not create is how two failures become
+  one outage.
 - **Don't add a Fly volume — unless you enabled accounts.** The default
   `ECHO_MODE=web` deployment is stateless: library routes are disabled (`503`)
   and each visitor's library lives in their own browser's IndexedDB, so a volume

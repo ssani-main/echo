@@ -23,9 +23,10 @@ finds your VPS URL can read your complete library, access your saved videos,
 and exhaust your Claude subscription by hammering the digest endpoint.
 
 **Web mode** (`ECHO_MODE=web`) is what you want: each visitor supplies their
-own Anthropic API key from the browser (sent per-request as `X-Echo-Api-Key`,
-stored in their `localStorage`), their library lives in their browser's
-IndexedDB, and the server never sees an API key. The server has per-IP rate
+own API key from the browser — Anthropic or DeepSeek, whichever they pick in the
+Settings picker (sent per-request as `X-Echo-Api-Key`, with `X-Echo-Provider`
+naming the vendor, stored in their `localStorage`), their library lives in their
+browser's IndexedDB, and the server stores no API key. The server has per-IP rate
 limits and payload caps that guard the AI and transcript endpoints. This is
 BYOK (bring-your-own-key) — no secrets to secure on the server, and no
 persistent volume needed at all.

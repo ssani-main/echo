@@ -147,9 +147,52 @@ Both are the argument for the work that came before them: bug 1 was *visible* on
 because truncation is now reported, and bug 2 only because the harness prints a
 per-call cap and flags runs that exceed production's.
 
+### The "update what's necessary" pass found three more defects
+
+Auditing the docs for staleness turned up three things that were not documentation
+problems at all.
+
+**1. A provider-specific accessor used as a general test.** Five call sites asked
+`getApiKey()` — which reads Anthropic's storage slot — when the question was "does
+this user have a key?". The worst was the auto-digest gate: in web mode it read
+`ECHO.mode !== 'web' || getApiKey()`, so **a visitor who chose DeepSeek got no
+auto-digest at all** — no error, nothing on screen, just silence. The CLI-missing
+hints were the same bug's friendlier face: they told you to add a key you had
+already saved. All five now call `activeApiKey()`, which asks the *selected*
+provider, and the three Anthropic-specific accessors are deleted rather than left
+lying around to be reached for again.
+
+**2. …and fixing that introduced a race.** `activeApiKey()` resolves through
+`activeProviderId()`, which validated the stored preference against `PROVIDER_LIST`
+— a list that arrives from `GET /api/providers` asynchronously. But
+`autoLoadFromQuery()` applies an extension-supplied transcript **synchronously
+during INITIALISE**, so on a cold page load the transcript lands first and
+`activeProviderId()` returned `''`. Two failures from one cause: the auto-digest
+gate saw no key again, and the first AI request went out with **no
+`X-Echo-Provider` header** — sending a DeepSeek user's key to Anthropic. A stored
+preference is now trusted on its own; the list only tells us which preferences
+exist. Caught by a browser probe, not by any unit test, because it is a timing
+property across an async boundary.
+
+**3. Copy that named one vendor.** A hosted visitor was told "An Anthropic API key
+is required for this hosted instance" when DeepSeek was equally valid, and the
+privacy/terms overlays described *your Anthropic API key* as if there were one
+provider.
+
+Guard: `tests/providers.test.js` asserts the client never CALLS a
+provider-specific accessor, and never passes a string literal to
+`getKeyForProvider()`. The first version of that guard only checked the accessor
+— and a mutation reintroducing the identical bug as
+`getKeyForProvider('anthropic')` sailed straight through it, which is why there are
+two shapes and both were mutation-checked.
+
+Behaviour was verified in a real browser against a loopback mock: in **web** mode,
+with a DeepSeek key stored and DeepSeek selected, a fragment-supplied transcript
+auto-digests and renders — 5/5, where the pre-fix code produced silence.
+
 ### Verification
 
-- **713 unit tests, 698 pass, 0 fail, 15 skipped** (baseline was 632 / 617 / 0 / 15).
+- **715 unit tests, 700 pass, 0 fail, 15 skipped** (baseline was 632 / 617 / 0 / 15).
 - **Mutation-tested**: deleting the Anthropic `stop_reason` read fails exactly 2
   tests; deleting the map-phase truncation capture fails exactly 1; making DeepSeek
   inherit `16_000` fails exactly 2; deleting the streaming truncation report fails
@@ -234,6 +277,23 @@ instrument corrupting the verification*.
    real one to know about.
 
 ---
+
+## CLAUDE.md is now stale on the provider seam
+
+`CLAUDE.md` was not edited, per instruction. But three of its statements were
+invalidated by this work, and leaving them unflagged would make the project's own
+memory file the least accurate document in the repo. Corrected facts below; the
+file itself still needs the edit.
+
+| CLAUDE.md says | Actually |
+|---|---|
+| L12: "goes through a provider seam (`providers.js`). Default = `ClaudeCliProvider` … `ApiKeyProvider` … used only when a per-request key is supplied (BYOK) or `ECHO_PROVIDER=api`" | Three providers behind a **registry**: `claude-cli`, `anthropic`, `deepseek`. `PROVIDERS` holds the per-provider facts (context window, output ceiling, chars-per-token, key requirement, reasoning dialect); `ECHO_PROVIDER` accepts `cli`/`api`/`anthropic`/`deepseek`; a provider can be named **per request** via `X-Echo-Provider`, which is what the in-app picker sends. `GET /api/providers` serves the list. |
+| L47: Module map — "`providers.js` (CLI/API provider seam)" | `providers.js` (provider **registry**: per-provider limits + reasoning dialect, truncation detection, `publicProviderList()`, per-provider key validation) |
+| L113: "…`ApiKeyProvider.stream()` (SDK `messages.stream()`)… Guarded by `tests/digest-stream.test.js`, which puts a fake `claude` on `PATH`" | Still true, and now also `DeepSeekProvider.stream()` (SSE over `fetch`), plus `tests/digest-stream-provider.test.js` which covers the route **on Windows**, where every test in `digest-stream.test.js` is skipped. |
+
+Two things worth adding there when it is edited: that `stop_reason`/`finish_reason`
+are now read (the 16 000-token ceiling was a silent success until 2026-09-11), and
+that `npm run digest:ab` is the measurement rig for the seam.
 
 ## Open questions
 

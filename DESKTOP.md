@@ -68,17 +68,20 @@ environment), AI features (digest, ask, fact-check) work for free with no
 extra setup, exactly as before.
 
 Desktop mode additionally enables **optional** bring-your-own-key (BYOK):
-a user without the `claude` CLI can add their own Anthropic API key in
-Settings, and the frontend sends it as the `X-Echo-Api-Key` header on AI
-requests. The server honors that header in desktop mode (see
-`readApiKey()` in `server.js`) and uses `ApiKeyProvider` for that request;
-keyless requests keep falling through to the CLI provider unchanged. This
+a user without the `claude` CLI can pick a hosted provider in Settings —
+Anthropic or DeepSeek — add their own key for it, and the frontend sends the
+pair as the `X-Echo-Provider` and `X-Echo-Api-Key` headers on AI requests. The
+server honours that header in desktop mode (see `readApiKey()` in `server.js`)
+and routes the request to that provider's implementation; keyless requests keep
+falling through to the CLI provider unchanged. Keys are kept **per provider** in
+`localStorage`, so switching never sends one vendor's key to another. This
 mirrors hosted web mode's BYOK support but, unlike web mode, is never
 required — desktop keeps full server-side SQLite library access, no rate
 limits, and no payload caps regardless of whether a key is set.
 
-`POST /api/validate-key` (Settings' "test key" button) also works in
-desktop mode now, not just web mode.
+`POST /api/validate-key` (Settings' "test key" button) works wherever BYOK
+does: web and desktop, and also **local** mode once a provider is named, since
+that is now where someone would choose DeepSeek.
 
 ## Build prerequisites
 
