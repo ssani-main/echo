@@ -15,6 +15,7 @@
     "tauri:build": "node tools/tauri-build.mjs",
     "pkg:stage-deps": "node tools/stage-deps.mjs",
     "digest:fidelity": "node tools/fidelity/score-fidelity.mjs",
+    "digest:ab": "node tools/ab-compare.mjs",
     "test:page": "node tests/e2e/page-smoke.mjs",
     "test:extension": "node extension/test/e2e.mjs",
     "serve:public": "node --env-file-if-exists=.env.local tools/holesail-serve.mjs"
