@@ -124,6 +124,39 @@ recording, a meeting capture.
 your installed [Claude Code](https://claude.com/claude-code) CLI in headless mode and
 reuses your existing login and quota.
 
+### Choosing the model
+
+The API-token path is optional, and which one runs is a choice rather than a
+build-time decision. The picker in **Options** (and in Settings) switches between
+the local Claude CLI, the Anthropic API, and DeepSeek — with **one key kept per
+provider**, so switching never sends one vendor's key to another. It works in local
+mode too, which is where a second provider is most useful: comparing two models on
+the same video is the only way to know which one writes the digest you actually want.
+
+The default is unchanged, and stays keyless.
+
+**What differs between them is measured, not assumed.** Context window and output
+ceiling are properties of the provider, not of Echo, so the transcript length at
+which a digest switches from one call to map-reduce is derived from the provider's
+own limits — a 1M-token provider no longer gets chopped up as if it were a 200k one.
+
+**Thinking is a control, not a hidden variable.** Anthropic and DeepSeek both offer
+reasoning-before-answering, expressed differently — a token budget on one, an effort
+level on the other. Echo gives both one vocabulary (`off`/`low`/`medium`/`high`) and
+translates per provider, because a comparison is worthless if switching provider also
+silently switches the reasoning mode. **Off is the default and it is sent explicitly**,
+so it means off rather than "whatever this API defaults to", and the control disappears
+for the local CLI, which has no such concept. Reasoning output itself never reaches
+the digest — it is filtered on both providers and both transport paths, on the
+principle that a model's private deliberation does not belong in your library.
+
+And when a provider stops because it ran out of room, **Echo says so**. A digest cut
+off at an output ceiling used to come back indistinguishable from a finished one:
+saved, exported, and mirrored with no hint that it stopped mid-thought. It now
+carries a visible note next to the text, because the text that exists is still worth
+keeping — the failure was the silence, not the limit. (Reasoning tokens count toward
+that limit, which is worth remembering when turning thinking up.)
+
 One dial, ordered by how much of the video survives:
 
 | | What you get |
@@ -250,8 +283,17 @@ one consistent set of notes.
 | `PORT` | `8000` | Server port |
 | `ECHO_HOST` | `127.0.0.1` | Interface to bind. Localhost-only by default; `0.0.0.0` to expose |
 | `ECHO_MODE` | `local` | `local` (Claude CLI), `desktop` (CLI + optional BYOK), `web` (visitor keys) |
-| `ECHO_PROVIDER` | _(CLI)_ | `api` to use the Anthropic API instead of the CLI |
+| `ECHO_PROVIDER` | _(CLI)_ | `cli` (local Claude CLI), `api`/`anthropic`, or `deepseek` |
 | `ANTHROPIC_API_KEY` | _(unset)_ | Key used when no per-request key is supplied |
+| `ECHO_DEEPSEEK_API_KEY` | _(unset)_ | Key for the DeepSeek provider |
+| `ECHO_DEEPSEEK_MODEL` | `deepseek-flash` | Model id sent to DeepSeek (`deepseek-flash` **is** V4.1 Flash) |
+| `ECHO_DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | Point at a proxy, or a compatible endpoint |
+| `ECHO_DEEPSEEK_CONTEXT_TOKENS` | `1000000` | DeepSeek's context window; decides where map-reduce starts |
+| `ECHO_DEEPSEEK_MAX_OUTPUT_TOKENS` | `384000` | `max_tokens` for DeepSeek. Sent, not omitted — the API's default truncates long articles |
+| `ECHO_DIGEST_TIMEOUT_MS` | `180000` | Per-call ceiling; raise it for `article` mode on very long transcripts |
+| `ECHO_DEEPSEEK_THINKING_FIELD` | _(unset)_ | `omit` stops Echo sending `thinking: {type:'disabled'}` |
+| `ECHO_THINKING` | `off` | `off`/`low`/`medium`/`high` — reasoning level, per provider |
+| `ECHO_THINKING_BUDGET_TOKENS` | _(per level)_ | Overrides Anthropic's thinking budget; clamped to the API's range |
 | `ECHO_DB_PATH` | `data/library.db` | SQLite library path (local/desktop) |
 | `ECHO_VAULT_DIR` | _(unset)_ | Default Obsidian vault folder for `/api/vault/sync` |
 | `ECHO_MAX_TRANSCRIPT_CHARS` | `200000` | Web-mode transcript cap |
@@ -366,10 +408,11 @@ manually and paste the code into its URL field. Or just open
 ## Development
 
 ```bash
-npm test                  # 511 tests, no dependencies, ~4s
+npm test                  # 711 tests, no dependencies, ~9s
 npm run test:page         # renders the real page in Chrome and asserts layout invariants
 npm run digest:fidelity   # how faithfully digests carry the transcript's specifics
 npm run digest:aitell     # score digests for AI-writing tells
+npm run digest:ab         # same transcripts through two providers, scored on both axes
 ```
 
 Two harnesses need Playwright, which is deliberately **not** a dependency:

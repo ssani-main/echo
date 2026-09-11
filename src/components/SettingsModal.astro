@@ -41,6 +41,27 @@
       <hr class="settings-rule" />
     </div>
 
+    <!-- AI PROVIDER — always visible, unlike the key field below it.
+         Putting the picker INSIDE the key section would have made it
+         unreachable exactly when it is needed: coming back from the local CLI
+         to an API provider is the one moment the key section is hidden.
+         Options are built from GET /api/providers in src/client/main.js — a
+         hardcoded <option> list here would be a second copy of the provider
+         facts, and a copied list drifts. -->
+    <label class="digest-opt-label" for="settingsProviderSelect">AI provider</label>
+    <select id="settingsProviderSelect" aria-label="Which AI provider writes digests"></select>
+    <p id="providerNote" class="settings-note"></p>
+
+    <!-- Reasoning level. Hidden when the active provider has no reasoning
+         concept; the note under it explains the trade-off, because "how much
+         should it think" is not self-explanatory and it interacts with the
+         output ceiling. -->
+    <div id="settingsThinkingOpt" hidden>
+      <label class="digest-opt-label" for="settingsThinkingSelect">Thinking</label>
+      <select id="settingsThinkingSelect" aria-label="How much the model reasons before writing"></select>
+      <p id="thinkingNote" class="settings-note"></p>
+    </div>
+
     <div id="apiKeySection">
       <label class="digest-opt-label" for="apiKeyInput">Anthropic API key</label>
       <input

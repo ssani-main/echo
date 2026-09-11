@@ -21,6 +21,7 @@ import { syncVault } from './vault.js';
 import {
   generateDigest,
   suggestTags,
+  thresholdCharsFor,
 } from './digest.js';
 import {
   signToken, verifyToken, parseCookies, serializeCookie, randomToken, pkceChallenge,
@@ -39,7 +40,7 @@ import {
 import { createPdsSync } from './pdsSync.js';
 import { COLLECTION as PDS_COLLECTION } from './pds.js';
 import { logEvent, errLabel } from './usagelog.js';
-import { validateApiKey } from './providers.js';
+import { validateApiKey, publicProviderList, getProviderId, getProviderLimits, getReasoningLevel, normalizeProviderId, normalizeReasoningLevel, DEFAULT_PROVIDER_ID } from './providers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -421,6 +422,10 @@ app.use(express.static(DIST_DIR));
 // HTTP status codes to use for each error code
 const ECHO_ERROR_STATUS = {
   INVALID_URL:            400,
+  // The request named a provider that does not exist. 400, not 500: the
+  // request is the thing that is wrong, and a typo must not read as an outage.
+  PROVIDER_UNKNOWN:       400,
+  THINKING_INVALID:       400,
   TRANSCRIPT_UNAVAILABLE: 422,
   CLAUDE_NOT_INSTALLED:   503,
   CLAUDE_NOT_AUTHED:      503,
@@ -524,7 +529,74 @@ function requireText(res, value, message, hint = '') {
 
 function readApiKey(req) {
   const k = req.get('X-Echo-Api-Key');
-  return ((isWeb || isDesktop) && k && k.trim()) ? k.trim() : undefined;
+  if (!k || !k.trim()) return undefined;
+  // web/desktop: a key is accepted unconditionally — BYOK is the whole point
+  // of those modes.
+  if (isWeb || isDesktop) return k.trim();
+  // local: only when the request NAMES a provider. A key turning up on its own
+  // must not silently move a local install off the keyless CLI, which is the
+  // surprise the original web/desktop-only rule existed to prevent. But
+  // "use DeepSeek, here is its key" is a deliberate act, and without this the
+  // provider toggle would be unusable in the mode this app is actually run in.
+  return requestedProvider(req).named ? k.trim() : undefined;
+}
+
+/**
+ * The provider a request explicitly named, if any.
+ *
+ * Distinguishes ABSENT from INVALID, which the two callers need to treat
+ * differently: absent means "resolve it normally" and must stay a no-op, while
+ * invalid is a client bug that deserves a 400 rather than a silent
+ * substitution to some other provider's bill.
+ *
+ * @param {import('express').Request} req
+ * @returns {{ named: boolean, id: string|null, raw: string }}
+ */
+function requestedProvider(req) {
+  const raw = req.get('X-Echo-Provider');
+  if (!raw || !raw.trim()) return { named: false, id: null, raw: '' };
+  return { named: true, id: normalizeProviderId(raw), raw: raw.trim() };
+}
+
+/**
+ * The reasoning level a request asked for, if any.
+ *
+ * Same absent-vs-invalid distinction as the provider header: absent means
+ * "resolve it from the environment", invalid is a client bug and gets a 400
+ * rather than silently running with the operator's default instead.
+ *
+ * @param {import('express').Request} req
+ * @returns {{ named: boolean, level: string|undefined, raw: string }}
+ */
+function requestedReasoning(req) {
+  const raw = req.get('X-Echo-Thinking');
+  if (!raw || !raw.trim()) return { named: false, level: undefined, raw: '' };
+  return { named: true, level: normalizeReasoningLevel(raw) || undefined, raw: raw.trim() };
+}
+
+/**
+ * The provider/apiKey pair to run this request with, in the shape providers.js
+ * expects. One place builds it so the digest and validate-key routes cannot
+ * disagree about which provider a request meant.
+ *
+ * @param {import('express').Request} req
+ */
+function providerRequest(req) {
+  const { named, id, raw } = requestedProvider(req);
+  const think = requestedReasoning(req);
+  return {
+    named,
+    invalid: named && !id,
+    raw,
+    // `undefined`, never null/'' — providers.js treats a falsy provider as
+    // "not specified" and resolves from apiKey / ECHO_PROVIDER / the default.
+    provider: id || undefined,
+    apiKey: readApiKey(req),
+    // Likewise undefined when absent, so providers.js falls back to ECHO_THINKING.
+    reasoning: think.level,
+    reasoningInvalid: think.named && !think.level,
+    rawReasoning: think.raw,
+  };
 }
 
 /**
@@ -885,6 +957,40 @@ const userDigestLimit = userLimit(USER_DIGEST_LIMIT, USER_LIMIT_WINDOW_MS);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', mode: ECHO_MODE });
+});
+
+// ---------------------------------------------------------------------------
+// Providers
+// ---------------------------------------------------------------------------
+// What the Settings and Options controls are BUILT from, so the browser never
+// holds a second copy of these facts. A hardcoded <option> list in the markup
+// would be a copy, and a copied list drifts silently — the lesson recorded
+// twice in this codebase (extractSummary, and the duplicated reading controls).
+//
+// Unauthenticated on purpose, like /api/health: labels, model names and context
+// sizes are not secrets, and the gate screens need no provider data. It carries
+// no key material and no account information.
+app.get('/api/providers', (_req, res) => {
+  const available = publicProviderList({ isWeb });
+  const list = available.map((p) => ({
+    ...p,
+    // The length at which THIS provider switches to map-reduce. Served rather
+    // than recomputed in the browser because the client's progress message used
+    // to carry its own hardcoded 480 000, which is only Claude's answer.
+    longPathThresholdChars: thresholdCharsFor({ provider: p.id }),
+  }));
+
+  // The env-selected provider is not always ON OFFER — ECHO_PROVIDER=cli is
+  // meaningless in web mode, where the list has no CLI. Falling back to the
+  // first available entry keeps the client from being handed a default it
+  // cannot select.
+  const preferred = getProviderId({});
+  const fallback = available[0] ? available[0].id : DEFAULT_PROVIDER_ID;
+  const defaultId = list.some((p) => p.id === preferred) ? preferred : fallback;
+
+  // defaultThinking is the operator's ECHO_THINKING, served so the picker starts
+  // from it rather than overriding it by always sending its own idea of "off".
+  res.json({ providers: list, default: defaultId, defaultThinking: getReasoningLevel({}) });
 });
 
 // ---------------------------------------------------------------------------
@@ -1301,10 +1407,20 @@ function withTimeout(promise, ms) {
   });
 }
 
-async function suggestTagsBestEffort(text, { apiKey, language, videoId, signal } = {}) {
+async function suggestTagsBestEffort(text, { apiKey, provider, language, videoId, signal } = {}) {
   const t0 = Date.now();
   try {
-    const result = await withTimeout(suggestTags(text, { apiKey, language, signal }), AUTO_TAG_TIMEOUT_MS);
+    // reasoning: 'off' is set HERE rather than plumbed from the request, on
+    // purpose. Tagging is metadata extraction, not a reasoning task — the prompt
+    // is capped at 6 000 chars precisely to keep it cheap — and threading the
+    // user's thinking level through would spend reasoning tokens per save while
+    // also letting an API's DEFAULT decide the shape of a call we want to be
+    // deterministic. Setting it in the one place that makes the call means it
+    // cannot be forgotten at a call site.
+    const result = await withTimeout(
+      suggestTags(text, { apiKey, provider, language, signal, reasoning: 'off' }),
+      AUTO_TAG_TIMEOUT_MS
+    );
     logEvent('tags-suggest', {
       videoId: videoId || null,
       chars: (text || '').length,
@@ -1374,6 +1490,27 @@ app.post('/api/digest', requireApproved, userDigestLimit, webLimit(20, 60_000), 
   if (rejectOversizeAiPayload(res, { text })) return;
   if (requireWebKey(req, res)) return;
 
+  const prov = providerRequest(req);
+  if (prov.invalid) {
+    return sendError(
+      res,
+      'PROVIDER_UNKNOWN',
+      `Unknown provider "${prov.raw}".`,
+      'Pick a provider in Options.',
+      400
+    );
+  }
+  if (prov.reasoningInvalid) {
+    return sendError(
+      res,
+      'THINKING_INVALID',
+      `Unknown thinking level "${prov.rawReasoning}".`,
+      'Use off, low, medium or high.',
+      400
+    );
+  }
+  const providerId = getProviderId(prov);
+
   // Cancel the digest (and its best-effort auto-tagging sibling — it spends
   // real tokens too) if the client goes away, e.g. the user hits Stop or
   // closes the tab mid-digest. Without this the `claude` spawn / Anthropic
@@ -1390,21 +1527,34 @@ app.post('/api/digest', requireApproved, userDigestLimit, webLimit(20, 60_000), 
   });
 
   const wantsStream = req.query.stream === '1' || req.query.stream === 'true';
-  if (wantsStream) return digestStreaming(req, res, { text, length, format, language, title, videoId, signal: ac.signal });
+  if (wantsStream) {
+    return digestStreaming(req, res, {
+      text, length, format, language, title, videoId, signal: ac.signal,
+      provider: prov.provider, apiKey: prov.apiKey, reasoning: prov.reasoning,
+    });
+  }
 
   const t0 = Date.now();
-  const apiKey = readApiKey(req);
+  const { apiKey } = prov;
   try {
     const [result, suggestedTags] = await Promise.all([
-      generateDigest(text, { length, format, language, title, apiKey, signal: ac.signal }),
-      suggestTagsBestEffort(text, { apiKey, language, videoId, signal: ac.signal }),
+      generateDigest(text, { length, format, language, title, apiKey, provider: prov.provider, reasoning: prov.reasoning, signal: ac.signal }),
+      suggestTagsBestEffort(text, { apiKey, provider: prov.provider, language, videoId, signal: ac.signal }),
     ]);
     logEvent('digest', {
       videoId: videoId || null,
       chars: (text || '').length,
       length, format, language,
       strategy: result.strategy,
-      model: 'sonnet',
+      // Which provider actually ran, not a hardcoded 'sonnet'. The usage meter
+      // is the only place a provider comparison can be read off after the fact,
+      // so it has to be true.
+      provider: providerId,
+      model: getProviderLimits(prov).defaultModel,
+      // Logged because two runs of the same video on the same provider are not
+      // comparable if one of them reasoned first.
+      thinking: getReasoningLevel(prov),
+      truncated: Boolean(result.truncated),
       costUsd: result.usage && result.usage.costUsd,
       tokIn: result.usage && result.usage.inputTokens,
       tokOut: result.usage && result.usage.outputTokens,
@@ -1438,19 +1588,22 @@ app.post('/api/digest', requireApproved, userDigestLimit, webLimit(20, 60_000), 
  * listener for that, and stream.send()/stream.end() are no-ops once closed —
  * so an abort mid-stream can never attempt to write to the dead socket.
  */
-async function digestStreaming(req, res, { text, length, format, language, title, videoId, signal }) {
+async function digestStreaming(req, res, { text, length, format, language, title, videoId, signal, provider, apiKey, reasoning }) {
   const t0 = Date.now();
-  const apiKey = readApiKey(req);
+  // Both come from the route, which already resolved and validated them — so
+  // the streamed and buffered paths cannot disagree about which provider is
+  // running, which is the whole point of doing the resolution once.
+  const providerId = getProviderId({ provider, apiKey });
   const stream = openDigestStream(res);
 
   try {
     const [result, suggestedTags] = await Promise.all([
       generateDigest(text, {
-        length, format, language, title, apiKey, signal,
+        length, format, language, title, apiKey, provider, reasoning, signal,
         onToken: (chunk) => stream.send('token', { text: chunk }),
         onPhase: (info) => stream.send('phase', info),
       }),
-      suggestTagsBestEffort(text, { apiKey, language, videoId, signal }),
+      suggestTagsBestEffort(text, { apiKey, provider, language, videoId, signal }),
     ]);
 
     logEvent('digest', {
@@ -1458,7 +1611,10 @@ async function digestStreaming(req, res, { text, length, format, language, title
       chars: (text || '').length,
       length, format, language,
       strategy: result.strategy,
-      model: 'sonnet',
+      provider: providerId,
+      model: getProviderLimits({ provider, apiKey }).defaultModel,
+      thinking: getReasoningLevel({ provider, reasoning }),
+      truncated: Boolean(result.truncated),
       streamed: true,
       costUsd: result.usage && result.usage.costUsd,
       tokIn: result.usage && result.usage.inputTokens,
@@ -1475,14 +1631,14 @@ async function digestStreaming(req, res, { text, length, format, language, title
     if (!stream.open) {
       logEvent('digest', {
         videoId: videoId || null, chars: (text || '').length, length, format,
-        streamed: true, ok: false, err: 'client_aborted', ms: Date.now() - t0,
+        provider: providerId, streamed: true, ok: false, err: 'client_aborted', ms: Date.now() - t0,
       });
       return;
     }
 
     logEvent('digest', {
       videoId: videoId || null, chars: (text || '').length, length, format,
-      streamed: true, ok: false, err: errLabel(err), ms: Date.now() - t0,
+      provider: providerId, streamed: true, ok: false, err: errLabel(err), ms: Date.now() - t0,
     });
 
     // Same envelope sendError builds, delivered as an event because the 200 is
@@ -1509,22 +1665,38 @@ async function digestStreaming(req, res, { text, length, format, language, title
 // finding out it's invalid on their first AI call.
 
 app.post('/api/validate-key', requireApproved, webLimit(20, 60_000), async (req, res) => {
-  if (!isWeb && !isDesktop) {
+  const prov = providerRequest(req);
+
+  if (prov.invalid) {
+    return sendError(
+      res,
+      'PROVIDER_UNKNOWN',
+      `Unknown provider "${prov.raw}".`,
+      'Pick a provider in Options.',
+      400
+    );
+  }
+
+  // Key validation is meaningful wherever a BYOK key can be used. That used to
+  // mean web/desktop only; a named provider makes it meaningful in local mode
+  // too (see readApiKey), and refusing there would leave the mode this app is
+  // actually run in unable to validate the key it just accepted.
+  if (!isWeb && !isDesktop && !prov.named) {
     return sendError(
       res,
       'WEB_MODE_UNSUPPORTED',
-      'Key validation is only available when using your own API key (web or desktop mode).',
+      'Key validation is only available when using your own API key.',
       ''
     );
   }
 
-  const apiKey = readApiKey(req);
+  const { apiKey } = prov;
   if (!apiKey) {
-    return sendError(res, 'API_NOT_AUTHED', 'No API key provided.', 'Enter your Anthropic API key.');
+    return sendError(res, 'API_NOT_AUTHED', 'No API key provided.', 'Enter your API key in Settings.');
   }
 
   try {
-    const result = await validateApiKey(apiKey);
+    const result = await validateApiKey(apiKey, prov.provider);
     return res.json(result);
   } catch (err) {
     return sendCaughtError(res, err);

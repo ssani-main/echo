@@ -3397,10 +3397,14 @@ body.gate-declined .lens-row {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-/* Whisper transcription settings — selects reuse the same visual
-   treatment as .settings-block input[type="text"] (Plaintext: no new
-   chrome language, just the existing input skin on a <select>). */
-#whisperSettings select {
+/* Selects reuse the existing input skin — Plaintext adds no new chrome
+   language for a control shape it already has. One selector list rather than
+   two copies of the same declaration block: the provider pickers need exactly
+   the same treatment as the Whisper pickers, and a second copy is a second
+   thing to keep in step. */
+#whisperSettings select,
+#settingsProviderSelect,
+#settingsThinkingSelect {
   display: block;
   width: 100%;
   box-sizing: border-box;
@@ -3415,9 +3419,90 @@ body.gate-declined .lens-row {
   margin: var(--space-4) 0 var(--space-7);
   transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
-#whisperSettings select:focus {
+#settingsProviderSelect {
+  /* The provider list is short and its labels are long; full width makes the
+     rows easier to hit than a cramped select, but it should not span the
+     modal's whole measure either. */
+  max-width: 32rem;
+}
+#settingsThinkingSelect {
+  max-width: 32rem;
+}
+#whisperSettings select:focus,
+#settingsProviderSelect:focus,
+#settingsThinkingSelect:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* The thinking picker in the digest Options row is label + select as one item,
+   so the pair moves and hides together. `display: flex` here is an author rule
+   and therefore beats the UA [hidden] rule, so the guard below is required, not
+   defensive habit. */
+.thinking-opt {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+}
+.thinking-opt[hidden] {
+  display: none;
+}
+#digestThinkingOpt select {
+  min-height: var(--control-h);
+  padding: 0 var(--space-6);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color var(--dur), box-shadow var(--dur);
+}
+#digestThinkingOpt select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* The provider picker inside the digest Options row sits among inline controls
+   rather than in a settings block, so it takes the compact treatment
+   #digestLangInput already uses instead of the full-width one above. */
+#digestProviderSelect {
+  min-height: var(--control-h);
+  padding: 0 var(--space-6);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  outline: none;
+  max-width: 15rem;
+  transition: border-color var(--dur), box-shadow var(--dur);
+}
+#digestProviderSelect:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* Truncation notice. --warn is chromatic on purpose: this says work is missing,
+   which is semantic rather than decorative (see the Plaintext token notes).
+   The [hidden] guard is required, not defensive habit — a class that sets
+   `display` beats the UA's [hidden] rule, so el.hidden = true would do nothing
+   and the notice would sit there permanently. */
+.digest-truncation-note {
+  display: block;
+  margin: var(--space-7) 0;
+  padding: var(--space-6) var(--space-8);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--warn-amber-soft);
+  border-left: 2px solid var(--warn-amber);
+}
+.digest-truncation-note[hidden] {
+  display: none;
 }
 #whisperModelStateText {
   font-family: var(--font-sans);

@@ -47,6 +47,26 @@
           <!-- Reads out what the current step actually does. Without it the
                three words are just labels; with it the dial explains the range. -->
           <p id="digestFidelityNote" class="digest-fidelity-note" aria-live="polite"></p>
+
+          <!-- Per-run provider override. Writes the same preference as the
+               select in Settings; syncProviderControls() re-syncs both, so
+               the two views cannot disagree. Here rather than only in
+               Settings because comparing two providers on one video is the
+               whole point of having two, and a Settings round-trip per run
+               would make that tedious enough not to happen.
+               Options are built from GET /api/providers — see
+               populateProviderSelects() in src/client/main.js. -->
+          <label class="digest-opt-label" for="digestProviderSelect">Model</label>
+          <select id="digestProviderSelect" aria-label="Which AI provider writes the digest"></select>
+
+          <!-- Reasoning level. Hidden entirely when the selected provider has no
+               such concept (the local CLI), rather than shown doing nothing — a
+               dead control is worse than an absent one. Off is the default for
+               every provider, which is what makes two runs comparable. -->
+          <div class="thinking-opt" id="digestThinkingOpt" hidden>
+            <label class="digest-opt-label" for="digestThinkingSelect">Thinking</label>
+            <select id="digestThinkingSelect" aria-label="How much the model reasons before writing"></select>
+          </div>
         </div>
       </details>
       <label class="digest-opt-label" for="digestLangInput">Language</label>
@@ -108,6 +128,13 @@
       <button class="mini-btn" id="digestPrintBtn"
               aria-label="Print digest or save as PDF">Print / Save as PDF</button>
     </div>
+
+    <!-- Truncation notice — shown when the provider stopped at its output
+         ceiling (see providers.js). Deliberately NOT the error card: the
+         digest below is real and worth keeping, so this annotates it rather
+         than replacing it. Which is also why it carries a [hidden] guard in
+         app.css — a class that sets `display` silently defeats `[hidden]`. -->
+    <p id="digestTruncationNote" class="digest-truncation-note" hidden></p>
 
     <div id="digestOutput"></div>
     <div id="usageStats" class="usage-stats"></div>

@@ -3005,11 +3005,7 @@ function stopDigestTimer() {
 async function streamDigest(body, signal) {
   let res;
   try {
-    const headers = { 'Content-Type': 'application/json', Accept: 'text/event-stream' };
-    if (ECHO.mode === 'web' || ECHO.mode === 'desktop') {
-      const k = getApiKey();
-      if (k) headers['X-Echo-Api-Key'] = k;
-    }
+    const headers = { ...aiHeaders(), Accept: 'text/event-stream' };
     res = await fetch('/api/digest?stream=1', { method: 'POST', headers, body: JSON.stringify(body), signal });
   } catch (err) {
     if (err && err.name === 'AbortError') throw err; // user cancel — do not retry unstreamed
@@ -3136,6 +3132,26 @@ function confirmReplaceDigest() {
   });
 }
 
+/**
+ * Shows (or hides) the "this digest was cut off" notice.
+ *
+ * Truncation is deliberately NOT an error. The text that exists is real, is
+ * partly on screen already when it streamed, and is worth keeping — so it is
+ * never rendered through the error card and never replaces the digest. It sits
+ * next to the text it applies to instead, because a partial digest that nothing
+ * mentions gets saved to the library, exported to Markdown, written into the
+ * vault and mirrored to the PDS looking exactly like a complete one.
+ *
+ * @param {{ truncated?: boolean, truncationNote?: string }|null} data
+ */
+function syncDigestTruncationNote(data) {
+  const el = document.getElementById('digestTruncationNote');
+  if (!el) return;
+  const on = !!(data && data.truncated);
+  el.hidden = !on;
+  el.textContent = on ? (data.truncationNote || 'This digest was cut off before the end.') : '';
+}
+
 async function runDigest() {
   if (!lastSegments || lastSegments.length === 0) return;
   if (!requireApiKey()) return;
@@ -3157,6 +3173,9 @@ async function runDigest() {
   digestRegenBtn.disabled = true;
   digestOutput.classList.remove('visible');
   digestOutput.innerHTML   = '';
+  // Cleared with the text it described, so a previous run's warning can never
+  // be read as a comment on this one.
+  syncDigestTruncationNote(null);
   usageStatsEl.classList.remove('visible');
   usageStatsEl.innerHTML   = '';
 
@@ -3198,6 +3217,7 @@ async function runDigest() {
     // mid-construction when the last token arrived.
     digestOutput.innerHTML = renderMarkdown(data.digest);
     digestOutput.classList.add('visible');
+    syncDigestTruncationNote(data);
 
     // Capture digest text so Save can include it
     currentDigest = data.digest;
@@ -3232,6 +3252,7 @@ async function runDigest() {
       stopDigestTimer();
       digestOutput.classList.remove('visible');
       digestOutput.innerHTML = '';
+      syncDigestTruncationNote(null);
       digestEmptySt.classList.remove('is-hidden');
       setDigestStatus('Digest cancelled.', false);
       setTopIndicator('idle');
@@ -4474,27 +4495,195 @@ document.getElementById('shortcutsClose')?.addEventListener('click', closeShortc
 document.getElementById('shortcutsBackdrop')?.addEventListener('click', closeShortcutsOverlay);
 
 /* ==============================================
-   WEB MODE — BYOK SETTINGS MODAL
-   Only relevant when ECHO.mode === 'web'. Stores the
-   user's Anthropic API key in localStorage and sends
-   it via the X-Echo-Api-Key header on AI requests.
-=============================================== */
-const API_KEY_STORAGE_KEY = 'echo-anthropic-key';
+   AI PROVIDER — SETTINGS, KEYS, AND WHICH MODELS
+   Which provider runs a digest is a user choice now: the local Claude CLI
+   (keyless, the default), the Anthropic API, or DeepSeek. Only the last two
+   need a key, and a key is kept PER PROVIDER — switching provider must not
+   silently send one vendor's key to another.
 
-function getApiKey() {
-  try { return localStorage.getItem(API_KEY_STORAGE_KEY) || ''; }
+   The provider FACTS (labels, whether a key is needed, how much context each
+   one has) are NOT listed here. They are fetched from /api/providers, because
+   a second copy of that list in the browser is a copy that drifts — the
+   lesson this codebase has already recorded twice (extractSummary, and the
+   duplicated reading controls).
+=============================================== */
+
+// The Anthropic key keeps its ORIGINAL storage name. It is the one that
+// existed before providers did, and a user who already saved a key must not
+// have to re-enter it because a second provider arrived.
+const API_KEY_STORAGE_KEY = 'echo-anthropic-key';
+const PROVIDER_STORAGE_KEY = 'echo-provider';
+const THINKING_STORAGE_KEY = 'echo-thinking';
+
+/**
+ * Where one provider's key lives. Anthropic's is the legacy name; every other
+ * provider gets its own slot, so /api/validate-key can never be handed the
+ * wrong vendor's key by a switch of provider.
+ *
+ * @param {string} providerId
+ * @returns {string}
+ */
+function apiKeyStorageKeyFor(providerId) {
+  return providerId === 'anthropic' ? API_KEY_STORAGE_KEY : `echo-key-${providerId}`;
+}
+
+/**
+ * @param {string} providerId
+ * @returns {string}
+ */
+function getKeyForProvider(providerId) {
+  try { return localStorage.getItem(apiKeyStorageKeyFor(providerId)) || ''; }
   catch { return ''; }
 }
 
-function setApiKey(v) {
-  try { localStorage.setItem(API_KEY_STORAGE_KEY, (v || '').trim()); }
+/**
+ * @param {string} providerId
+ * @param {string} v
+ */
+function setKeyForProvider(providerId, v) {
+  try { localStorage.setItem(apiKeyStorageKeyFor(providerId), (v || '').trim()); }
   catch { /* localStorage unavailable — non-fatal */ }
 }
 
-function clearApiKey() {
-  try { localStorage.removeItem(API_KEY_STORAGE_KEY); }
+/**
+ * @param {string} providerId
+ */
+function clearKeyForProvider(providerId) {
+  try { localStorage.removeItem(apiKeyStorageKeyFor(providerId)); }
   catch { /* localStorage unavailable — non-fatal */ }
 }
+
+/** Back-compat shims — Anthropic's slot, by its old names. */
+function getApiKey() { return getKeyForProvider('anthropic'); }
+function setApiKey(v) { setKeyForProvider('anthropic', v); }
+function clearApiKey() { clearKeyForProvider('anthropic'); }
+
+/**
+ * The provider the user picked, or '' meaning "use whatever the server says is
+ * the default". Storing an empty preference rather than a copy of the server's
+ * default is deliberate: an operator who sets ECHO_PROVIDER=deepseek changes
+ * the default for everyone, and a browser holding a stale copy of yesterday's
+ * default would quietly override them.
+ *
+ * @returns {string}
+ */
+function getProviderPref() {
+  try { return localStorage.getItem(PROVIDER_STORAGE_KEY) || ''; }
+  catch { return ''; }
+}
+
+/** @param {string} id */
+function setProviderPref(id) {
+  try {
+    if (id) localStorage.setItem(PROVIDER_STORAGE_KEY, id);
+    else localStorage.removeItem(PROVIDER_STORAGE_KEY);
+  } catch { /* localStorage unavailable — non-fatal */ }
+}
+
+// Populated from GET /api/providers at boot.
+let PROVIDER_LIST = [];
+let PROVIDER_DEFAULT_ID = '';
+// The operator's ECHO_THINKING, so the picker can start from it instead of
+// overriding it with a hardcoded 'off'.
+let THINKING_DEFAULT_LEVEL = 'off';
+
+// Used ONLY when /api/providers cannot be reached, so the controls still exist
+// and the local default still works. Not a second source of truth: the server
+// replaces it the moment it answers.
+const PROVIDER_FALLBACK_LIST = [
+  { id: 'claude-cli', label: 'Claude CLI (this machine)', requiresKey: false },
+  { id: 'anthropic', label: 'Anthropic API', requiresKey: true },
+];
+
+/**
+ * The provider a request should run on.
+ *
+ * @returns {string}
+ */
+function activeProviderId() {
+  const pref = getProviderPref();
+  if (pref && PROVIDER_LIST.some((p) => p.id === pref)) return pref;
+  if (PROVIDER_DEFAULT_ID) return PROVIDER_DEFAULT_ID;
+  return PROVIDER_LIST[0] ? PROVIDER_LIST[0].id : '';
+}
+
+/**
+ * The facts for the active provider, or null when nothing is known yet.
+ *
+ * @returns {object|null}
+ */
+function activeProvider() {
+  const id = activeProviderId();
+  return PROVIDER_LIST.find((p) => p.id === id) || null;
+}
+
+/**
+ * True when the currently-selected provider needs a key, which is the exact
+ * condition under which the key field is worth showing.
+ *
+ * @returns {boolean}
+ */
+function activeProviderNeedsKey() {
+  const p = activeProvider();
+  return !!(p && p.requiresKey);
+}
+
+/**
+ * True when the active provider has a reasoning concept at all. The local CLI
+ * does not — Echo passes it no flags — so the control is removed rather than
+ * shown doing nothing.
+ *
+ * @returns {boolean}
+ */
+function activeProviderSupportsReasoning() {
+  const p = activeProvider();
+  // Before the list has loaded, assume yes: a control that briefly appears and
+  // then vanishes is worse than one that briefly offers a level the server will
+  // ignore for one request.
+  if (!p) return true;
+  return !!(p.reasoning && p.reasoning.supported);
+}
+
+/**
+ * The user's thinking level, or '' meaning "use the operator's default".
+ *
+ * @returns {string}
+ */
+function getThinkingPref() {
+  try { return localStorage.getItem(THINKING_STORAGE_KEY) || ''; }
+  catch { return ''; }
+}
+
+/** @param {string} level */
+function setThinkingPref(level) {
+  try {
+    if (level) localStorage.setItem(THINKING_STORAGE_KEY, level);
+    else localStorage.removeItem(THINKING_STORAGE_KEY);
+  } catch { /* localStorage unavailable — non-fatal */ }
+}
+
+/**
+ * The thinking level a request will carry. Mirrors the provider resolution:
+ * the stored preference wins, otherwise the server's configured default.
+ *
+ * @returns {string}
+ */
+function effectiveThinkingLevel() {
+  const pref = getThinkingPref();
+  return pref || THINKING_DEFAULT_LEVEL || 'off';
+}
+
+const THINKING_LEVEL_LABELS = {
+  off: 'Off',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+};
+
+const THINKING_NOTE_TEXT =
+  'How much the model reasons before writing. Off matches the default for every ' +
+  'provider, which is what makes two runs comparable — and reasoning tokens count ' +
+  'toward the output limit, so turning this up makes a truncated digest more likely.';
 
 // Auto-digest preference (default ON — AI digest is Echo's core product).
 const AUTO_DIGEST_STORAGE_KEY = 'echo-auto-digest';
@@ -5097,7 +5286,10 @@ function setKeyStatus(text, level) {
 function openSettingsModal() {
   if (!settingsOverlayEl) return;
   dialogWillOpen();
-  if (apiKeyInputEl) apiKeyInputEl.value = getApiKey();
+  // Re-derives the provider select, the key field's label/placeholder/value and
+  // the key section's visibility from the ACTIVE provider, so opening Settings
+  // can never show one provider's key while another is selected.
+  syncProviderControls();
   setKeyStatus('', '');
   if (autoDigestToggleEl) autoDigestToggleEl.checked = getAutoDigest();
   if (autoTagToggleEl) autoTagToggleEl.checked = getAutoTags();
@@ -5605,18 +5797,21 @@ document.getElementById('syncNowBtn')?.addEventListener('click', async () => {
 })();
 
 settingsSaveKeyBtnEl?.addEventListener('click', async () => {
+  const providerId = activeProviderId();
   const v = apiKeyInputEl?.value || '';
+  const trimmed = v.trim();
 
-  if (ECHO.mode !== 'web' && ECHO.mode !== 'desktop') {
-    setApiKey(v);
-    showToast('success', v.trim() ? 'API key saved.' : 'API key cleared.');
+  // A provider that needs no key (the local CLI) has nothing to validate and
+  // nothing to store. Saving its blank field as an empty key would be a no-op
+  // dressed up as a success.
+  if (!activeProviderNeedsKey()) {
+    showToast('info', 'This provider needs no API key.');
     closeSettingsModal();
     return;
   }
 
-  const trimmed = v.trim();
   if (!trimmed) {
-    setApiKey('');
+    clearKeyForProvider(providerId);
     setKeyStatus('', '');
     showToast('info', 'API key cleared.');
     closeSettingsModal();
@@ -5626,15 +5821,22 @@ settingsSaveKeyBtnEl?.addEventListener('click', async () => {
   setKeyStatus('Checking…', '');
   settingsSaveKeyBtnEl.disabled = true;
   try {
+    // The key being checked is THIS provider's, and the server is told which
+    // one — otherwise a DeepSeek key would be judged against Anthropic's
+    // models endpoint and reported invalid for the wrong reason.
     const res  = await fetch('/api/validate-key', {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Echo-Api-Key': trimmed },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Echo-Provider': providerId,
+        'X-Echo-Api-Key': trimmed,
+      },
       body:    '{}',
     });
     const data = await res.json().catch(() => ({}));
 
     if (res.ok && data.valid) {
-      setApiKey(trimmed);
+      setKeyForProvider(providerId, trimmed);
       setKeyStatus('Key verified', 'success');
       showToast('success', 'API key saved and verified.');
       closeSettingsModal();
@@ -5651,7 +5853,7 @@ settingsSaveKeyBtnEl?.addEventListener('click', async () => {
 });
 
 document.getElementById('settingsClearKeyBtn')?.addEventListener('click', () => {
-  clearApiKey();
+  clearKeyForProvider(activeProviderId());
   if (apiKeyInputEl) apiKeyInputEl.value = '';
   setKeyStatus('', '');
   showToast('info', 'API key cleared.');
@@ -5674,11 +5876,170 @@ autoTagToggleEl?.addEventListener('change', () => {
 // Settings gear is available in all modes now (the auto-digest toggle lives here).
 const settingsBtnEl = document.getElementById('settingsBtn');
 if (settingsBtnEl) settingsBtnEl.hidden = false;
-// The BYOK API-key section applies to web (required) and desktop (optional);
-// hidden only in local mode, where the CLI is the sole AI path.
-if (ECHO.mode !== 'web' && ECHO.mode !== 'desktop') {
+
+/* ==============================================
+   PROVIDER CONTROLS
+   One preference (localStorage), two views of it: the select in Settings and
+   the select in the digest Options disclosure. Both are plain <select>s bound
+   to the same key and re-synced by syncProviderControls() after ANY change.
+
+   This is deliberately not a radio group. The reading controls were once
+   duplicated as radios sharing one `name`, which makes them ONE group
+   document-wide — so only the last one could ever show a selection, and the
+   other pane silently displayed no state at all. Two selects cannot collide
+   that way, and the explicit re-sync means neither view can go stale.
+=============================================== */
+
+/**
+ * Which per-provider key hint to show. Not sensitive: a prefix is a label.
+ *
+ * @param {string} providerId
+ * @returns {{placeholder: string, label: string}}
+ */
+function keyFieldCopy(providerId) {
+  if (providerId === 'deepseek') {
+    return { placeholder: 'sk-…', label: 'DeepSeek API key' };
+  }
+  return { placeholder: 'sk-ant-…', label: 'Anthropic API key' };
+}
+
+/** Fills both provider selects from the server's list. */
+function populateProviderSelects() {
+  const list = PROVIDER_LIST.length ? PROVIDER_LIST : PROVIDER_FALLBACK_LIST;
+  for (const id of ['settingsProviderSelect', 'digestProviderSelect']) {
+    const sel = document.getElementById(id);
+    if (!sel) continue;
+    const previous = sel.value;
+    sel.innerHTML = '';
+    for (const p of list) {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.label;
+      sel.appendChild(opt);
+    }
+    if (previous && list.some((p) => p.id === previous)) sel.value = previous;
+  }
+}
+
+/**
+ * Fills both thinking selects.
+ *
+ * The levels come from the served registry rather than being written into the
+ * markup, for the same reason the provider list is: a hardcoded <option> list is
+ * a second copy of a fact that then drifts.
+ */
+function populateThinkingSelects() {
+  const levels = (activeProvider() && activeProvider().reasoning
+    && activeProvider().reasoning.levels) || ['off', 'low', 'medium', 'high'];
+
+  for (const id of ['settingsThinkingSelect', 'digestThinkingSelect']) {
+    const sel = document.getElementById(id);
+    if (!sel) continue;
+    const previous = sel.value;
+    sel.innerHTML = '';
+    for (const level of levels) {
+      const opt = document.createElement('option');
+      opt.value = level;
+      opt.textContent = THINKING_LEVEL_LABELS[level] || level;
+      sel.appendChild(opt);
+    }
+    if (previous) sel.value = previous;
+  }
+}
+
+/**
+ * Re-derives EVERY provider-dependent piece of UI from the active provider.
+ * Called after any change to the preference, and when Settings opens.
+ */
+function syncProviderControls() {
+  const id = activeProviderId();
+
+  for (const selId of ['settingsProviderSelect', 'digestProviderSelect']) {
+    const sel = document.getElementById(selId);
+    if (sel && id && sel.value !== id) sel.value = id;
+  }
+
+  // The thinking control is provider-dependent twice over: its OPTIONS come from
+  // the provider (a provider that cannot reason has none), and its VALUE is a
+  // separate preference. Both are re-derived here so the two selects can never
+  // show different levels — the duplicated-state trap this codebase already has
+  // on record.
+  const reasoningOk = activeProviderSupportsReasoning();
+  populateThinkingSelects();
+  const level = effectiveThinkingLevel();
+  for (const selId of ['settingsThinkingSelect', 'digestThinkingSelect']) {
+    const sel = document.getElementById(selId);
+    if (sel && level) sel.value = level;
+  }
+  for (const wrapId of ['settingsThinkingOpt', 'digestThinkingOpt']) {
+    const wrap = document.getElementById(wrapId);
+    if (wrap) wrap.hidden = !reasoningOk;
+  }
+
+  const copy = keyFieldCopy(id);
+  if (apiKeyInputEl) {
+    apiKeyInputEl.value = getKeyForProvider(id);
+    apiKeyInputEl.placeholder = copy.placeholder;
+  }
+  const labelEl = document.querySelector('label[for="apiKeyInput"]');
+  if (labelEl) labelEl.textContent = copy.label;
+
+  // The one-line explanation of the selected provider, straight from the
+  // registry's own blurb — so a newly-added provider explains itself without
+  // anyone touching the browser code.
+  const noteEl = document.getElementById('providerNote');
+  if (noteEl) {
+    const p = activeProvider();
+    noteEl.textContent = p && p.blurb ? p.blurb : '';
+  }
+  const thinkingNoteEl = document.getElementById('thinkingNote');
+  if (thinkingNoteEl) thinkingNoteEl.textContent = THINKING_NOTE_TEXT;
+
+  // The key section is shown exactly when the active provider needs a key.
+  // It used to be hidden in local mode unconditionally, which is now wrong:
+  // local mode is precisely where someone would choose DeepSeek.
   const apiKeySectionEl = document.getElementById('apiKeySection');
-  if (apiKeySectionEl) apiKeySectionEl.hidden = true;
+  if (apiKeySectionEl) apiKeySectionEl.hidden = !activeProviderNeedsKey();
+
+  setKeyStatus('', '');
+}
+
+/**
+ * Fetches the provider list and builds the controls from it. Failure is not
+ * fatal: the fallback list keeps the controls usable, and the server's own
+ * default still decides what runs.
+ */
+async function loadProviders() {
+  try {
+    const res = await fetch('/api/providers');
+    const data = await res.json();
+    PROVIDER_LIST = Array.isArray(data.providers) ? data.providers : [];
+    PROVIDER_DEFAULT_ID = data.default || '';
+    // The operator's configured level, so the picker reflects it rather than
+    // silently overriding it with 'off'.
+    THINKING_DEFAULT_LEVEL = data.defaultThinking || 'off';
+  } catch (err) {
+    console.error('[echo] could not load provider list:', err);
+    PROVIDER_LIST = [];
+    PROVIDER_DEFAULT_ID = '';
+    THINKING_DEFAULT_LEVEL = 'off';
+  }
+  populateProviderSelects();
+  syncProviderControls();
+}
+
+for (const id of ['settingsProviderSelect', 'digestProviderSelect']) {
+  document.getElementById(id)?.addEventListener('change', (e) => {
+    setProviderPref(e.target.value);
+    syncProviderControls();
+  });
+}
+
+for (const id of ['settingsThinkingSelect', 'digestThinkingSelect']) {
+  document.getElementById(id)?.addEventListener('change', (e) => {
+    setThinkingPref(e.target.value);
+    syncProviderControls();
+  });
 }
 
 // Desktop-specific copy: the web note ("sent to this Echo server, which
@@ -5688,12 +6049,8 @@ if (ECHO.mode === 'desktop') {
   const apiKeyNoteEl = document.querySelector('#apiKeySection .settings-note');
   if (apiKeyNoteEl) {
     apiKeyNoteEl.textContent = 'Optional. Echo uses your local Claude CLI by default. Add an ' +
-      'Anthropic API key only if you don’t have the CLI — it’s stored on this device ' +
-      'and used to call Anthropic directly; nothing is sent to any other server.';
-  }
-  const apiKeyLabelEl = document.querySelector('label[for="apiKeyInput"]');
-  if (apiKeyLabelEl && !/\(optional\)/i.test(apiKeyLabelEl.textContent)) {
-    apiKeyLabelEl.textContent += ' (optional)';
+      'API key only if you don’t have the CLI — it’s stored on this device ' +
+      'and used to call that provider directly; nothing is sent to any other server.';
   }
 }
 
@@ -5709,13 +6066,50 @@ if (ECHO.mode === 'desktop') {
  *   lets a caller cancel the in-flight request (see runDigest()'s Stop button).
  * @returns {Promise<Response>}
  */
+/**
+ * POST helper for AI endpoints. Names the selected provider
+ * (X-Echo-Provider) and, when that provider needs one, its own key
+ * (X-Echo-Api-Key) — the server then never has to guess which vendor a key
+ * belongs to.
+ *
+ * The provider is ALWAYS named once a list is loaded, even when it matches the
+ * server's default. Omitting it when it matched was the tempting version, and
+ * it breaks the moment the operator sets ECHO_PROVIDER to something else: a
+ * user who deliberately picked the CLI would silently get billed to a key
+ * instead.
+ *
+ * @param {string} url
+ * @param {object} body - request body, will be JSON.stringify'd
+ * @param {{ signal?: AbortSignal }} [opts] - optional fetch options; signal
+ *   lets a caller cancel the in-flight request (see runDigest()'s Stop button).
+ * @returns {Promise<Response>}
+ */
 function aiFetch(url, body, opts = {}) {
+  return fetch(url, {
+    method: 'POST',
+    headers: aiHeaders(),
+    body: JSON.stringify(body),
+    signal: opts.signal,
+  });
+}
+
+/**
+ * The headers every AI request carries.
+ *
+ * @param {{ accept?: string }} [opts]
+ * @returns {Record<string,string>}
+ */
+function aiHeaders({ accept } = {}) {
   const headers = { 'Content-Type': 'application/json' };
-  if (ECHO.mode === 'web' || ECHO.mode === 'desktop') {
-    const k = getApiKey();
-    if (k) headers['X-Echo-Api-Key'] = k;
-  }
-  return fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: opts.signal });
+  const id = activeProviderId();
+  if (id) headers['X-Echo-Provider'] = id;
+  const key = getKeyForProvider(id);
+  if (key) headers['X-Echo-Api-Key'] = key;
+  // Sent whenever the provider can use it. Always named, like the provider — an
+  // omitted value would let the server's default decide, so two runs from the
+  // same picker position could differ.
+  if (activeProviderSupportsReasoning()) headers['X-Echo-Thinking'] = effectiveThinkingLevel();
+  return headers;
 }
 
 /**
@@ -5727,9 +6121,10 @@ function aiFetch(url, body, opts = {}) {
  * @returns {boolean}
  */
 function requireApiKey() {
-  if (ECHO.mode === 'web' && !getApiKey()) {
+  if (activeProviderNeedsKey() && !getKeyForProvider(activeProviderId())) {
     openSettingsModal();
-    showToast('info', 'Add your Anthropic API key to use AI features.');
+    const label = (activeProvider() && activeProvider().label) || 'that provider';
+    showToast('info', `Add your ${label} key to use AI features.`);
     return false;
   }
   return true;
@@ -6257,6 +6652,11 @@ function restoreSession() {
    INITIALISE
 =============================================== */
 loadSaved();
+// Not awaited: the page is usable before the provider list lands, and the
+// selects fill in the moment it does. Every AI request names its provider from
+// this list, so a request that somehow beat it would fall back to the server's
+// default — which is the pre-existing behaviour, not a regression.
+loadProviders();
 let _restored = false;
 if (hasQueryTarget()) {
   // Explicit navigation (?v=/?url=) always wins over a restored session.

@@ -1,12 +1,24 @@
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { getProvider } from './providers.js';
+import { getProvider, getProviderLimits, isTruncationReason, truncationFields } from './providers.js';
 
 // ---------------------------------------------------------------------------
 // Shared constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_TIMEOUT_MS = 180_000; // 3 minutes
+// How long one CLI call may run before it is killed.
+//
+// Configurable because the provider A/B measured this ceiling being reached
+// HONESTLY rather than by hanging: an `article`-mode digest of a 71 627-char
+// transcript (a ~70-minute video) took 185 s, i.e. just past it, while `digest`
+// mode peaked at 64 s on the same corpus. So the default is left where it is —
+// it is a real hang detector, and silently raising it would trade one failure for
+// another — but an operator who wants long transcripts rewritten in full can
+// now say so instead of being stuck.
+//
+// Bare Number(...) || fallback matches MAP_CONCURRENCY's convention below: a
+// malformed value cannot be abused into anything, it just falls back.
+const DEFAULT_TIMEOUT_MS = Number(process.env.ECHO_DIGEST_TIMEOUT_MS) || 180_000;
 
 // System prompt that pins the CLI subprocess to a pure text-transformation
 // role. Without this, the spawned `claude -p` runs as an interactive Claude
@@ -56,8 +68,6 @@ function buildClaudeStreamArgs() {
 // Map-reduce chunking constants
 // ---------------------------------------------------------------------------
 
-const CHARS_PER_TOKEN = 4;
-
 // Caps how many map-phase chunks run concurrently (see digestMapReduce below).
 // Bare Number(...) || fallback matches whisper.js's existing env-var
 // convention here: a malformed value just falls back to the default rather
@@ -68,12 +78,50 @@ const MAP_CONCURRENCY = Number(process.env.ECHO_DIGEST_MAP_CONCURRENCY) || 3;
 
 // Enter the long (map-reduce) path when estimated transcript chars exceed
 // this. Below this threshold behaviour is IDENTICAL to today — single call.
+// This pair of numbers is CLAUDE's, kept as the literal default for the two
+// exported helpers below (chunkText's budget, splitOversizedLines' floor).
+// The values actually used at runtime are derived per provider — see
+// thresholdCharsFor()/chunkBudgetCharsFor().
+//
+// These were the only copy of "how big is the model" in this file, which was
+// fine while Claude was the only provider. It is not a property of Echo; it is
+// a property of the provider, and a 1M-token provider should not be chunked as
+// if it were a 200k one. Chars-per-token is gone from here entirely: the
+// registry owns it now, because it is a tokenizer fact and two copies of it
+// would drift the moment a second tokenizer existed.
 const LONG_PATH_THRESHOLD_CHARS = 480_000; // ~120 k tokens
-
-// Maximum chars of transcript content to feed a single map-phase Claude call.
-// This leaves ~30 k tokens of headroom for the prompt wrapper and model
-// output within a 200 k-token context window.
 const CHUNK_CONTENT_CHARS = 360_000; // ~90 k tokens per chunk
+
+// The geometry those two numbers encode, as ratios of the context window:
+// 480 000 / (200 000 x 4) = 0.60 and 360 000 / (200 000 x 4) = 0.45. Expressing
+// them this way keeps Claude's behaviour identical by ARITHMETIC rather than by
+// coincidence, and lets every other provider land on its own equivalent numbers.
+// 0.60 triggers map-reduce before the prompt wrapper and output could crowd the
+// window; 0.45 leaves the ~30 k tokens of headroom the original comment claimed.
+const LONG_PATH_CONTEXT_FRACTION = 0.60;
+const CHUNK_CONTEXT_FRACTION = 0.45;
+
+/**
+ * Transcript length past which this provider uses the map-reduce path.
+ *
+ * @param {{ provider?: string, apiKey?: string }} [opts]
+ * @returns {number}
+ */
+export function thresholdCharsFor(opts = {}) {
+  const { contextTokens, charsPerToken } = getProviderLimits(opts);
+  return Math.floor(contextTokens * charsPerToken * LONG_PATH_CONTEXT_FRACTION);
+}
+
+/**
+ * Max chars of transcript fed to one map-phase call for this provider.
+ *
+ * @param {{ provider?: string, apiKey?: string }} [opts]
+ * @returns {number}
+ */
+export function chunkBudgetCharsFor(opts = {}) {
+  const { contextTokens, charsPerToken } = getProviderLimits(opts);
+  return Math.floor(contextTokens * charsPerToken * CHUNK_CONTEXT_FRACTION);
+}
 
 // On Windows `claude` is installed as a .cmd shim, which cannot be spawned
 // directly without shell:true. Instead, we invoke cmd.exe explicitly so we
@@ -434,14 +482,20 @@ function claudeExitError(code, stderr) {
  * @param {object} parsed
  * @returns {{ result: string, usage: object }}
  */
-function resultFromParsed(parsed) {
+function resultFromParsed(parsed, opts = {}) {
   if (parsed.is_error === true || parsed.subtype !== 'success') {
     throw new Error(parsed.result || parsed.subtype || 'Claude CLI call failed');
   }
-  return {
+  const out = {
     result: String(parsed.result || '').trim(),
     usage: mapUsage(parsed),
   };
+  // The CLI is the third place a response can stop at a ceiling, and it reports
+  // it in its own field. Read defensively: if this build of the CLI does not
+  // emit stop_reason, nothing changes. See providers.js for why silence here was
+  // the actual bug rather than the cap itself.
+  if (isTruncationReason(parsed.stop_reason)) Object.assign(out, truncationFields(opts));
+  return out;
 }
 
 /**
@@ -471,7 +525,7 @@ export async function runClaude(prompt, opts = {}) {
       `claude CLI returned non-JSON output. Snippet: ${stdout.slice(0, 300)}`
     );
   }
-  return resultFromParsed(parsed);
+  return resultFromParsed(parsed, opts);
 }
 
 /**
@@ -548,7 +602,7 @@ export async function runClaudeStream(prompt, opts = {}, onToken = () => {}) {
     );
   }
 
-  return resultFromParsed(finalObject);
+  return resultFromParsed(finalObject, opts);
 }
 
 /**
@@ -767,9 +821,16 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
   const total = chunks.length;
   let completedChunks = 0;
 
+  // Truncation in ANY phase makes the final digest incomplete, so it is tracked
+  // across both. A map chunk that stopped at a ceiling is a silently missing
+  // stretch of the video — worse than a truncated tail, because nothing about
+  // the finished digest would show it.
+  let truncated = false;
+  let truncationNote = '';
+
   // --- MAP phase: summarise chunks with bounded concurrency ---
   // Was Promise.all(chunks.map(...)) — one `claude` process per chunk, no cap.
-  // Only reachable above LONG_PATH_THRESHOLD_CHARS, so local/desktop only, but
+  // Only reachable above thresholdCharsFor(), so local/desktop only, but
   // desktop supports BYOK straight to the Anthropic API on the user's own
   // key: a 6-hour transcript (~10 chunks) fired ~10 simultaneous requests and
   // came back as a fistful of 429s instead of one clean digest.
@@ -784,7 +845,13 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
       `TRANSCRIPT (chunk ${i + 1} of ${total}):\n\n` +
       chunk;
 
-    const { result, usage } = await callProvider(mapPrompt, opts);
+    const { result, usage, truncated: chunkTruncated, truncationNote: chunkNote } =
+      await callProvider(mapPrompt, opts);
+
+    if (chunkTruncated) {
+      truncated = true;
+      truncationNote = chunkNote;
+    }
 
     if (!result || !result.trim()) {
       throw new Error(
@@ -828,8 +895,17 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
 
   // The reduce output IS the digest, so this is the phase worth streaming.
   if (typeof opts.onPhase === 'function') opts.onPhase({ phase: 'reduce', done: total, total });
-  const { result: digest, usage: reduceUsage } = await callProviderStreaming(reducePrompt, opts);
+  const {
+    result: digest,
+    usage: reduceUsage,
+    truncated: reduceTruncated,
+    truncationNote: reduceNote,
+  } = await callProviderStreaming(reducePrompt, opts);
   usages.push(reduceUsage);
+  if (reduceTruncated) {
+    truncated = true;
+    truncationNote = reduceNote;
+  }
 
   if (!digest || !digest.trim()) {
     throw new Error(
@@ -838,7 +914,12 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
     );
   }
 
-  return { digest, usage: mergeUsage(usages), strategy: 'mapreduce' };
+  const out = { digest, usage: mergeUsage(usages), strategy: 'mapreduce' };
+  if (truncated) {
+    out.truncated = true;
+    out.truncationNote = truncationNote;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -859,7 +940,7 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
  *
  * @param {string} transcriptText
  * @param {{ length?: 'short'|'detailed', format?: 'prose'|'bullets'|'article'|'digest', language?: string, signal?: AbortSignal }} [opts]
- * @returns {Promise<{ digest: string, usage: object }>}
+ * @returns {Promise<{ digest: string, usage: object, truncated?: true, truncationNote?: string }>}
  */
 export async function generateDigest(transcriptText, opts = {}) {
   if (!transcriptText || !transcriptText.trim()) {
@@ -1001,8 +1082,11 @@ export async function generateDigest(transcriptText, opts = {}) {
   }
 
   // --- Long-path guard ---
-  if (transcriptText.length > LONG_PATH_THRESHOLD_CHARS) {
-    const chunks = chunkText(transcriptText);
+  // Both numbers come from the provider's own context window (see
+  // thresholdCharsFor), so a provider with a larger window simply does not
+  // chunk where Claude would have.
+  if (transcriptText.length > thresholdCharsFor(opts)) {
+    const chunks = chunkText(transcriptText, chunkBudgetCharsFor(opts));
     // Single chunk means budget math already handles it — fall through to fast path.
     if (chunks.length > 1) {
       return digestMapReduce(chunks, structureInstructions, language, opts);
@@ -1024,8 +1108,13 @@ export async function generateDigest(transcriptText, opts = {}) {
         '\n\nHere is the transcript:\n\n' +
         transcriptText;
 
-  const { result, usage } = await callProviderStreaming(prompt, opts);
-  return { digest: result, usage, strategy: 'single' };
+  const { result, usage, truncated, truncationNote } = await callProviderStreaming(prompt, opts);
+  const out = { digest: result, usage, strategy: 'single' };
+  if (truncated) {
+    out.truncated = true;
+    out.truncationNote = truncationNote;
+  }
+  return out;
 }
 
 // Maximum chars of material (digest or transcript excerpt) to feed the
