@@ -1356,10 +1356,10 @@ function renderDigestError(data) {
   if (
     (code === 'CLAUDE_NOT_INSTALLED' || code === 'CLAUDE_NOT_AUTHED') &&
     ECHO.mode === 'desktop' &&
-    !getApiKey()
+    !activeApiKey()
   ) {
     headline = 'AI features need a key or the Claude CLI';
-    hint     = 'Add your Anthropic API key in Settings, or install & sign in to the Claude Code CLI.';
+    hint     = 'Add your own API key in Settings (Anthropic or DeepSeek), or install & sign in to the Claude Code CLI.';
   }
 
   const card = buildErrorCard({ headline, hint, detail });
@@ -1437,11 +1437,11 @@ function handleApiError(data, fallback) {
   if (
     (code === 'CLAUDE_NOT_INSTALLED' || code === 'CLAUDE_NOT_AUTHED') &&
     ECHO.mode === 'desktop' &&
-    !getApiKey()
+    !activeApiKey()
   ) {
     showToast(
       'error',
-      'Claude CLI not found — add your Anthropic API key in Settings to use AI features, or install the Claude CLI.',
+      'Claude CLI not found — add your own API key in Settings (Anthropic or DeepSeek) to use AI features, or install the Claude CLI.',
       ''
     );
     openSettingsModal();
@@ -2381,9 +2381,13 @@ function applyTranscriptResponse(data) {
   if (!data.localFile) loadLanguageTracks(data.videoId);
 
   // Auto-generate the AI digest if enabled (Echo's default behavior).
-  // In web mode, silently skip when no API key is set to avoid popping
+  // In web mode, silently skip when no key is set to avoid popping
   // the settings modal right after the transcript loads.
-  if (getAutoDigest() && (ECHO.mode !== 'web' || getApiKey())) {
+  //
+  // activeApiKey() reads the SELECTED provider's key, not Anthropic's slot.
+  // Checking the latter meant a web-mode user who chose DeepSeek never got an
+  // auto-digest at all — no error, nothing on screen, just silence.
+  if (getAutoDigest() && (ECHO.mode !== 'web' || activeApiKey())) {
     Promise.resolve(runDigest()).catch(err => console.error('[echo] auto-digest error:', err));
   }
 }
@@ -4554,9 +4558,26 @@ function clearKeyForProvider(providerId) {
 }
 
 /** Back-compat shims — Anthropic's slot, by its old names. */
-function getApiKey() { return getKeyForProvider('anthropic'); }
-function setApiKey(v) { setKeyForProvider('anthropic', v); }
-function clearApiKey() { clearKeyForProvider('anthropic'); }
+// Back-compat note: the Anthropic-specific accessors that used to live here
+// (getApiKey/setApiKey/clearApiKey) are gone. Every reader was really asking "is a
+// key set for the provider in play?", which is activeApiKey() below.
+
+/**
+ * The stored key for the provider that is actually selected.
+ *
+ * The one thing callers should ask when the question is "can we run AI?".
+ * Reading Anthropic's storage slot directly was correct while Anthropic was the
+ * only keyed provider; it is not any more, and the failure that caused was
+ * quiet — a web-mode user who chose DeepSeek never got an auto-digest, and the
+ * CLI-missing hint told them to add a key they already had.
+ *
+ * There is deliberately no provider-specific accessor left to reach for by
+ * mistake: this replaced the Anthropic-slot accessor that looked like a general
+ * "is a key set?" test.
+ *
+ * @returns {string}
+ */
+function activeApiKey() { return getKeyForProvider(activeProviderId()); }
 
 /**
  * The provider the user picked, or '' meaning "use whatever the server says is
@@ -4598,11 +4619,22 @@ const PROVIDER_FALLBACK_LIST = [
 /**
  * The provider a request should run on.
  *
+ * A stored preference is trusted ON ITS OWN, without waiting for the provider
+ * list to arrive. That looks like a nicety and is actually load-bearing: the list
+ * comes from a network fetch, and `autoLoadFromQuery()` applies an
+ * extension-supplied transcript (`#echo-tx=`) synchronously during INITIALISE —
+ * so on a cold page load the transcript lands before the list does. Validating the
+ * preference against the list meant `activeProviderId()` returned '' at exactly
+ * that moment, which quietly broke two things in web mode: the auto-digest gate
+ * saw no key, and the first AI request went out with no X-Echo-Provider header,
+ * so a DeepSeek user's key was sent to Anthropic. A preference the user set is a
+ * fact we already have; the list only tells us which facts exist.
+ *
  * @returns {string}
  */
 function activeProviderId() {
   const pref = getProviderPref();
-  if (pref && PROVIDER_LIST.some((p) => p.id === pref)) return pref;
+  if (pref && (!PROVIDER_LIST.length || PROVIDER_LIST.some((p) => p.id === pref))) return pref;
   if (PROVIDER_DEFAULT_ID) return PROVIDER_DEFAULT_ID;
   return PROVIDER_LIST[0] ? PROVIDER_LIST[0].id : '';
 }
@@ -6161,12 +6193,12 @@ function initOnboardCard() {
       // Soft, non-nagging framing — the CLI is the default, the key is optional.
       const noteTextEl = keyNote.querySelector('.onboard-card-text');
       if (noteTextEl) {
-        noteTextEl.textContent = 'AI uses your local Claude CLI. No CLI? Add your ' +
-          'Anthropic key in Settings — optional.';
+        noteTextEl.textContent = 'AI uses your local Claude CLI. No CLI? Add your own ' +
+          'API key in Settings (Anthropic or DeepSeek) — optional.';
       }
-      keyNote.hidden = !!getApiKey();
+      keyNote.hidden = !!activeApiKey();
     } else {
-      keyNote.hidden = !(ECHO.mode === 'web' && !getApiKey());
+      keyNote.hidden = !(ECHO.mode === 'web' && !activeApiKey());
     }
   }
   card.hidden = false;
@@ -6243,8 +6275,8 @@ const LEGAL_CONTENT = {
       '<p>A person reads these by hand, so it takes as long as it takes. A decline is not a ' +
       'judgement of you — the resources are finite and personal.</p>' +
 
-      '<h3>Is this affiliated with YouTube, Bluesky or Anthropic?</h3>' +
-      '<p>No. Echo is an independent tool that talks to all three.</p>',
+      '<h3>Is this affiliated with YouTube, Bluesky, Anthropic or DeepSeek?</h3>' +
+      '<p>No. Echo is an independent tool that talks to all of them.</p>',
   },
   privacy: {
     title: 'Privacy',
@@ -6260,19 +6292,20 @@ const LEGAL_CONTENT = {
       '<p><strong>Nothing is published anywhere unless you switch on repository mirroring, ' +
       'which is off by default.</strong> If you do, your library becomes publicly readable — ' +
       'see About & FAQ before enabling it.</p>' +
-      '<p>Your Anthropic API key, if you use one, is stored only in your browser’s ' +
-      'localStorage. It is sent to this app’s server solely to relay your AI requests to ' +
-      'Anthropic on your behalf — it is not persisted server-side and is not shared with any ' +
-      'other party.</p>' +
+      '<p>Your API key, if you use one, is stored only in your browser’s ' +
+      'localStorage — <strong>one key per provider</strong>, and only ever sent for ' +
+      'the provider it belongs to. It is sent to this app’s server solely to relay ' +
+      'your AI requests to the provider you chose on your behalf — it is not ' +
+      'persisted server-side and is not shared with any other party.</p>' +
       '<p>Transcripts you fetch are retrieved on demand and are not logged in web mode.</p>',
   },
   terms: {
     title: 'Terms',
     body:
       '<p>Echo is provided as-is, with no warranty of any kind.</p>' +
-      '<p>You are responsible for your own Anthropic API usage and any costs it incurs.</p>' +
+      '<p>You are responsible for your own API usage on whichever provider you choose, and any costs it incurs.</p>' +
       '<p>Please respect YouTube’s Terms of Service when using this app.</p>' +
-      '<p>Echo is not affiliated with, endorsed by, or sponsored by YouTube or Anthropic.</p>',
+      '<p>Echo is not affiliated with, endorsed by, or sponsored by YouTube, Anthropic or DeepSeek.</p>',
   },
 };
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { rmSync } from 'node:fs';
+import { rmSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
 
@@ -849,6 +849,37 @@ test('generateDigest: a clean map-reduce run reports no truncation', async (t) =
   const res = await generateDigest(transcript, { provider: 'anthropic', apiKey: 'sk-test', format: 'digest' });
   assert.equal(res.strategy, 'mapreduce');
   assert.equal(res.truncated, undefined);
+});
+
+// ---------------------------------------------------------------------------
+// The client must ask the SELECTED provider for its key
+// ---------------------------------------------------------------------------
+
+test('the client never reads one vendor\'s key slot to answer "do we have a key?"', () => {
+  // Guards a bug that shipped in the first version of the picker: the auto-digest
+  // gate and the CLI-missing hints called an Anthropic-specific accessor, which
+  // reads Anthropic's storage slot. A web-mode user who chose DeepSeek therefore
+  // got NO auto-digest at all — no error, nothing on screen — and was told to add
+  // a key they had already saved.
+  //
+  // Two shapes, because the mutation check showed one was not enough. The first
+  // version asserted only `getApiKey(` — and reintroducing the same bug as
+  // `getKeyForProvider('anthropic')` sailed straight through it.
+  //
+  // Call syntax specifically, so the comments around it may still explain what was
+  // removed and why.
+  const src = readFileSync(join(__dirname, '..', 'src', 'client', 'main.js'), 'utf8');
+  assert.ok(
+    !/getApiKey\s*\(/.test(src),
+    'no provider-specific key accessor may be CALLED; use activeApiKey() so the selected provider is the one asked'
+  );
+  assert.ok(
+    !/getKeyForProvider\(\s*['"]/.test(src),
+    'getKeyForProvider() must be given the ACTIVE provider, never a provider named as a string literal'
+  );
+  assert.match(src, /function activeApiKey\(\)/, 'the provider-aware accessor must exist');
+  // ...and its one legitimate lower layer still knows about named slots.
+  assert.match(src, /function apiKeyStorageKeyFor\(/, 'per-provider slots are still what makes the above true');
 });
 
 // ---------------------------------------------------------------------------

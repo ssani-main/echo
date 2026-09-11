@@ -617,8 +617,10 @@ function requireWebKey(req, res) {
   sendError(
     res,
     'API_NOT_AUTHED',
-    'An Anthropic API key is required for this hosted instance.',
-    'Add your own Anthropic API key in Settings to use AI features here, or run Echo locally/desktop for unlimited use.'
+    // Not "Anthropic": a hosted visitor may bring a key for either provider, and
+    // this message was telling them the wrong thing to go and find.
+    'An API key is required for this hosted instance.',
+    'Add your own API key in Settings — Anthropic or DeepSeek — to use AI features here, or run Echo locally/desktop for unlimited use.'
   );
   return true;
 }
