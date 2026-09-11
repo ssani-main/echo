@@ -278,22 +278,24 @@ instrument corrupting the verification*.
 
 ---
 
-## CLAUDE.md is now stale on the provider seam
+## CLAUDE.md: updated 2026-09-11
 
-`CLAUDE.md` was not edited, per instruction. But three of its statements were
-invalidated by this work, and leaving them unflagged would make the project's own
-memory file the least accurate document in the repo. Corrected facts below; the
-file itself still needs the edit.
+`CLAUDE.md` described a two-provider seam (CLI + Anthropic BYOK) that no longer
+exists, which had made the project's own memory file the least accurate document
+in the repo. It has now been updated — the maintainer authorised it after this
+workstream, having originally asked for it to be left alone.
 
-| CLAUDE.md says | Actually |
-|---|---|
-| L12: "goes through a provider seam (`providers.js`). Default = `ClaudeCliProvider` … `ApiKeyProvider` … used only when a per-request key is supplied (BYOK) or `ECHO_PROVIDER=api`" | Three providers behind a **registry**: `claude-cli`, `anthropic`, `deepseek`. `PROVIDERS` holds the per-provider facts (context window, output ceiling, chars-per-token, key requirement, reasoning dialect); `ECHO_PROVIDER` accepts `cli`/`api`/`anthropic`/`deepseek`; a provider can be named **per request** via `X-Echo-Provider`, which is what the in-app picker sends. `GET /api/providers` serves the list. |
-| L47: Module map — "`providers.js` (CLI/API provider seam)" | `providers.js` (provider **registry**: per-provider limits + reasoning dialect, truncation detection, `publicProviderList()`, per-provider key validation) |
-| L113: "…`ApiKeyProvider.stream()` (SDK `messages.stream()`)… Guarded by `tests/digest-stream.test.js`, which puts a fake `claude` on `PATH`" | Still true, and now also `DeepSeekProvider.stream()` (SSE over `fetch`), plus `tests/digest-stream-provider.test.js` which covers the route **on Windows**, where every test in `digest-stream.test.js` is skipped. |
+What changed there: line 12 (the `**AI:**` bullet) now describes the registry,
+`X-Echo-Provider` and `GET /api/providers`; the module map's `providers.js` entry
+says what it actually contains; the digest feature bullet and the three-modes table
+mention the per-run provider choice and per-provider keys; "What's left" records
+that the Anthropic API arm is **deliberately** unmeasured rather than pending; and
+three new gotchas record the traps this workstream paid for — the unread
+`stop_reason`, the reasoning dialect that must come from the caller, and the
+provider-specific key accessor whose fix exposed an async race.
 
-Two things worth adding there when it is edited: that `stop_reason`/`finish_reason`
-are now read (the 16 000-token ceiling was a silent success until 2026-09-11), and
-that `npm run digest:ab` is the measurement rig for the seam.
+`PROVIDERS.md` is now listed under Key docs. Its own statements were checked at the
+same time and are current as of that date.
 
 ## Open questions
 
