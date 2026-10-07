@@ -31,8 +31,10 @@ const ISOLATED_SYSTEM_PROMPT =
   'Follow the instructions in the user message exactly and return only the requested output as Markdown. ' +
   'Do not add meta-commentary, do not ask questions, and never mention sessions, memory, files, tools, or any workspace or project.';
 
+const CLI_MODEL = 'claude-opus-5-5';
+
 const CLAUDE_ARGS = [
-  '-p', '--model', 'sonnet', '--output-format', 'json',
+  '-p', '--model', CLI_MODEL, '--output-format', 'json',
   '--system-prompt', ISOLATED_SYSTEM_PROMPT,
 ];
 
@@ -41,8 +43,8 @@ const CLAUDE_ARGS = [
  *
  * @returns {string[]}
  */
-function buildClaudeArgs() {
-  return CLAUDE_ARGS;
+export function buildClaudeArgs() {
+  return [...CLAUDE_ARGS];
 }
 
 // Streaming variant. `--include-partial-messages` is what turns on the per-token
@@ -50,7 +52,7 @@ function buildClaudeArgs() {
 // which in turn requires `--verbose`. The final `result` object is identical to
 // the one `--output-format json` produces, so only the transport differs.
 const CLAUDE_STREAM_ARGS = [
-  '-p', '--model', 'sonnet', '--output-format', 'stream-json',
+  '-p', '--model', CLI_MODEL, '--output-format', 'stream-json',
   '--include-partial-messages', '--verbose',
   '--system-prompt', ISOLATED_SYSTEM_PROMPT,
 ];
@@ -60,8 +62,8 @@ const CLAUDE_STREAM_ARGS = [
  *
  * @returns {string[]}
  */
-function buildClaudeStreamArgs() {
-  return CLAUDE_STREAM_ARGS;
+export function buildClaudeStreamArgs() {
+  return [...CLAUDE_STREAM_ARGS];
 }
 
 // ---------------------------------------------------------------------------

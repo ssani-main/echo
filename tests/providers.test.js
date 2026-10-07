@@ -28,7 +28,10 @@ import {
   ApiKeyProvider,
   ClaudeCliProvider,
 } from '../providers.js';
-import { generateDigest, thresholdCharsFor, chunkBudgetCharsFor } from '../digest.js';
+import {
+  generateDigest, thresholdCharsFor, chunkBudgetCharsFor,
+  buildClaudeArgs, buildClaudeStreamArgs,
+} from '../digest.js';
 
 // ---------------------------------------------------------------------------
 // The provider seam: a registry, a second API provider, and truncation.
@@ -66,6 +69,18 @@ test('every provider declares the facts the seam depends on', () => {
     assert.ok(p.contextTokens > 0, `${key}: contextTokens must be positive`);
     // null is meaningful (no knob / not asserted), undefined is a typo.
     assert.ok(p.maxOutputTokens === null || p.maxOutputTokens > 0, `${key}: maxOutputTokens`);
+  }
+});
+
+test('the CLI model the digest actually spawns is the one the registry (and the usage meter) reports', () => {
+  // digest.js and providers.js import each other, so they cannot share one
+  // constant; this is what stops the two literals drifting apart.
+  const expected = PROVIDERS['claude-cli'].defaultModel;
+  assert.deepEqual(PROVIDERS['claude-cli'].models, [expected]);
+  for (const [name, args] of [['buildClaudeArgs', buildClaudeArgs()], ['buildClaudeStreamArgs', buildClaudeStreamArgs()]]) {
+    const i = args.indexOf('--model');
+    assert.ok(i >= 0, `${name}() must pass --model`);
+    assert.equal(args[i + 1], expected, `${name}() model must equal the registry's claude-cli defaultModel`);
   }
 });
 
@@ -768,15 +783,17 @@ test('DeepSeek streaming: reasoning deltas are neither streamed nor concatenated
 // ---------------------------------------------------------------------------
 
 test('chunk geometry reproduces the old hardcoded Claude numbers exactly', () => {
-  // 0.60 x 200 000 tokens x 4 chars = 480 000; 0.45 -> 360 000. If either of
-  // these drifts, Claude starts chunking differently and every long transcript
-  // that used to be one call becomes several.
-  assert.equal(thresholdCharsFor({ provider: 'claude-cli' }), 480_000);
-  assert.equal(chunkBudgetCharsFor({ provider: 'claude-cli' }), 360_000);
+  // Anthropic API: 0.60 x 200 000 tokens x 4 chars = 480 000; 0.45 -> 360 000.
+  // If either of these drifts, it starts chunking differently and every long
+  // transcript that used to be one call becomes several.
+  // CLI (claude-opus-5-5 reports a 1 000 000-token window): 0.60 x 1M x 4 =
+  // 2 400 000; 0.45 -> 1 800 000.
+  assert.equal(thresholdCharsFor({ provider: 'claude-cli' }), 2_400_000);
+  assert.equal(chunkBudgetCharsFor({ provider: 'claude-cli' }), 1_800_000);
   assert.equal(thresholdCharsFor({ provider: 'anthropic' }), 480_000);
   assert.equal(chunkBudgetCharsFor({ provider: 'anthropic' }), 360_000);
   // The default resolution must land on the same place as an explicit CLI.
-  assert.equal(thresholdCharsFor({}), 480_000);
+  assert.equal(thresholdCharsFor({}), 2_400_000);
 });
 
 test('a bigger context window means a bigger chunk budget, not someone else\'s', () => {
@@ -984,7 +1001,7 @@ test('GET /api/providers serves the registry the UI is built from', async () => 
 
   const claude = data.providers.find((p) => p.id === 'claude-cli');
   assert.equal(claude.requiresKey, false);
-  assert.equal(claude.longPathThresholdChars, 480_000);
+  assert.equal(claude.longPathThresholdChars, 2_400_000);
 
   const deepseek = data.providers.find((p) => p.id === 'deepseek');
   assert.equal(deepseek.requiresKey, true);

@@ -6,7 +6,7 @@ not a build-time decision, and the seam that makes that possible lives in
 
 | Provider id | Label | Kind | Key | Context | Max output |
 |---|---|---|---|---|---|
-| `claude-cli` | Claude CLI (this machine) | `cli` | not needed | 200k | — (the CLI's own) |
+| `claude-cli` | Claude CLI (this machine) | `cli` | not needed | 1 000 000 | — (the CLI's own) |
 | `anthropic` | Anthropic API | `anthropic` | required | 200k | 16 000 |
 | `deepseek` | DeepSeek API | `openai` | required | 1 000 000 | 384 000 |
 
@@ -112,11 +112,14 @@ longPathThreshold = contextTokens x charsPerToken x 0.60
 chunkBudget       = contextTokens x charsPerToken x 0.45
 ```
 
-Those ratios are the original hardcoded numbers expressed as ratios of Claude's
-window (480 000 and 360 000 against 200 000 x 4), so Claude's behaviour is
-unchanged **by arithmetic rather than by coincidence** — `thresholdCharsFor({})`
-is asserted to be exactly 480 000. A 1M-token provider stops chunking where
-Claude would have started, which is the point.
+Those ratios are the original hardcoded numbers expressed as ratios of the
+Anthropic API's window (480 000 and 360 000 against 200 000 x 4), so that
+provider's behaviour is unchanged **by arithmetic rather than by coincidence**.
+The `claude-cli` entry is a 1 000 000-token window (claude-opus-5-5 reports
+`contextWindow: 1000000` in the CLI's `modelUsage`), so its threshold is
+2 400 000 chars and its chunk budget 1 800 000 — `thresholdCharsFor({})` is
+asserted to be exactly 2 400 000. A 1M-token provider stops chunking where a
+200k one would have started, which is the point.
 
 ## The wire contract
 

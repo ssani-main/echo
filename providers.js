@@ -221,12 +221,16 @@ export const PROVIDERS = {
     label: 'Claude CLI (this machine)',
     kind: 'cli',
     requiresKey: false,
-    contextTokens: 200_000,
+    // claude-opus-5-5 reports contextWindow 1000000 (maxOutputTokens 128000) in
+    // `claude -p --output-format json` modelUsage.
+    contextTokens: 1_000_000,
     // The CLI takes no max_tokens flag; it applies its own ceiling.
     maxOutputTokens: null,
     charsPerToken: CHARS_PER_TOKEN_DEFAULT,
-    models: ['sonnet'],
-    defaultModel: 'sonnet',
+    // Must match CLI_MODEL in digest.js (the two cannot share a constant: the
+    // modules import each other). tests/providers.test.js fails if they drift.
+    models: ['claude-opus-5-5'],
+    defaultModel: 'claude-opus-5-5',
     pricing: null,
     blurb: 'Uses your local Claude Code login. No API key, no billing setup.',
     // No dialect: the CLI's reasoning is its own business, and Echo does not pass

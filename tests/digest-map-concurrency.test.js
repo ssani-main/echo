@@ -150,8 +150,12 @@ function startedChunks(logPath) {
     .map((l) => l.trim().split(/\s+/)[1]);
 }
 
-/** A transcript comfortably past LONG_PATH_THRESHOLD_CHARS (480k). */
-function longTranscript(chars = 1_500_000) {
+/**
+ * A transcript past the CLI's map-reduce threshold (2.4M chars: 1M-token window
+ * x 4 chars x 0.60) AND long enough for 3 chunks at its 1.8M-char chunk budget,
+ * so the fan-out tests really do run several chunks at once.
+ */
+function longTranscript(chars = 5_000_000) {
   // Word soup rather than one repeated character, so the chunker's boundary
   // finding behaves the way it does on a real transcript.
   const unit = 'the quick brown fox jumps over the lazy dog and keeps talking ';

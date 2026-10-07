@@ -168,7 +168,7 @@ One dial, ordered by how much of the video survives:
 | **Digest** _(default)_ | The real substance, reorganised by idea rather than in the order it was said. Not a summary of what the video "covers" — the point itself. |
 | **Everything** | A full-fidelity rewrite you read *instead of* watching. Nothing substantive is dropped, only the noise of speech. |
 
-Pick an output language too. Transcripts past ~120k tokens are chunked, digested in
+Pick an output language too. Transcripts past 60% of the provider's context window (~600k tokens on the Claude CLI, ~120k on the Anthropic API) are chunked, digested in
 parallel and synthesised in a final pass automatically — while that happens the pane
 reports which part it is reading, because no digest text exists yet.
 
