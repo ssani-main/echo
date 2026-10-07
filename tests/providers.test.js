@@ -899,6 +899,17 @@ test('the client never reads one vendor\'s key slot to answer "do we have a key?
   assert.match(src, /function apiKeyStorageKeyFor\(/, 'per-provider slots are still what makes the above true');
 });
 
+test('the "multiple parts" hint reads the ACTIVE provider\'s served threshold, not the hardcoded constant', () => {
+  const src = readFileSync(join(__dirname, '..', 'src', 'client', 'main.js'), 'utf8');
+  assert.match(src, /plainText\.length > digestLongPathThresholdChars\(\)/, 'runDigest must size the hint from the served value');
+  assert.ok(!/length\s*>\s*DIGEST_LONG_PATH_THRESHOLD_CHARS/.test(src), 'the constant is only the fallback');
+  const fn = src.match(/function digestLongPathThresholdChars\(\) \{[\s\S]*?\r?\n\}\r?\n/);
+  assert.ok(fn, 'helper must exist');
+  assert.match(fn[0], /activeProvider\(\)/);
+  assert.match(fn[0], /longPathThresholdChars/);
+  assert.match(fn[0], /try \{/, 'a status hint must never throw');
+});
+
 // ---------------------------------------------------------------------------
 // The HTTP surface
 // ---------------------------------------------------------------------------

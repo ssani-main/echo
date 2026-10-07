@@ -1,6 +1,25 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chunkText, mergeUsage, buildSpawnTarget } from '../digest.js';
+import { chunkText, mergeUsage, buildSpawnTarget, scaledTimeoutMs, generateDigest } from '../digest.js';
+import { ClaudeCliProvider, ApiKeyProvider } from '../providers.js';
+
+test('scaledTimeoutMs: at or under 480k chars the base is returned unchanged', () => {
+  assert.equal(scaledTimeoutMs(0, 180_000), 180_000);
+  assert.equal(scaledTimeoutMs(480_000, 180_000), 180_000);
+  assert.equal(scaledTimeoutMs(undefined, 180_000), 180_000);
+});
+
+test('scaledTimeoutMs: scales by ceil(chars / 480k)', () => {
+  assert.equal(scaledTimeoutMs(480_001, 180_000), 360_000);
+  assert.equal(scaledTimeoutMs(2_400_000, 180_000), 900_000);
+  assert.equal(scaledTimeoutMs(2_400_001, 180_000), 1_080_000);
+});
+
+test('scaledTimeoutMs: an explicit base is respected; a bad base falls back to the default', () => {
+  assert.equal(scaledTimeoutMs(960_000, 600_000), 1_200_000);
+  assert.ok(scaledTimeoutMs(100, 0) > 0);
+  assert.ok(scaledTimeoutMs(100, NaN) > 0);
+});
 
 // --------------------------------------------------------------------------
 
@@ -162,4 +181,52 @@ test('chunkText: a degenerate budget terminates instead of spinning', () => {
     assert.ok(chunks.length >= 1 && chunks.length < 100,
       `budget ${budget} produced ${chunks.length} chunks — the split made no progress`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Wiring: the timeout each provider call actually RECEIVES. The providers are
+// plain objects, so their `call` can be stubbed without spawning the CLI.
+// ---------------------------------------------------------------------------
+
+const STUB_OK = { result: 'ok', usage: { input_tokens: 1, output_tokens: 1 } };
+
+function unit(chars) {
+  const u = 'the quick brown fox jumps over the lazy dog and keeps talking ';
+  return u.repeat(Math.ceil(chars / u.length)).slice(0, chars);
+}
+
+test('single call: a transcript over 480k gets a scaled timeout, one at or under gets opts untouched', async (t) => {
+  const seen = [];
+  t.mock.method(ClaudeCliProvider, 'call', async (_prompt, o) => { seen.push(o); return STUB_OK; });
+
+  // 1M chars: under the CLI's 2.4M map-reduce threshold, so one call; ceil(1M/480k) = 3.
+  await generateDigest(unit(1_000_000), { timeoutMs: 100_000 });
+  assert.equal(seen[0].timeoutMs, 300_000);
+
+  const opts = { timeoutMs: 100_000 };
+  await generateDigest(unit(480_000), opts);
+  assert.equal(seen[1], opts, 'at the threshold the original opts object is passed through');
+  assert.equal(seen[1].timeoutMs, 100_000);
+});
+
+test('map phase: each chunk is scaled by ITS OWN length; chunks at or under 480k are untouched', async (t) => {
+  // CLI chunks are 1.8M chars: 5M -> 1.8M, 1.8M, 1.4M => x4, x4, x3.
+  const cli = [];
+  t.mock.method(ClaudeCliProvider, 'call', async (prompt, o) => {
+    if (!prompt.includes('CHUNK SUMMARIES')) cli.push(o.timeoutMs);
+    return STUB_OK;
+  });
+  await generateDigest(unit(5_000_000), { timeoutMs: 100_000 });
+  assert.deepEqual(cli, [400_000, 400_000, 300_000]);
+
+  // anthropic chunks are 360k chars: never over 480k, so opts must pass through as-is.
+  const api = [];
+  t.mock.method(ApiKeyProvider, 'call', async (prompt, o) => {
+    if (!prompt.includes('CHUNK SUMMARIES')) api.push(o);
+    return STUB_OK;
+  });
+  const opts = { provider: 'anthropic', apiKey: 'k', timeoutMs: 100_000 };
+  await generateDigest(unit(1_000_000), opts);
+  assert.ok(api.length >= 2, 'it fanned out');
+  for (const o of api) assert.equal(o, opts, 'the original opts object, not a copy');
 });

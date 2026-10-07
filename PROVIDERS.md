@@ -301,6 +301,63 @@ consequence is now predictable rather than mysterious — `article` mode truncat
 roughly 90 minutes of video, and reports that it did. Somebody turning on web mode
 later inherits a stated limit, not a bug report.
 
+## What the CLI's Sonnet-vs-Opus 5.5 comparison measured
+
+2026-10-07, `claude` CLI 2.1.292, `npm run digest:ab -- --providers claude-cli
+--limit 11 --timeout-ms 600000`. The same 11 saved transcripts (407 458 chars) as
+the September run, `digest` format, English, **reasoning off**, one run per arm, run
+sequentially. The Sonnet arm ran from a worktree at commit `a5fe6ea`, so no
+model-override knob was added to the product to make it possible.
+
+| | claude-cli (sonnet) | claude-cli (claude-opus-5-5) |
+|---|---|---|
+| mean words | 1 374 | 1 329 |
+| compression of source | 22% | 21% |
+| numbers kept | 118 | 113 |
+| numbers supported | 105 (89%) | **106 (94%)** |
+| numbers NOT in transcript | 13 | **7** |
+| numeric coverage of source | 65% | 66% |
+| ai-tell mean *(lower better)* | **1.4** | 1.5 |
+| ai-tell worst | 4 | **2** |
+| mean seconds | **33** | 44 |
+| slowest digest (s) | **51** | 62 |
+| total tokens | **616 098** | 632 674 |
+| notional cost | **$2.10** | $4.40 |
+| truncated / failed | 0 / 0 | 0 / 0 |
+
+Caveats, stated plainly:
+
+- **One run per arm, 11 digests.** Differences this small are not established.
+- **Five of the "not in transcript" numbers are identical in both arms** (`4500`,
+  `73%`, `8000`, `1998`, `27`). That points at the scorer missing a figure worded
+  differently in the transcript, not at invention. Excluding them it is 8 vs 2.
+  **None were checked by hand against the transcripts.**
+- **`article` mode and transcripts over ~72k chars were not measured.**
+- The cost is the CLI's *notional* list-price figure, not money spent on a subscription.
+
+What it supports: Opus 5.5 is at least as faithful on numbers, a little slower and
+about twice the notional cost, with no visible change in length or ai-tell. It is the
+CLI default as of commit `567f905`. For `claude-opus-5-5` the CLI reported
+`contextWindow: 1000000` and `maxOutputTokens: 128000`; the first is where the
+registry's 1 000 000 comes from. Auto-tagging (`suggestTags`) shares the CLI args, so
+it runs on Opus too.
+
+Two consequences of that window, and what was done about each:
+
+- **The classic threshold no longer applies to the CLI.** Map-reduce starts at
+  2 400 000 chars instead of 480 000, so a transcript in that range is one call.
+- **The per-call timeout now scales with input** — on the single call and on each
+  map chunk, by that call's own length: base x `ceil(chars / 480 000)`
+  (`scaledTimeoutMs()` in `digest.js`), where the base is the
+  caller's `timeoutMs` or `ECHO_DIGEST_TIMEOUT_MS` (180 s default). At or under
+  480 000 chars it is exactly the base. Only the CLI reads it; the API providers have
+  no such timeout. The scaling is **not measured** — it is a proportional allowance,
+  not a benchmark. The reduce call is not scaled (its input is the chunk summaries,
+  not the transcript). The `anthropic` provider's 360 000-char chunks never exceed
+  480 000, so its calls are unchanged.
+- The browser's "processing in multiple parts" hint now reads the active provider's
+  served `longPathThresholdChars` (falling back to 480 000 until the list arrives).
+
 ## Adding a provider
 
 1. Add an entry to `PROVIDERS` with all the facts, including `contextTokens`,

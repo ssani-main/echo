@@ -125,6 +125,41 @@ export function chunkBudgetCharsFor(opts = {}) {
   return Math.floor(contextTokens * charsPerToken * CHUNK_CONTEXT_FRACTION);
 }
 
+/**
+ * Per-call time allowance for a single-call digest of `chars` transcript chars.
+ *
+ * The base budget was sized when anything over LONG_PATH_THRESHOLD_CHARS was
+ * split into chunks, each with its own allowance. A provider with a bigger
+ * window now takes that same input as ONE call, so the allowance grows with it:
+ * base x ceil(chars / 480k), never below base. Up to 480k chars the result is
+ * exactly `base`. An explicit caller timeout, or ECHO_DIGEST_TIMEOUT_MS, is the base.
+ *
+ * @param {number} chars - transcript length
+ * @param {number} [baseMs] - caller-supplied timeout, else the configured default
+ * @returns {number}
+ */
+export function scaledTimeoutMs(chars, baseMs = DEFAULT_TIMEOUT_MS) {
+  const base = Number(baseMs) > 0 ? Number(baseMs) : DEFAULT_TIMEOUT_MS;
+  const n = Number(chars) || 0;
+  return base * Math.max(1, Math.ceil(n / LONG_PATH_THRESHOLD_CHARS));
+}
+
+/**
+ * `opts` with its timeout widened for a call carrying `chars` of transcript.
+ * At or under the classic threshold the ORIGINAL object comes back untouched,
+ * so ordinary calls behave exactly as before. Used by the single-call path and
+ * by each map-phase chunk.
+ *
+ * @param {number} chars
+ * @param {{ timeoutMs?: number }} opts
+ * @returns {object}
+ */
+function optsForInput(chars, opts) {
+  return chars > LONG_PATH_THRESHOLD_CHARS
+    ? { ...opts, timeoutMs: scaledTimeoutMs(chars, opts.timeoutMs) }
+    : opts;
+}
+
 // On Windows `claude` is installed as a .cmd shim, which cannot be spawned
 // directly without shell:true. Instead, we invoke cmd.exe explicitly so we
 // keep shell:false on the spawn call itself (no deprecation warning) while
@@ -848,7 +883,7 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
       chunk;
 
     const { result, usage, truncated: chunkTruncated, truncationNote: chunkNote } =
-      await callProvider(mapPrompt, opts);
+      await callProvider(mapPrompt, optsForInput(chunk.length, opts));
 
     if (chunkTruncated) {
       truncated = true;
@@ -1110,7 +1145,11 @@ export async function generateDigest(transcriptText, opts = {}) {
         '\n\nHere is the transcript:\n\n' +
         transcriptText;
 
-  const { result, usage, truncated, truncationNote } = await callProviderStreaming(prompt, opts);
+  // Only widen the allowance when the input is past the classic threshold;
+  // below it `opts` goes through untouched, so ordinary videos behave exactly
+  // as before. (Only the CLI provider reads timeoutMs; the API providers ignore it.)
+  const { result, usage, truncated, truncationNote } =
+    await callProviderStreaming(prompt, optsForInput(transcriptText.length, opts));
   const out = { digest: result, usage, strategy: 'single' };
   if (truncated) {
     out.truncated = true;

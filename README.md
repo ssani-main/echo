@@ -293,7 +293,7 @@ one consistent set of notes.
 | `ECHO_DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | Point at a proxy, or a compatible endpoint |
 | `ECHO_DEEPSEEK_CONTEXT_TOKENS` | `1000000` | DeepSeek's context window; decides where map-reduce starts |
 | `ECHO_DEEPSEEK_MAX_OUTPUT_TOKENS` | `384000` | `max_tokens` for DeepSeek. Sent, not omitted — the API's default truncates long articles |
-| `ECHO_DIGEST_TIMEOUT_MS` | `180000` | Per-call ceiling; raise it for `article` mode on very long transcripts |
+| `ECHO_DIGEST_TIMEOUT_MS` | `180000` | Per-call ceiling for the CLI; raise it for `article` mode on very long transcripts. A single-call digest, or a map chunk, over 480 000 chars gets this x `ceil(chars / 480 000)` of its own length |
 | `ECHO_DEEPSEEK_THINKING_FIELD` | _(unset)_ | `omit` stops Echo sending `thinking: {type:'disabled'}` |
 | `ECHO_THINKING` | `off` | `off`/`low`/`medium`/`high` — reasoning level, per provider |
 | `ECHO_THINKING_BUDGET_TOKENS` | _(per level)_ | Overrides Anthropic's thinking budget; clamped to the API's range |
