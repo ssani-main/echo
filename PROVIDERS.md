@@ -355,8 +355,9 @@ Two consequences of that window, and what was done about each:
   not a benchmark. The reduce call is not scaled (its input is the chunk summaries,
   not the transcript). The `anthropic` provider's 360 000-char chunks never exceed
   480 000, so its calls are unchanged.
-- The browser's "processing in multiple parts" hint now reads the active provider's
-  served `longPathThresholdChars` (falling back to 480 000 until the list arrives).
+- The browser's long-transcript hint no longer claims "multiple parts". Past
+  480 000 chars it says the digest can take a few minutes, which is true for one
+  big call and for map-reduce alike; the server's `phase` events report the parts.
 
 ## Adding a provider
 

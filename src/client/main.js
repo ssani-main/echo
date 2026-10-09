@@ -2931,34 +2931,16 @@ function getTranscriptText() {
 
 /* ==============================================
    DIGEST PROGRESS TIMER — live elapsed mm:ss while a digest request is
-   in flight, with an honest "large transcript / multiple parts" message
-   once estimated transcript size crosses the backend's map-reduce
-   threshold. The real number is per provider and is served as
-   longPathThresholdChars by GET /api/providers (see digestLongPathThresholdChars()).
+   in flight, with a "long transcript, a few minutes" message once the
+   transcript is long enough that the wait is minutes whichever way the
+   provider handles it (one big call or map-reduce; the server's `phase`
+   events report the parts when there are any).
    Bypasses setDigestStatus() (which only does textContent) so it can
    render the elapsed-time span alongside the message.
 =============================================== */
-// FALLBACK ONLY: used when the provider list has not arrived yet (an
-// extension-supplied transcript is applied synchronously during init, before
-// the fetch lands) or the active provider has no entry. It is the classic
-// Claude-200k answer; the served per-provider value replaces it.
+// About how LONG the wait is, not how the provider splits the work: the server
+// scales its per-call timeout from this same length (scaledTimeoutMs, digest.js).
 const DIGEST_LONG_PATH_THRESHOLD_CHARS = 480_000;
-
-/**
- * Length past which the ACTIVE provider's digest runs in multiple parts.
- * Status hint only: never throws, and never feeds a request.
- *
- * @returns {number}
- */
-function digestLongPathThresholdChars() {
-  try {
-    const p = activeProvider();
-    const n = p && Number(p.longPathThresholdChars);
-    return Number.isFinite(n) && n > 0 ? n : DIGEST_LONG_PATH_THRESHOLD_CHARS;
-  } catch {
-    return DIGEST_LONG_PATH_THRESHOLD_CHARS;
-  }
-}
 let digestTimerHandle = null;
 // The AbortController for the digest currently in flight, if any — set at the
 // top of runDigest() and cleared in its `finally`. Module-level (not local to
@@ -2978,7 +2960,7 @@ function startDigestTimer(isLargeTranscript) {
   stopDigestTimer();
   digestTimerStartMs = Date.now();
   const baseMsg = isLargeTranscript
-    ? 'This is a long transcript — Echo is processing it in multiple parts, which can take a few minutes.'
+    ? 'This is a long transcript — this can take a few minutes.'
     : 'Reading the video and writing your digest — usually 10–30s.';
   const tick = () => {
     const elapsed = formatElapsedMs(Date.now() - digestTimerStartMs);
@@ -3205,7 +3187,7 @@ async function runDigest() {
   usageStatsEl.innerHTML   = '';
 
   const plainText = getTranscriptText();
-  const isLargeTranscript = plainText.length > digestLongPathThresholdChars();
+  const isLargeTranscript = plainText.length > DIGEST_LONG_PATH_THRESHOLD_CHARS;
 
   // Switch to Digest tab and show loading state
   switchTab('digest');

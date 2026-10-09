@@ -46,7 +46,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 
-import { generateDigest } from '../digest.js';
+import { generateDigest, scaledTimeoutMs } from '../digest.js';
 import { PROVIDERS, getProviderId, getReasoningLevel } from '../providers.js';
 import { compareFidelity } from './fidelity/specifics.mjs';
 
@@ -77,12 +77,6 @@ export function buildDigestOpts({ provider, format, language, title, reasoning, 
   if (timeoutMs > 0) opts.timeoutMs = timeoutMs;
   return opts;
 }
-
-/** Production's per-call ceiling, so the report can flag runs that only finished
- * because the eval raised it. Kept in sync with DEFAULT_TIMEOUT_MS in digest.js;
- * it is repeated rather than imported because this is a reporting threshold, not
- * a behaviour. */
-const PRODUCTION_TIMEOUT_MS = 180_000;
 
 /**
  * Turns library rows into a corpus, cheapest-first.
@@ -261,7 +255,7 @@ async function main() {
   console.log(`  language     ${knobs.language}`);
   console.log(`  thinking     ${knobs.thinking}   <- fixed for every arm, or the models are not the only variable`);
   if (timeoutMs > 0) {
-    console.log(`  per-call cap ${Math.round(timeoutMs / 1000)}s   <- RAISED from production's ${PRODUCTION_TIMEOUT_MS / 1000}s;`);
+    console.log(`  per-call cap ${Math.round(timeoutMs / 1000)}s   <- RAISED from production's ${scaledTimeoutMs(0) / 1000}s base;`);
     console.log('               runs above production are flagged in PER RUN, so this buys data points rather than hiding a limit');
   }
   console.log(`  providers    ${knobs.providers.join('  ·  ')}\n`);
@@ -281,7 +275,7 @@ async function main() {
           provider, format, language, title: entry.title, reasoning: thinking, timeoutMs,
         }));
         runs.push({
-          provider, videoId: entry.videoId, title: entry.title, ok: true,
+          provider, videoId: entry.videoId, title: entry.title, ok: true, chars: entry.chars,
           digest: res.digest, usage: res.usage, strategy: res.strategy,
           truncated: res.truncated, ms: Date.now() - t0,
           ...scoreOne(entry.transcript, res.digest),
@@ -322,7 +316,7 @@ async function main() {
         // Say it out loud when a run only completed because the cap was raised:
         // in production this digest would have failed, and that is a fact about
         // the app worth knowing, not a detail to average away.
-        r.ms > PRODUCTION_TIMEOUT_MS ? `>${PRODUCTION_TIMEOUT_MS / 1000}s (would time out in production)` : '',
+        r.ms > scaledTimeoutMs(r.chars) ? `>${scaledTimeoutMs(r.chars) / 1000}s (would time out in production)` : '',
       ].filter(Boolean).join(' ');
       console.log(
         `  ${title}  ${String(r.aitell.wordCount).padStart(5)}w` +
