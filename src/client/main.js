@@ -3233,6 +3233,7 @@ async function runDigest() {
   const body = {
     text: plainText, length: lengthOpt, format: formatOpt, language: langOpt,
     title: (currentMeta && currentMeta.title) || '',
+    channel: (currentMeta && currentMeta.channel) || '',
     videoId: (currentMeta && currentMeta.videoId) || undefined,
     via: currentVia,
   };

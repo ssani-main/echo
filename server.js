@@ -1498,7 +1498,7 @@ app.post('/api/event', requireApproved, (req, res) => {
 });
 
 app.post('/api/digest', requireApproved, userDigestLimit, webLimit(20, 60_000), async (req, res) => {
-  const { text, length, format, language, title, videoId } = req.body;
+  const { text, length, format, language, title, channel, videoId } = req.body;
   // How the transcript reached the page. The extension hands it over in the URL
   // fragment, so this is the only place the server can learn it.
   const via = DIGEST_VIA.has(req.body.via) ? req.body.via : undefined;
@@ -1547,7 +1547,7 @@ app.post('/api/digest', requireApproved, userDigestLimit, webLimit(20, 60_000), 
   const wantsStream = req.query.stream === '1' || req.query.stream === 'true';
   if (wantsStream) {
     return digestStreaming(req, res, {
-      text, length, format, language, title, videoId, via, signal: ac.signal,
+      text, length, format, language, title, channel, videoId, via, signal: ac.signal,
       provider: prov.provider, apiKey: prov.apiKey, reasoning: prov.reasoning,
     });
   }
@@ -1555,7 +1555,7 @@ app.post('/api/digest', requireApproved, userDigestLimit, webLimit(20, 60_000), 
   const t0 = Date.now();
   const { apiKey } = prov;
   try {
-    const digestDone = generateDigest(text, { length, format, language, title, apiKey, provider: prov.provider, reasoning: prov.reasoning, signal: ac.signal });
+    const digestDone = generateDigest(text, { length, format, language, title, channel, apiKey, provider: prov.provider, reasoning: prov.reasoning, signal: ac.signal });
     const [result, suggestedTags] = await Promise.all([
       digestDone,
       suggestTagsBestEffort(text, { apiKey, provider: prov.provider, language, videoId, signal: ac.signal, digestDone }),
@@ -1607,7 +1607,7 @@ app.post('/api/digest', requireApproved, userDigestLimit, webLimit(20, 60_000), 
  * listener for that, and stream.send()/stream.end() are no-ops once closed —
  * so an abort mid-stream can never attempt to write to the dead socket.
  */
-async function digestStreaming(req, res, { text, length, format, language, title, videoId, via, signal, provider, apiKey, reasoning }) {
+async function digestStreaming(req, res, { text, length, format, language, title, channel, videoId, via, signal, provider, apiKey, reasoning }) {
   const t0 = Date.now();
   // Both come from the route, which already resolved and validated them — so
   // the streamed and buffered paths cannot disagree about which provider is
@@ -1617,7 +1617,7 @@ async function digestStreaming(req, res, { text, length, format, language, title
 
   try {
     const digestDone = generateDigest(text, {
-      length, format, language, title, apiKey, provider, reasoning, signal,
+      length, format, language, title, channel, apiKey, provider, reasoning, signal,
       onToken: (chunk) => stream.send('token', { text: chunk }),
       onPhase: (info) => stream.send('phase', info),
     });

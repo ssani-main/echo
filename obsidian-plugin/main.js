@@ -151,6 +151,7 @@ module.exports = class EchoPlugin extends Plugin {
         length,
         language: this.settings.language || 'English',
         title: transcript.title || '',
+        channel: transcript.channel || '',
         videoId: transcript.videoId,
       });
 

@@ -799,6 +799,15 @@ function sanitizeTitle(s) {
   return String(s).replace(/[\r\n]+/g, ' ').trim().slice(0, 300).replace(/"/g, "'");
 }
 
+// Optional grounding: the channel. Captions rarely name the host of a
+// podcast, and the channel usually does.
+function channelContextFor(opts) {
+  const channel = sanitizeTitle(opts.channel ?? '');
+  return channel
+    ? `It was published on the channel "${channel}". In an interview or podcast the channel is often the host's own name; use it to name the host only where the transcript is consistent with that.\n\n`
+    : '';
+}
+
 /**
  * Runs `worker` over `items` with at most `limit` concurrent in-flight calls,
  * writing each result to its original index so callers get results back in
@@ -925,6 +934,7 @@ async function digestMapReduce(chunks, structureInstructions, language, opts = {
     'You are given structured summaries of sequential sections of a long YouTube video transcript. ' +
     'Each section was independently summarised; now synthesise them into one coherent final digest.\n\n' +
     reduceTitleContext +
+    channelContextFor(opts) +
     `Write your entire response in ${language}. ` +
     structureInstructions +
     '\n\nCHUNK SUMMARIES (in chronological order):\n\n' +
@@ -994,6 +1004,8 @@ export async function generateDigest(transcriptText, opts = {}) {
     ? `The video is titled: "${title.trim()}". Treat the title only as a hint about the video's topic; the transcript below is the sole source of truth for its content.\n\n`
     : '';
 
+  const channelContext = channelContextFor(opts);
+
   let structureInstructions;
 
   if (format === 'article') {
@@ -1029,7 +1041,8 @@ export async function generateDigest(transcriptText, opts = {}) {
       'Before you write, silently identify what KIND of video this is — a how-to/tutorial, an interview or conversation, ' +
       'a talk or lecture, a product review, news or analysis, a personal story/vlog, and so on — and shape the digest to ' +
       'fit it. A tutorial must preserve the actual steps and the how-to detail; an interview must capture the key claims, ' +
-      'points of disagreement, and memorable exchanges, and make clear who said what; a talk must carry the central ' +
+      'points of disagreement, and memorable exchanges, make clear who said what, and follow the conversation as it ' +
+      'unfolded (see the rule for two or more speakers below); a talk must carry the central ' +
       'argument and the evidence behind it; a review must land the verdict and the reasons for it.\n\n' +
       'This is NOT a generic summary and NOT a flat list of bullet points. Write it like a sharp, knowledgeable person ' +
       'explaining the video\'s ideas to an intelligent friend who asked "so what was actually good about it?"\n\n' +
@@ -1039,7 +1052,8 @@ export async function generateDigest(transcriptText, opts = {}) {
       'or "The creator talks about...". State the point itself, and make it land.\n' +
       '- Then present the substance as clear, flowing prose, organized by IDEA and by IMPORTANCE — not in the order ' +
       'the speaker happened to say things. Group related points together. Lead with what matters most. Use short, ' +
-      'descriptive "##" headings only where they genuinely help the reader navigate distinct themes.\n\n' +
+      'descriptive "##" headings only where they genuinely help the reader navigate distinct themes. A conversation ' +
+      'is the one exception to this ordering — see the rule for two or more speakers below.\n\n' +
       'Rules for quality:\n' +
       '- Synthesize, do not transcribe. Untangle rambling into a clear line of reasoning. If the speaker made a good ' +
       'point badly, make it well.\n' +
@@ -1059,9 +1073,17 @@ export async function generateDigest(transcriptText, opts = {}) {
       'or number in the transcript looks garbled, misspelled, or even factually wrong, keep it as stated or describe ' +
       'it generally — do not replace it with an outside fact (for example, do not swap a stated birth year for the ' +
       'one you believe is correct).\n' +
-      '- If two or more people speak — an interview, a panel, a conversation — keep them distinct. Attribute claims ' +
-      'and memorable lines to the right person, make clear who said what, and capture where they agree, disagree, or ' +
-      'build on each other. Never collapse a multi-voice conversation into a single voice.\n' +
+      '- If two or more people speak — an interview, a podcast, a panel, a conversation — the exchange itself is the ' +
+      'content, so do NOT reorganize it by importance. After the opening paragraph, walk through the conversation in ' +
+      'the order it happened, with one "##" section per topic they discussed. In each section say what was asked or ' +
+      'raised and by whom, then give each person\'s answer or position point by point, then any pushback, agreement, ' +
+      'or follow-up and how it was answered. A host is a participant, not a prompt: keep the host\'s own claims, ' +
+      'stories, objections, and what they said they took from an answer — never reduce them to "asked whether...". ' +
+      'Attribute every claim and memorable line to the right person by name. In the transcript, ">>" marks a change ' +
+      'of speaker; use it to track whose turn it is. Never collapse a multi-voice conversation into a single voice ' +
+      'or into a profile of the guest. A long conversation covers many topics, so its digest is proportionally ' +
+      'longer: every substantive topic gets its section. The cutting rule below still applies to it — no sponsor ' +
+      'reads, plugs, housekeeping, or pleasantries.\n' +
       '- Be strictly faithful. Never invent facts, opinions, examples, or conclusions that are not in the transcript. ' +
       'Improving the delivery must NEVER mean changing or adding to the substance.\n' +
       '- Preserve the speaker\'s actual stance and nuance. If their real answer was "it depends" or they were ' +
@@ -1136,7 +1158,7 @@ export async function generateDigest(transcriptText, opts = {}) {
   // summary-oriented prefix below.
   const prompt =
     format === 'article' || format === 'digest'
-      ? `Write your entire response in ${language}, regardless of what language the transcript is in.\n\n${titleContext}${structureInstructions}\n\nHere is the transcript:\n\n${transcriptText}`
+      ? `Write your entire response in ${language}, regardless of what language the transcript is in.\n\n${titleContext}${channelContext}${structureInstructions}\n\nHere is the transcript:\n\n${transcriptText}`
       : 'You are given the raw auto-generated transcript of a YouTube video. ' +
         'It may be in any language. ' +
         `Write your entire response in ${language}. ` +
