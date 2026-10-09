@@ -1399,17 +1399,16 @@ app.get('/api/video-meta', requireApproved, userFetchLimit, webLimit(20, 60_000)
 // resolves to an empty array. See CLAUDE.md "never break the digest path".
 const AUTO_TAG_TIMEOUT_MS = 15_000;
 
-function withTimeout(promise, ms) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('timed out')), ms);
-    promise.then(
-      (v) => { clearTimeout(timer); resolve(v); },
-      (e) => { clearTimeout(timer); reject(e); }
-    );
-  });
+// The response waits for the digest anyway, so tagging may run for as long as
+// the digest does and never less than AUTO_TAG_TIMEOUT_MS. A flat 15 s cut off
+// 17% of tag calls (the CLI needs ~10 s) while the digest ran on for 40 s.
+function tagDeadline(digestDone, floorMs = AUTO_TAG_TIMEOUT_MS) {
+  const floor = new Promise((resolve) => { setTimeout(resolve, floorMs).unref(); });
+  return Promise.all([floor, Promise.resolve(digestDone).catch(() => {})])
+    .then(() => { throw new Error('timed out'); });
 }
 
-async function suggestTagsBestEffort(text, { apiKey, provider, language, videoId, signal } = {}) {
+async function suggestTagsBestEffort(text, { apiKey, provider, language, videoId, signal, digestDone } = {}) {
   const t0 = Date.now();
   try {
     // reasoning: 'off' is set HERE rather than plumbed from the request, on
@@ -1419,10 +1418,10 @@ async function suggestTagsBestEffort(text, { apiKey, provider, language, videoId
     // also letting an API's DEFAULT decide the shape of a call we want to be
     // deterministic. Setting it in the one place that makes the call means it
     // cannot be forgotten at a call site.
-    const result = await withTimeout(
+    const result = await Promise.race([
       suggestTags(text, { apiKey, provider, language, signal, reasoning: 'off' }),
-      AUTO_TAG_TIMEOUT_MS
-    );
+      tagDeadline(digestDone),
+    ]);
     logEvent('tags-suggest', {
       videoId: videoId || null,
       chars: (text || '').length,
@@ -1484,8 +1483,25 @@ function openDigestStream(res) {
   };
 }
 
+const DIGEST_VIA = new Set(['paste', 'extension', 'file', 'library']);
+
+// What happens to a digest after it is read happens in the browser, so the
+// meter only learns it if the page says so. Names are an allow-list: this
+// writes to a local file and must not become a way to write arbitrary lines.
+const CLIENT_EVENTS = new Set(['digest-copy', 'digest-download', 'digest-print', 'entry-export']);
+
+app.post('/api/event', requireApproved, (req, res) => {
+  const { event, videoId } = req.body || {};
+  if (!CLIENT_EVENTS.has(event)) return sendError(res, 'INTERNAL', 'Unknown event.', '', 400);
+  logEvent(event, { videoId: typeof videoId === 'string' ? videoId.slice(0, 32) : null, ok: true });
+  res.status(204).end();
+});
+
 app.post('/api/digest', requireApproved, userDigestLimit, webLimit(20, 60_000), async (req, res) => {
   const { text, length, format, language, title, videoId } = req.body;
+  // How the transcript reached the page. The extension hands it over in the URL
+  // fragment, so this is the only place the server can learn it.
+  const via = DIGEST_VIA.has(req.body.via) ? req.body.via : undefined;
 
   if (!requireText(res, text, 'No transcript text provided.', 'Load a transcript before generating a digest.')) return;
 
@@ -1531,7 +1547,7 @@ app.post('/api/digest', requireApproved, userDigestLimit, webLimit(20, 60_000), 
   const wantsStream = req.query.stream === '1' || req.query.stream === 'true';
   if (wantsStream) {
     return digestStreaming(req, res, {
-      text, length, format, language, title, videoId, signal: ac.signal,
+      text, length, format, language, title, videoId, via, signal: ac.signal,
       provider: prov.provider, apiKey: prov.apiKey, reasoning: prov.reasoning,
     });
   }
@@ -1539,14 +1555,15 @@ app.post('/api/digest', requireApproved, userDigestLimit, webLimit(20, 60_000), 
   const t0 = Date.now();
   const { apiKey } = prov;
   try {
+    const digestDone = generateDigest(text, { length, format, language, title, apiKey, provider: prov.provider, reasoning: prov.reasoning, signal: ac.signal });
     const [result, suggestedTags] = await Promise.all([
-      generateDigest(text, { length, format, language, title, apiKey, provider: prov.provider, reasoning: prov.reasoning, signal: ac.signal }),
-      suggestTagsBestEffort(text, { apiKey, provider: prov.provider, language, videoId, signal: ac.signal }),
+      digestDone,
+      suggestTagsBestEffort(text, { apiKey, provider: prov.provider, language, videoId, signal: ac.signal, digestDone }),
     ]);
     logEvent('digest', {
       videoId: videoId || null,
       chars: (text || '').length,
-      length, format, language,
+      length, format, language, via,
       strategy: result.strategy,
       // Which provider actually ran, not a hardcoded 'sonnet'. The usage meter
       // is the only place a provider comparison can be read off after the fact,
@@ -1590,7 +1607,7 @@ app.post('/api/digest', requireApproved, userDigestLimit, webLimit(20, 60_000), 
  * listener for that, and stream.send()/stream.end() are no-ops once closed —
  * so an abort mid-stream can never attempt to write to the dead socket.
  */
-async function digestStreaming(req, res, { text, length, format, language, title, videoId, signal, provider, apiKey, reasoning }) {
+async function digestStreaming(req, res, { text, length, format, language, title, videoId, via, signal, provider, apiKey, reasoning }) {
   const t0 = Date.now();
   // Both come from the route, which already resolved and validated them — so
   // the streamed and buffered paths cannot disagree about which provider is
@@ -1599,19 +1616,20 @@ async function digestStreaming(req, res, { text, length, format, language, title
   const stream = openDigestStream(res);
 
   try {
+    const digestDone = generateDigest(text, {
+      length, format, language, title, apiKey, provider, reasoning, signal,
+      onToken: (chunk) => stream.send('token', { text: chunk }),
+      onPhase: (info) => stream.send('phase', info),
+    });
     const [result, suggestedTags] = await Promise.all([
-      generateDigest(text, {
-        length, format, language, title, apiKey, provider, reasoning, signal,
-        onToken: (chunk) => stream.send('token', { text: chunk }),
-        onPhase: (info) => stream.send('phase', info),
-      }),
-      suggestTagsBestEffort(text, { apiKey, provider, language, videoId, signal }),
+      digestDone,
+      suggestTagsBestEffort(text, { apiKey, provider, language, videoId, signal, digestDone }),
     ]);
 
     logEvent('digest', {
       videoId: videoId || null,
       chars: (text || '').length,
-      length, format, language,
+      length, format, language, via,
       strategy: result.strategy,
       provider: providerId,
       model: getProviderLimits({ provider, apiKey }).defaultModel,
@@ -2551,13 +2569,17 @@ app.post('/api/saved', blockInWeb, requireApproved, async (req, res) => {
   const t0 = Date.now();
   try {
     const { url, videoId, title, segments, digest, channel, channelUrl, transcriptSource, whisperModel } = req.body;
+    const auto = req.body.auto === true;
     if (!videoId || !Array.isArray(segments) || segments.length === 0) {
       return sendError(res, 'INTERNAL', 'videoId and segments are required.', '', 400);
     }
     const lib = libraryFor(req);
     const meta = await lib.saveEntry({ url, videoId, title, segments, digest, channel, channelUrl, transcriptSource, whisperModel });
-    mirrorToPds(req.echoUserId, 'push', { lib, videoId });
-    logEvent('save', { videoId, hadDigest: Boolean(digest), ok: true, ms: Date.now() - t0 });
+    // An entry kept automatically after a digest stays on this machine. Opting
+    // in to the mirror was consent to publish what you chose to save, not
+    // everything you read — only an explicit Save publishes.
+    if (!auto) mirrorToPds(req.echoUserId, 'push', { lib, videoId });
+    logEvent('save', { videoId, hadDigest: Boolean(digest), auto, ok: true, ms: Date.now() - t0 });
     res.json(meta);
   } catch (err) {
     sendCaughtError(res, err);
@@ -2692,4 +2714,4 @@ if (isDirectRun) {
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
-export { app, rateLimitHit, buildConfigScript, localMediaId, ECHO_MODE, isWeb, isDesktop, ECHO_ERROR_STATUS, brotliReady };
+export { app, tagDeadline, rateLimitHit, buildConfigScript, localMediaId, ECHO_MODE, isWeb, isDesktop, ECHO_ERROR_STATUS, brotliReady };

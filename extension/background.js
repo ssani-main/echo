@@ -80,11 +80,19 @@ async function openEcho(videoId, transcript) {
 
 // --- Toolbar button --------------------------------------------------------
 // Clicking the icon reads the current tab's URL (activeTab is granted by the
-// click itself, so no broad host permission is needed) and opens that video.
-// Off a video page it just opens Echo, which is the useful fallback.
+// click itself, so no broad host permission is needed) and opens that video,
+// with the transcript the content script scrapes from that tab. Off a video
+// page it just opens Echo, which is the useful fallback.
 
 chrome.action.onClicked.addListener(async (tab) => {
-  await openEcho(echoExtractVideoId(tab && tab.url));
+  const videoId = echoExtractVideoId(tab && tab.url);
+  let transcript = null;
+  if (videoId) {
+    // Rejects when no content script is listening (not a YouTube tab, or a
+    // tab opened before the extension was installed) — open without one.
+    try { transcript = await chrome.tabs.sendMessage(tab.id, { type: 'echo:scrape' }); } catch { /* no content script */ }
+  }
+  await openEcho(videoId, transcript);
 });
 
 // --- Right-click a YouTube link --------------------------------------------

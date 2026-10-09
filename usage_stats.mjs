@@ -95,6 +95,17 @@ console.log('\nCore loop:');
 console.log(`  transcript -> digest   ${pct(digests.length, transcripts.length)} (${digests.length}/${transcripts.length})`);
 console.log(`  digest -> save         ${pct(saves.length, digests.length)} (${saves.length}/${digests.length})`);
 console.log(`  saves with digest      ${saves.filter((s) => s.hadDigest).length}/${saves.length}`);
+console.log(`  kept automatically     ${saves.filter((s) => s.auto).length}/${saves.length}`);
+// `via` and the after-reading events only exist from 2026-10-09 on.
+const viaDigests = digests.filter((d) => d.via);
+if (viaDigests.length) {
+  const via = {};
+  for (const d of viaDigests) via[d.via] = (via[d.via] || 0) + 1;
+  console.log(`  transcript arrived via ${JSON.stringify(via)}`);
+}
+const after = ['digest-copy', 'digest-download', 'digest-print', 'entry-export']
+  .map((n) => `${n.replace('digest-', '')} ${by(n).length}`).join(', ');
+console.log(`  after reading          ${after}`);
 
 // --- Digest quality signals (per videoId) ---
 // (ask-after-digest used to live here too, but the Ask feature — /api/chat —

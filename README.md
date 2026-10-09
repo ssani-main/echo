@@ -258,10 +258,10 @@ Both talk to a running Echo over HTTP. **Neither holds an API key or does any AI
 own** — that stays in Echo, so there is one implementation of the part that matters.
 
 **Browser extension** ([`extension/`](extension/)) — a **Read in Echo** button on
-YouTube watch pages, a toolbar button, and a right-click item for links. It also tries
-to fetch the transcript on *your* tab, with your IP and session, and hand it to Echo in
-the URL fragment — which sidesteps the datacenter bot-block; if that fails, the server
-fetches as before. Chromium only: Firefox needs `background.scripts` rather than an MV3
+YouTube watch pages, a toolbar button, and a right-click item for links. The button and
+the toolbar icon read the transcript on *your* tab, with your IP and session, and hand it
+to Echo in the URL fragment — which sidesteps the datacenter bot-block, and is what makes
+a hosted Echo usable at all; if that fails, the server fetches as before. Chromium only: Firefox needs `background.scripts` rather than an MV3
 service worker. Load unpacked from `chrome://extensions` → Developer mode.
 
 **Obsidian plugin** ([`obsidian-plugin/`](obsidian-plugin/)) — two commands, and a note
@@ -269,10 +269,10 @@ lands in your vault with the transcript, the digest and frontmatter. Filename an
 match `/api/vault/sync` exactly, so a vault fed by both the plugin and folder-sync gets
 one consistent set of notes.
 
-> Two caveats worth stating plainly: the extension's own scrape path has **not** been
-> confirmed against a real signed-in browser (headless Chrome can't verify it — see
-> [`CLAUDE.md`](CLAUDE.md)), and the Obsidian plugin has **not** yet been run inside
-> Obsidian by its author. The logic is tested; the app integration is not.
+> Two caveats worth stating plainly: the extension's scrape is verified against live
+> YouTube in a real Chrome (`extension/test/live.mjs`, 2026-10-09) but only **signed
+> out**, and it has not yet been used against an Echo on a datacenter host; and the
+> Obsidian plugin has **not** yet been run inside Obsidian by its author.
 
 ---
 
@@ -331,14 +331,15 @@ one consistent set of notes.
 | `POST` | `/api/whisper/model` | `{ model }` | download state for that model (local/desktop) |
 | `GET` | `/api/languages` | `?videoId=` | `{ tracks: [{ code, name, auto }] }` |
 | `GET` | `/api/video-meta` | `?videoId=` | `{ videoId, title, channel, channelUrl }` |
-| `POST` | `/api/digest` | `{ text, format?, language?, title?, videoId? }` | `{ digest, usage, strategy, suggestedTags }` |
+| `POST` | `/api/digest` | `{ text, format?, language?, title?, videoId?, via? }` | `{ digest, usage, strategy, suggestedTags }` |
 | `POST` | `/api/digest?stream=1` | _(same)_ | `text/event-stream` — `phase` / `token` / `done` / `error`; `done` carries the payload above |
 | `GET` | `/api/saved` | — | every saved entry's metadata |
 | `GET` | `/api/saved?limit=&offset=` | — | `{ entries, total, hasMore }` |
 | `GET` | `/api/saved/export` | — | `{ entries: [ ...full entries... ] }` |
 | `GET` | `/api/saved/:videoId` | — | one full entry |
 | `GET` | `/api/saved/:videoId/export.md` | — | Markdown export |
-| `POST` | `/api/saved` | `{ url, videoId, title, segments, digest, tags? }` | saved metadata (upsert by `videoId`) |
+| `POST` | `/api/saved` | `{ url, videoId, title, segments, digest, tags?, auto? }` | saved metadata (upsert by `videoId`); `auto: true` marks an entry kept automatically after a digest, which is never mirrored to a PDS |
+| `POST` | `/api/event` | `{ event, videoId? }` | `204` — local usage meter only; `event` is one of `digest-copy` / `digest-download` / `digest-print` / `entry-export` |
 | `DELETE` | `/api/saved/:videoId` | — | `{ ok }` |
 | `PATCH` | `/api/saved/:videoId/tags` | `{ tags }` | updated entry |
 | `GET` | `/api/search` | `?q=` | FTS5 keyword search (local/desktop) |
@@ -424,6 +425,12 @@ Two harnesses need Playwright, which is deliberately **not** a dependency:
 npm i --no-save playwright && npx playwright install chromium
 node tests/e2e/oauth-flow.mjs    # the whole Google sign-in flow, against a mock provider
 node extension/test/e2e.mjs      # the extension in a real browser, incl. SPA navigation
+```
+
+One needs only a real Chrome and a residential connection:
+
+```bash
+ECHO_CHROME=/path/to/chrome node extension/test/live.mjs   # the extension against live YouTube, transcript included
 ```
 
 CI builds the frontend, then runs the suite plus a boot job checking that every module

@@ -332,7 +332,8 @@ Caveats, stated plainly:
   `73%`, `8000`, `1998`, `27`). That points at the scorer missing a figure worded
   differently in the transcript, not at invention. Excluding them it is 8 vs 2.
   **None were checked by hand against the transcripts.**
-- **`article` mode and transcripts over ~72k chars were not measured.**
+- **`article` mode and transcripts over ~72k chars were not measured** in this
+  comparison. The long single call was run once afterwards — see below.
 - The cost is the CLI's *notional* list-price figure, not money spent on a subscription.
 
 What it supports: Opus 5.5 is at least as faithful on numbers, a little slower and
@@ -355,6 +356,20 @@ Two consequences of that window, and what was done about each:
   not a benchmark. The reduce call is not scaled (its input is the chunk summaries,
   not the transcript). The `anthropic` provider's 360 000-char chunks never exceed
   480 000, so its calls are unchanged.
+- **The long single call was run once for real** (2026-10-09, `POST
+  /api/digest?stream=1` against a server started without the Claude Code env vars).
+  The test video's 31 100-char Indonesian transcript, repeated to 1 000 000 chars,
+  went through as ONE call: about 518 000 input tokens, 43 s, `strategy: 'single'`,
+  not truncated, streamed text identical to the `done` payload. So the CLI does give
+  `claude-opus-5-5` the 1M window. It proves the mechanics only — repeated text says
+  nothing about digest quality on a real 18-hour video, and at 43 s the scaled
+  timeout (540 s here) never came into play.
+- **That run measured about 2 chars per token, not the registry's 4.** At that rate
+  an Indonesian transcript between roughly 2.0M and 2.4M chars overflows the 1M
+  window before map-reduce starts, and a 1.8M-char map chunk is about 900k tokens.
+  The same ratio held under the 200k window (480 000 chars would have been ~230k
+  tokens), so it is not new. Left alone: it starts past about 35 hours of video. The
+  fix, if it is ever needed, is the CLI entry's `charsPerToken`.
 - The browser's long-transcript hint no longer claims "multiple parts". Past
   480 000 chars it says the digest can take a few minutes, which is true for one
   big call and for map-reduce alike; the server's `phase` events report the parts.

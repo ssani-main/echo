@@ -201,17 +201,26 @@ cloud IP ranges are increasingly met with **"Sign in to confirm you're not a
 bot"** instead of a transcript. This is not specific to VPS hosting; Fly is
 subject to the same thing.
 
-Echo ships no workaround for this, and this guide won't pretend otherwise. A
-VPS does leave you better positioned than a managed platform — one long-lived
-box is somewhere you *can* attach a proxy or supply `yt-dlp` cookies, whereas
-an ephemeral Fly machine largely isn't — but wiring either into Echo is work
-that doesn't exist yet.
+The server cannot get around this, and nothing here tries to make it. The
+workaround is on the visitor's side: the [browser extension](extension/) reads
+the transcript on the visitor's own YouTube tab — their IP, their session — and
+hands it to Echo in the URL fragment, so the server never has to reach YouTube
+at all. A visitor who pastes a link instead gets a "YouTube is blocking
+requests from this server" card that points them at the extension.
 
-So treat it as the acceptance test rather than an afterthought: **before
-calling the deployment done, open the site and digest a real video.** Use the
-repo's test video, `youtube.com/watch?v=GRzaq5AHiV8`. A green `/api/health`
-only proves the process is up; it says nothing about whether YouTube will talk
-to your server.
+So the acceptance test has two halves. Use the repo's test video,
+`youtube.com/watch?v=GRzaq5AHiV8`:
+
+1. **Paste the link into the site.** Expect the blocking card, not a
+   transcript. That is the server behaving as a datacenter host does.
+2. **Use the extension.** Load it unpacked (`chrome://extensions` → Developer
+   mode → Load unpacked → the `extension/` folder), right-click its icon →
+   **Options**, and set the server to this deployment's `https://` address.
+   Open the video on YouTube and click **Read in Echo**. Expect the transcript
+   on your site within a few seconds, then add a key in Settings and digest it.
+
+A green `/api/health` only proves the process is up; it says nothing about
+either half.
 
 ## What NOT to do
 

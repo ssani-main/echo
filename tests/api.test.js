@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { rmSync } from 'node:fs';
+import { rmSync, readFileSync } from 'node:fs';
 
 const DB = join(tmpdir(), `echo-test-api-${process.pid}-${Date.now()}.db`);
 process.env.ECHO_DB_PATH = DB;
@@ -207,4 +207,60 @@ test('GET /api/search with an empty q returns { results: [], mode: "keyword" }',
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.deepEqual(body, { results: [], mode: 'keyword' });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/event — the browser reporting what the server cannot see
+// ---------------------------------------------------------------------------
+
+const loggedEvents = async () => {
+  await new Promise((r) => setTimeout(r, 150)); // logEvent is fire-and-forget
+  return readFileSync(USAGE_LOG, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+};
+const postJson = (path, body) => fetch(`${base}${path}`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+});
+
+test('POST /api/event records an allow-listed event and refuses anything else', async () => {
+  assert.equal((await postJson('/api/event', { event: 'digest-copy', videoId: 'GRzaq5AHiV8' })).status, 204);
+  assert.equal((await postJson('/api/event', { event: 'made-up' })).status, 400);
+  assert.equal((await postJson('/api/event', {})).status, 400);
+
+  const events = await loggedEvents();
+  assert.equal(events.filter((e) => e.event === 'digest-copy').length, 1);
+  assert.ok(!events.some((e) => e.event === 'made-up'));
+});
+
+test('POST /api/saved records whether the entry was kept automatically', async () => {
+  const entry = { videoId: 'apivid002', segments: [{ text: 'x', offset: 0 }], digest: 'd' };
+  assert.equal((await postJson('/api/saved', { ...entry, auto: true })).status, 200);
+  assert.equal((await postJson('/api/saved', { ...entry, auto: 'yes' })).status, 200); // only a literal true counts
+
+  const saves = (await loggedEvents()).filter((e) => e.event === 'save' && e.videoId === 'apivid002');
+  assert.deepEqual(saves.map((e) => e.auto), [true, false]);
+});
+
+// ---------------------------------------------------------------------------
+// tagDeadline — tagging gets as long as the digest takes, never less than the floor
+// ---------------------------------------------------------------------------
+
+test('tagDeadline waits for BOTH the floor and the digest before timing out', async () => {
+  const { tagDeadline } = await import('../server.js');
+  const watch = (p) => { let s = 'pending'; p.then(() => { s = 'done'; }, () => { s = 'timed out'; }); return () => s; };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  let finishDigest;
+  const slowDigest = watch(tagDeadline(new Promise((r) => { finishDigest = r; }), 20));
+  const fastDigest = watch(tagDeadline(Promise.resolve(), 120));
+  const failedDigest = watch(tagDeadline(Promise.reject(new Error('x')), 20));
+  await wait(60);
+  assert.equal(slowDigest(), 'pending');   // floor passed, digest still running
+  assert.equal(fastDigest(), 'pending');   // digest done, floor not reached
+  assert.equal(failedDigest(), 'timed out');
+  finishDigest();
+  await wait(120);
+  assert.equal(slowDigest(), 'timed out');
+  assert.equal(fastDigest(), 'timed out');
 });

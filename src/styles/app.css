@@ -1092,6 +1092,10 @@ body.has-transcript .hero-landing {
   color: var(--muted);
 }
 
+.error-card-nudge a {
+  color: inherit;
+}
+
 .error-card-nudge button {
   background: none;
   border: none;

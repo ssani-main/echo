@@ -904,6 +904,7 @@ let sessionTokens  = 0;
 let indicatorTimer = null;
 let currentMeta    = null;  // { videoId, url, title }
 let currentDigest  = null;  // string | null
+let currentVia = 'paste'; // 'paste' | 'extension' | 'file' | 'library' — how this transcript arrived (usage meter only)
 let currentSuggestedTags = []; // string[] — computed server-side alongside the digest, applied at save time
 
 // Saved library state
@@ -1286,7 +1287,7 @@ function reportAccessDenied() {
   renderAccountState();
 }
 
-function renderTranscriptError(data) {
+function renderTranscriptError(data, videoUrl) {
   console.error('[echo] transcript error:', data);
 
   const env     = data?.error;
@@ -1321,6 +1322,24 @@ function renderTranscriptError(data) {
     }
   } catch {
     // Whisper helpers unavailable — skip the nudge gracefully.
+  }
+
+  // A bot-blocked server can never fetch this, but the visitor's own browser
+  // can: the extension reads the transcript on the YouTube tab and hands it over.
+  if (reason === 'bot_block') {
+    const nudge = document.createElement('div');
+    nudge.className = 'error-card-nudge';
+    nudge.textContent = 'With the Echo browser extension installed, open the video on YouTube and click "Read in Echo". ';
+    const href = safeHttpUrl(videoUrl);
+    if (href) {
+      const link = document.createElement('a');
+      link.href = href;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = 'Open the video on YouTube';
+      nudge.appendChild(link);
+    }
+    card.appendChild(nudge);
   }
 
   outputEl.innerHTML = '';
@@ -1950,14 +1969,27 @@ transcriptDownloadBtn.addEventListener('click', () => {
   downloadMd(slug, md);
 });
 
+/** Tell the local usage meter about something only the browser saw. Never throws, never waits. */
+function logClientEvent(event) {
+  if (ECHO.mode === 'web') return; // the meter does not run there
+  fetch('/api/event', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event, videoId: currentMeta?.videoId }),
+    keepalive: true,
+  }).catch(() => {});
+}
+
 entryExportBtn.addEventListener('click', () => {
   if (!currentMeta?.videoId) return;
+  logClientEvent('entry-export');
   exportEntryMd(currentMeta.videoId, currentMeta.title);
 });
 
 /* --- Digest copy / download --- */
 digestCopyBtn.addEventListener('click', () => {
   if (!currentDigest) return;
+  logClientEvent('digest-copy');
   copyToClipboard(digestCopyBtn, currentDigest, 'Copy');
 });
 
@@ -1967,6 +1999,7 @@ digestDownloadBtn.addEventListener('click', () => {
   const sourceUrl = currentMeta?.url   || '';
   const md        = `# ${title}\n\nSource: ${sourceUrl}\n\n${currentDigest}`;
   const slug      = (slugify(title) || 'echo') + '-digest';
+  logClientEvent('digest-download');
   downloadMd(slug, md);
 });
 
@@ -1987,6 +2020,7 @@ function printDigest() {
     (sourceUrl ? '<div class="digest-print-source">' + escapeHtml(sourceUrl) + '</div>' : '') +
     renderMarkdown(currentDigest);
   document.body.classList.add('printing-digest');
+  logClientEvent('digest-print');
   window.print();
 }
 
@@ -2319,7 +2353,8 @@ document.addEventListener('keydown', e => {
  *
  * @param {object} data - the transcript response envelope
  */
-function applyTranscriptResponse(data) {
+function applyTranscriptResponse(data, via = 'paste') {
+  currentVia      = via;
   lastSegments    = data.segments;
   currentSegments = data.segments;
   const transcriptSource = data.transcriptSource || 'captions';
@@ -2447,7 +2482,7 @@ async function fetchLocalFile(file) {
       return;
     }
 
-    applyTranscriptResponse(data);
+    applyTranscriptResponse(data, 'file');
   } catch (err) {
     console.error('[echo] local file transcription error:', err);
     setStatus('Could not transcribe that file.', true);
@@ -2568,7 +2603,7 @@ async function fetchTranscript() {
     const data = await res.json();
 
     if (!res.ok) {
-      renderTranscriptError(data);
+      renderTranscriptError(data, url);
       return;
     }
 
@@ -3199,6 +3234,7 @@ async function runDigest() {
     text: plainText, length: lengthOpt, format: formatOpt, language: langOpt,
     title: (currentMeta && currentMeta.title) || '',
     videoId: (currentMeta && currentMeta.videoId) || undefined,
+    via: currentVia,
   };
 
   // Own AbortController per run, reachable from the Stop button's click
@@ -3249,6 +3285,9 @@ async function runDigest() {
     // Stay on Digest tab / Summary sub-panel
     switchTab('digest');
     saveSession();
+    // A digest that is read once and thrown away cannot be searched, tagged or
+    // synced later. Not awaited: keeping it must never hold up reading it.
+    if (getAutoKeep()) saveCurrentEntry({ auto: true });
 
   } catch (err) {
     if (err && err.name === 'AbortError') {
@@ -3343,16 +3382,22 @@ function syncSaveButton() {
     saved ? 'Update this video in your library' : 'Save this video to your library');
 }
 
-saveBtn.addEventListener('click', async () => {
+/**
+ * Save the loaded video. `auto` is the keep-every-digest path: same write,
+ * but silent, and flagged so the server does not publish it to a mirror.
+ */
+async function saveCurrentEntry({ auto = false } = {}) {
   if (!currentMeta || !lastSegments) return;
+  const videoId = currentMeta.videoId;
 
   saveBtn.disabled = true;
   if (saveBtnLabel) saveBtnLabel.textContent = 'Saving…';
 
   try {
     const res = await Library.saveEntry({
+      auto,
       url:        currentMeta.url,
-      videoId:    currentMeta.videoId,
+      videoId,
       title:      currentMeta.title,
       channel:    currentMeta.channel || null,
       channelUrl: currentMeta.channelUrl || null,
@@ -3375,9 +3420,9 @@ saveBtn.addEventListener('click', async () => {
     saveBtn.classList.add('is-saved');
     if (saveBtnLabel) saveBtnLabel.textContent = 'Saved';
     saveBtn.disabled = false;
-    showToast('success', 'Saved to your library.');
+    if (!auto) showToast('success', 'Saved to your library.');
     await loadSaved(); // refresh list + count; also re-syncs the button state
-    maybeAutoSuggestTags(currentMeta.videoId); // best-effort, fire-and-forget
+    maybeAutoSuggestTags(videoId, { quiet: auto }); // best-effort, fire-and-forget
   } catch (err) {
     console.error('[echo] saveBtn network error:', err);
     if (saveBtnLabel) saveBtnLabel.textContent = 'Network error';
@@ -3385,7 +3430,9 @@ saveBtn.addEventListener('click', async () => {
     showToast('error', 'Network error: ' + err.message);
     setTimeout(syncSaveButton, 2500);
   }
-});
+}
+
+saveBtn.addEventListener('click', () => saveCurrentEntry());
 
 /* ==============================================
    LIBRARY — LOAD & RENDER
@@ -3899,7 +3946,7 @@ async function patchSavedTags(videoId, newTags) {
  * chips. Any failure is swallowed silently — this must never surface an
  * error or block saving.
  */
-async function maybeAutoSuggestTags(videoId) {
+async function maybeAutoSuggestTags(videoId, { quiet = false } = {}) {
   try {
     if (!getAutoTags()) return;
 
@@ -3910,7 +3957,7 @@ async function maybeAutoSuggestTags(videoId) {
     if (tags.length === 0) return;
 
     await patchSavedTags(videoId, tags);
-    showToast('success', `Added ${tags.length} suggested tag${tags.length === 1 ? '' : 's'}.`);
+    if (!quiet) showToast('success', `Added ${tags.length} suggested tag${tags.length === 1 ? '' : 's'}.`);
   } catch (err) {
     console.debug('[echo] auto-tag suggestion skipped:', err);
   }
@@ -4096,6 +4143,7 @@ async function openSavedEntry(videoId) {
     };
     currentDigest   = entry.digest || null;
     currentSuggestedTags = []; // opening an already-saved entry — nothing to auto-suggest
+    currentVia = 'library';
 
     // Sync UI — command bar and now-reading strip
     urlInput.value = entry.url;
@@ -4733,6 +4781,20 @@ function setAutoDigest(on) {
   catch { /* localStorage unavailable — non-fatal */ }
 }
 
+// Keep every digest in the library without a Save click. Default ON: measured
+// over three months, 5% of digests were saved by hand and the rest were lost.
+const AUTO_KEEP_STORAGE_KEY = 'echo-auto-keep';
+
+function getAutoKeep() {
+  try { return localStorage.getItem(AUTO_KEEP_STORAGE_KEY) !== 'false'; }
+  catch { return true; }
+}
+
+function setAutoKeep(on) {
+  try { localStorage.setItem(AUTO_KEEP_STORAGE_KEY, on ? 'true' : 'false'); }
+  catch { /* localStorage unavailable — non-fatal */ }
+}
+
 // Auto-tag preference (default ON for local/desktop, OFF for web — web
 // requires a BYOK key and we don't want to surprise-spend it silently).
 const AUTO_TAGS_STORAGE_KEY = 'echo-auto-tags';
@@ -4790,6 +4852,7 @@ const apiKeyStatusEl     = document.getElementById('apiKeyStatus');
 const settingsSaveKeyBtnEl = document.getElementById('settingsSaveKeyBtn');
 const autoDigestToggleEl = document.getElementById('autoDigestToggle');
 const autoTagToggleEl    = document.getElementById('autoTagToggle');
+const autoKeepToggleEl   = document.getElementById('autoKeepToggle');
 
 const whisperSettingsEl       = document.getElementById('whisperSettings');
 const whisperBinaryNoteEl     = document.getElementById('whisperBinaryNote');
@@ -5328,6 +5391,7 @@ function openSettingsModal() {
   setKeyStatus('', '');
   if (autoDigestToggleEl) autoDigestToggleEl.checked = getAutoDigest();
   if (autoTagToggleEl) autoTagToggleEl.checked = getAutoTags();
+  if (autoKeepToggleEl) autoKeepToggleEl.checked = getAutoKeep();
   if (vaultDirInputEl) vaultDirInputEl.value = getVaultDir();
   if (obsidianVaultNameInputEl) obsidianVaultNameInputEl.value = getObsidianVaultName();
   renderVaultSyncStatus();
@@ -5899,6 +5963,13 @@ autoDigestToggleEl?.addEventListener('change', () => {
   showToast('info', autoDigestToggleEl.checked
     ? 'Auto-digest on — digests run automatically after fetching a transcript.'
     : 'Auto-digest off.');
+});
+
+autoKeepToggleEl?.addEventListener('change', () => {
+  setAutoKeep(autoKeepToggleEl.checked);
+  showToast('info', autoKeepToggleEl.checked
+    ? 'Every digest is now kept in your library.'
+    : 'Digests are kept only when you press Save.');
 });
 
 autoTagToggleEl?.addEventListener('change', () => {
@@ -6488,7 +6559,7 @@ async function applyExtensionTranscript(encoded, expectedVideoId) {
 
     if (!isValidExtensionTranscript(payload, expectedVideoId)) return false;
 
-    applyTranscriptResponse(payload);
+    applyTranscriptResponse(payload, 'extension');
     return true;
   } catch (e) {
     return false; // any failure here just means "fetch it ourselves instead"
