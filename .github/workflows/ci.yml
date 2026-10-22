@@ -16,8 +16,9 @@ jobs:
           # Astro's build needs >=22.12, which is above the >=22.5 that
           # node:sqlite needs, so the higher floor is the one that binds. 22.x
           # tracks the same major the Dockerfile pins, so CI and production
-          # agree.
-          node-version: '22.12'
+          # agree. '22.x' (not an exact version) so CI always runs the latest
+          # patched 22 release.
+          node-version: '22.x'
           cache: npm
 
       # `npm ci` needs the lockfile to be in step with package.json — which is
@@ -43,7 +44,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.12'
+          node-version: '22.x'
           cache: npm
       - run: npm ci
 
