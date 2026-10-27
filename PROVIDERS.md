@@ -351,7 +351,9 @@ Two consequences of that window, and what was done about each:
   map chunk, by that call's own length: base x `ceil(chars / 480 000)`
   (`scaledTimeoutMs()` in `digest.js`), where the base is the
   caller's `timeoutMs` or `ECHO_DIGEST_TIMEOUT_MS` (180 s default). At or under
-  480 000 chars it is exactly the base. Only the CLI reads it; the API providers have
+  480 000 chars it is exactly the base. Since 2026-10-16 it counts from the
+  CLI's last output rather than from spawn, so a streaming digest that is still
+  writing is never cut off. Only the CLI reads it; the API providers have
   no such timeout. The scaling is **not measured** — it is a proportional allowance,
   not a benchmark. The reduce call is not scaled (its input is the chunk summaries,
   not the transcript). The `anthropic` provider's 360 000-char chunks never exceed

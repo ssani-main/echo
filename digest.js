@@ -16,6 +16,10 @@ import { getProvider, getProviderLimits, isTruncationReason, truncationFields } 
 // another — but an operator who wants long transcripts rewritten in full can
 // now say so instead of being stuck.
 //
+// Since 2026-10-16 it is measured from the LAST output, not from spawn (see
+// spawnClaudeProcess): Opus conversation digests of 10k+ tokens were crossing it
+// while still writing. On the streaming path it now only catches a silent CLI.
+//
 // Bare Number(...) || fallback matches MAP_CONCURRENCY's convention below: a
 // malformed value cannot be abused into anything, it just falls back.
 const DEFAULT_TIMEOUT_MS = Number(process.env.ECHO_DIGEST_TIMEOUT_MS) || 180_000;
@@ -389,12 +393,15 @@ function spawnClaudeProcess({ args, prompt, timeoutMs, onStdoutChunk, signal }) 
     }
 
     // --- timeout ---
+    // An IDLE timeout: every stdout chunk restarts it (below), so a streaming
+    // digest that is still writing is never killed, while a hung one still is.
+    // The buffered path prints only at the end, so for it this stays a wall clock.
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
       cleanupAbort();
       killTree();
-      reject(new Error(`claude CLI timed out after ${timeoutMs / 1000}s.`));
+      reject(new Error(`claude CLI produced no output for ${timeoutMs / 1000}s.`));
     }, timeoutMs);
 
     // --- abort (client cancelled the digest) ---
@@ -433,6 +440,7 @@ function spawnClaudeProcess({ args, prompt, timeoutMs, onStdoutChunk, signal }) 
     const stdoutChunks = [];
     const stderrChunks = [];
     child.stdout.on('data', (chunk) => {
+      timer.refresh();
       stdoutChunks.push(chunk);
       if (onStdoutChunk) {
         try {
