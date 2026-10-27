@@ -1,0 +1,3 @@
+#!/bin/sh
+# Not exec: keep sh as the parent so tree-kill has a real tree to kill, as cmd.exe makes one on Windows.
+node "$(dirname "$0")/../fake-claude.mjs" "$@"
