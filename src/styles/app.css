@@ -1440,6 +1440,33 @@ body.has-transcript .hero-landing {
   margin: var(--space-11) 0;
 }
 
+/* display:block lets a wide table scroll sideways on a phone instead of
+   pushing the page wider. */
+#digestOutput table {
+  display: block;
+  max-width: var(--reading-measure, 760px);
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0 0 var(--space-9);
+  font-size: calc(var(--text-md) * var(--reading-scale, 1));
+  line-height: 1.5;
+}
+
+#digestOutput th, #digestOutput td {
+  text-align: left;
+  vertical-align: top;
+  padding: var(--space-3) var(--space-6) var(--space-3) 0;
+  border-bottom: 1px solid var(--rule);
+  /* #digestOutput's break-word would split "China" into "Chin/a" on a phone;
+     a table that does not fit scrolls instead. */
+  word-break: normal;
+}
+
+#digestOutput th {
+  font-weight: 700;
+  color: var(--title);
+}
+
 /* Per-digest + session usage stats */
 .usage-stats {
   display: none;
@@ -3811,7 +3838,6 @@ body.gate-declined .lens-row {
   padding: var(--space-7) var(--space-8) var(--space-7) var(--space-7);
   background: var(--surface-2);
   border: 1px solid var(--rule);
-  border-left: 2px solid var(--accent);
   border-radius: var(--radius-sm);
 }
 

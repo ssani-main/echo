@@ -123,3 +123,34 @@ test('tabs and newlines are preserved — only the unprintable ones go', () => {
   assert.match(html, /<h2>One<\/h2>/);
   assert.match(html, /<h2>Two<\/h2>/);
 });
+
+test('a pipe table renders as a <table>, not as a paragraph of pipes', () => {
+  // The shape a 2026-10-16 digest emitted (empty first header cell included).
+  const html = renderMarkdown(
+    'His figures:\n\n' +
+    '| | Electricity per person | Power capacity built |\n' +
+    '|---|---|---|\n' +
+    '| US | ~10,000 kWh | 1,400 GW |\n' +
+    '| Indonesia | 1,300 kWh | – |\n\n' +
+    'Kolonas agreed.'
+  );
+  assert.ok(!html.includes('|'), 'no raw pipes may survive');
+  assert.match(html, /<table>.*<\/table>/s);
+  assert.match(html, /<th><\/th><th>Electricity per person<\/th><th>Power capacity built<\/th>/);
+  assert.match(html, /<td>US<\/td><td>~10,000 kWh<\/td><td>1,400 GW<\/td>/);
+  assert.equal((html.match(/<tr>/g) || []).length, 3, 'header + 2 body rows; the delimiter row is not a row');
+  assert.match(html, /<p>His figures:<\/p>/);
+  assert.match(html, /<p>Kolonas agreed\.<\/p>/);
+});
+
+test('table cells get inline formatting and are still escaped', () => {
+  const html = renderMarkdown('| a | b |\n|:--|--:|\n| **x** | <i>y</i> |');
+  assert.match(html, /<td><strong>x<\/strong><\/td>/);
+  assert.ok(!html.includes('<i>'), 'HTML inside a cell is escaped');
+});
+
+test('pipes without a delimiter row stay ordinary text', () => {
+  const html = renderMarkdown('| not | a table |');
+  assert.ok(!html.includes('<table>'));
+  assert.match(html, /<p>\| not \| a table \|<\/p>/);
+});

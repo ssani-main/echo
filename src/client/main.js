@@ -2747,7 +2747,7 @@ radios.forEach(r => r.addEventListener('change', () => {
 =============================================== */
 /**
  * Minimal inline Markdown renderer.
- * Supports: ## h2, ### h3, - / * bullet lists, **bold**, paragraphs.
+ * Supports: ## h2, ### h3, - / * bullet lists, **bold**, pipe tables, paragraphs.
  * HTML is escaped before Markdown transforms to prevent injection.
  */
 function renderMarkdown(md) {
@@ -2825,6 +2825,23 @@ function renderMarkdown(md) {
     inBlockquote = false;
   }
 
+  // GFM pipe table: a header row, a |---| delimiter row, then body rows.
+  // Without the delimiter row the lines are ordinary text, as in GFM.
+  // shortcut: column alignment (:--:) and escaped \| inside cells are ignored.
+  let tableBuffer = [];
+  function flushTable() {
+    if (tableBuffer.length === 0) return;
+    const rows = tableBuffer.map(l => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()));
+    tableBuffer = [];
+    if (rows.length < 2 || !rows[1].every(c => /^:?-+:?$/.test(c))) {
+      paraBuffer.push(...rows.map(r => `| ${r.join(' | ')} |`));
+      flushPara();
+      return;
+    }
+    const tr = (cells, tag) => `<tr>${cells.map(c => `<${tag}>${inlineMarkdown(c)}</${tag}>`).join('')}</tr>`;
+    html.push(`<table><thead>${tr(rows[0], 'th')}</thead><tbody>${rows.slice(2).map(r => tr(r, 'td')).join('')}</tbody></table>`);
+  }
+
   function closeLists(toIndent = -1) {
     while (listStack.length && listStack[listStack.length - 1].indent > toIndent) {
       const top = listStack.pop();
@@ -2860,7 +2877,7 @@ function renderMarkdown(md) {
     const fenceMatch = line.trim().match(/^```/);
     if (fenceMatch) {
       if (!inCodeBlock) {
-        flushPara(); flushQuote(); closeLists();
+        flushTable(); flushPara(); flushQuote(); closeLists();
         inCodeBlock = true;
         codeBuffer  = [];
       } else {
@@ -2870,6 +2887,13 @@ function renderMarkdown(md) {
       continue;
     }
     if (inCodeBlock) { codeBuffer.push(rawLine); continue; }
+
+    if (line.trim().startsWith('|')) {
+      if (tableBuffer.length === 0) { flushPara(); flushQuote(); closeLists(); }
+      tableBuffer.push(line);
+      continue;
+    }
+    flushTable();
 
     // Blank line — flush paragraph / blockquote / close lists
     if (!line.trim()) {
@@ -2944,6 +2968,7 @@ function renderMarkdown(md) {
   if (inCodeBlock && codeBuffer.length) {
     html.push(`<pre><code>${codeBuffer.join('\n')}</code></pre>`);
   }
+  flushTable();
   flushPara();
   flushQuote();
   closeLists();
