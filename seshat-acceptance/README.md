@@ -18,4 +18,13 @@ On POSIX, first `chmod +x bin/claude`. `node` must be on PATH: `fake-claude.mjs`
 | `zlib-acceptance.ts` | `server.js` `serveCached` (gzipSync -9, brotli q11 with SIZE_HINT) and the streamed library export (`createGzip`) |
 | `real-paths.ts` | the same call sites against the REAL binaries (`claude -p` on haiku, yt-dlp `-J` on the test video, ffmpeg, ffprobe), written as Echo writes them: Buffer chunks, `import os from "node:os"`, `env: process.env`. Needs network and a logged-in `claude`; run it with `CLAUDECODE`/`CLAUDE_CODE_*` unset. |
 
+## Status (Seshat `main`)
+
+| Gap | Status |
+|---|---|
+| native `node:child_process` | done: cbaa162. `spawn-acceptance.ts` 9/9, `real-paths.ts` 6/6, output identical to Node |
+| native `node:zlib` | done: 67f1b64. `zlib-acceptance.ts` 4/4, output identical to Node (2026-10-28; the first run also compiles Seshat's TLS library once, which takes about 3.5 min) |
+
+All three files pass unchanged under both runtimes, so the porting can start. Run them from this folder: run from the repo root, `bin/` does not resolve and `spawn-acceptance.ts` fails under Node too.
+
 The tree-kill test is mutation-checked: replacing `killTree(pid)` with `child.kill()` makes it fail and name the orphaned `claude` and grandchild (it also kills them).
