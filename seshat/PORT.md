@@ -5,7 +5,7 @@ piece at a time, next to the Node server, which keeps working unchanged througho
 Dossier's `seshat/PORT.md`: a port folder next to the original, this tracker, every piece checked against
 the original, and every Seshat gap written down with a minimal repro.
 
-Branch: `seshat-port` (local only, never pushed). Compiler: Seshat `main` bb9c898
+Branch: `seshat-port`, pushed to `origin` (2026-10-28). Compiler: Seshat `main` bb9c898
 (`../Seshat/target/release/seshat.exe`) for the pure ports; the service and everything from step 2 on
 are checked on Seshat's `echo-gaps` branch at 16a505d (`../Seshat/target-suite/release/seshat.exe`, pass it
 as `SESHAT=`), which fixes 20 of the 23 gaps below and isn't merged to `main` yet.
@@ -364,4 +364,4 @@ reported to the Seshat session yet; find it with ListAgents rather than editing 
 fixed: delete its `shortcut:` workaround (grep for the gap's name), rerun `node seshat/check/run.mjs`, and
 move the gap to a "fixed" line here.
 
-Never push this branch.
+The branch is pushed to `origin`; push after each step.
