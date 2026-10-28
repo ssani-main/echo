@@ -951,13 +951,63 @@ const userFetchLimit = userLimit(USER_FETCH_LIMIT, USER_LIMIT_WINDOW_MS);
 const userDigestLimit = userLimit(USER_DIGEST_LIMIT, USER_LIMIT_WINDOW_MS);
 
 // ---------------------------------------------------------------------------
+// Seshat forwarding (seshat/PORT.md)
+// ---------------------------------------------------------------------------
+// The backend is moving to a Seshat service one route at a time. With
+// ECHO_SESHAT_URL and ECHO_SESHAT_SECRET set, a ported route carries `seshat`
+// as the LAST middleware of its chain, so this server's own gates (requireApproved,
+// blockInWeb, rate limits) have already run, and the service's answer is copied
+// back. Unset, `seshat` is a no-op and the handler after it serves as before.
+const SESHAT_URL = (process.env.ECHO_SESHAT_URL || '').trim().replace(/\/+$/, '');
+const SESHAT_SECRET = process.env.ECHO_SESHAT_SECRET || '';
+// The service listens on 127.0.0.1, where anything on the machine can reach it;
+// the shared secret is what tells it a request came through these gates.
+if (SESHAT_URL && SESHAT_SECRET.length < 32) {
+  throw new Error('ECHO_SESHAT_URL is set, so ECHO_SESHAT_SECRET must be too (32+ characters, the same value the Seshat service gets).');
+}
+// Per connection, or describing a body fetch() has already decoded.
+const SESHAT_SKIP_HEADERS = new Set(['x-echo-mode', 'host', 'connection', 'keep-alive', 'content-length', 'transfer-encoding', 'accept-encoding', 'content-encoding', 'date']);
+
+async function seshat(req, res, next) {
+  if (!SESHAT_URL) return next();
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (!SESHAT_SKIP_HEADERS.has(name)) headers.set(name, Array.isArray(value) ? value.join(', ') : value);
+  }
+  headers.set('x-echo-forward', SESHAT_SECRET);
+  // shortcut: JSON bodies only (express.json() has consumed the stream); raw-body routes (/api/transcript/file) need the raw bytes, add that with the first of them.
+  const body = req.method !== 'GET' && req.method !== 'HEAD' && req.is('application/json') ? JSON.stringify(req.body) : undefined;
+  let answer;
+  try {
+    answer = await fetch(SESHAT_URL + req.originalUrl, { method: req.method, headers, body });
+  } catch (err) {
+    // Down or restarting: this server still has the handler, so it answers instead.
+    console.error(`[echo] Seshat service unreachable for ${req.method} ${req.path}, serving it here:`, err.message);
+    return next();
+  }
+  // Started with another ECHO_MODE, the service would answer for that mode (another provider list, no web gating).
+  if (answer.headers.get('x-echo-mode') !== ECHO_MODE) {
+    console.error(`[echo] Seshat service runs in mode ${answer.headers.get('x-echo-mode')}, this server in ${ECHO_MODE}; serving ${req.method} ${req.path} here.`);
+    answer.body?.cancel();
+    return next();
+  }
+  // shortcut: the answer is buffered, so streamed routes (SSE, the export) can't be forwarded; stream it with the first of them.
+  const bytes = Buffer.from(await answer.arrayBuffer());
+  res.status(answer.status);
+  answer.headers.forEach((value, name) => {
+    if (!SESHAT_SKIP_HEADERS.has(name)) res.set(name, value);
+  });
+  res.send(bytes);
+}
+
+// ---------------------------------------------------------------------------
 // Health
 // ---------------------------------------------------------------------------
 // Unauthenticated, unrated-limited liveness check for container/proxy
 // healthchecks (e.g. Docker HEALTHCHECK, load balancer probes). Works
 // identically in local and web mode.
 
-app.get('/api/health', (_req, res) => {
+app.get('/api/health', seshat, (_req, res) => {
   res.json({ status: 'ok', mode: ECHO_MODE });
 });
 
@@ -972,7 +1022,7 @@ app.get('/api/health', (_req, res) => {
 // Unauthenticated on purpose, like /api/health: labels, model names and context
 // sizes are not secrets, and the gate screens need no provider data. It carries
 // no key material and no account information.
-app.get('/api/providers', (_req, res) => {
+app.get('/api/providers', seshat, (_req, res) => {
   const available = publicProviderList({ isWeb });
   const list = available.map((p) => ({
     ...p,
