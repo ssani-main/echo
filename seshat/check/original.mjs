@@ -13,6 +13,7 @@ const ORIGINALS = {
   'transcript.ts': 'transcript.js',
   'vault.ts': 'vault.js',
   'digest.ts': 'digest.js',
+  'providers.ts': 'providers.js',
 };
 
 registerHooks({
