@@ -1,5 +1,6 @@
 import {
   buildClaudeArgs, buildClaudeStreamArgs, buildSpawnTarget, scaledTimeoutMs, mergeUsage, parseJsonLoose, chunkText,
+  thresholdCharsFor, chunkBudgetCharsFor,
 } from '../digest.ts';
 import type { Usage } from '../digest.ts';
 import type { EchoError } from '../errors.ts';
@@ -83,3 +84,8 @@ texts.forEach((t, i) => {
 });
 out('chunkText/default budget', chunkText(lined));
 for (const b of [0, -1, NaN, Infinity, 2.5]) out(`chunkText/odd budget ${b}`, chunkText(flat, b));
+
+// --- per-provider chunk geometry
+const geometryOpts = [{}, { provider: 'deepseek' }, { provider: 'anthropic' }, { apiKey: 'sk' }, { provider: 'cli' }, { provider: 'nope' }];
+geometryOpts.forEach((o, i) => out(`geometry#${i}`, [thresholdCharsFor(o), chunkBudgetCharsFor(o)]));
+out('geometry()', [thresholdCharsFor(), chunkBudgetCharsFor()]);

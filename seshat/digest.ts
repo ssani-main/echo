@@ -1,10 +1,12 @@
 // Port of the pure parts of ../digest.js: the CLI argument lists, the timeout
 // scaling, usage merging, the defensive JSON extraction and the transcript
-// chunker. The CLI spawning, the provider calls and the prompts come with the
-// digest route (see PORT.md). Checked against the original by
+// chunker, and the per-provider chunk geometry. The CLI spawning, the provider
+// calls and the prompts come with the digest route (see PORT.md). Checked against the original by
 // check/digest.cases.ts.
 
 import { EchoError } from './errors.ts';
+import { getProviderLimits } from './providers.ts';
+import type { ProviderOpts } from './providers.ts';
 
 // Wall-clock guard for one CLI call. Bare Number(...) || fallback: a malformed
 // value cannot be abused into anything, it just falls back.
@@ -48,10 +50,27 @@ export function buildClaudeStreamArgs(): string[] {
 }
 
 // Claude's map-reduce geometry, kept as the literal defaults: the runtime
-// values are derived per provider (thresholdCharsFor/chunkBudgetCharsFor,
-// ported with the provider registry).
+// values are derived per provider by the two functions below.
 const LONG_PATH_THRESHOLD_CHARS = 480_000; // ~120 k tokens
 const CHUNK_CONTENT_CHARS = 360_000; // ~90 k tokens per chunk
+
+// The same geometry as fractions of the context window (480 000 / (200 000 x 4)
+// = 0.60, 360 000 / (200 000 x 4) = 0.45), so every provider lands on its own
+// equivalent numbers and a 1M-token one is not chunked as if it were 200k.
+const LONG_PATH_CONTEXT_FRACTION = 0.60;
+const CHUNK_CONTEXT_FRACTION = 0.45;
+
+/** Transcript length past which this provider uses the map-reduce path. */
+export function thresholdCharsFor(opts: ProviderOpts = {}): number {
+  const { contextTokens, charsPerToken } = getProviderLimits(opts);
+  return Math.floor(contextTokens * charsPerToken * LONG_PATH_CONTEXT_FRACTION);
+}
+
+/** Max chars of transcript fed to one map-phase call for this provider. */
+export function chunkBudgetCharsFor(opts: ProviderOpts = {}): number {
+  const { contextTokens, charsPerToken } = getProviderLimits(opts);
+  return Math.floor(contextTokens * charsPerToken * CHUNK_CONTEXT_FRACTION);
+}
 
 /**
  * Per-call time allowance for a single-call digest of `chars` transcript
