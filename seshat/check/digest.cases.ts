@@ -2,7 +2,7 @@ import {
   buildClaudeArgs, buildClaudeStreamArgs, buildSpawnTarget, scaledTimeoutMs, mergeUsage, parseJsonLoose, chunkText,
 } from '../digest.ts';
 import type { Usage } from '../digest.ts';
-import type { EchoError } from '../digest.ts';
+import type { EchoError } from '../errors.ts';
 import { out } from './out.ts';
 
 out('buildClaudeArgs', buildClaudeArgs());

@@ -4,16 +4,7 @@
 // digest route (see PORT.md). Checked against the original by
 // check/digest.cases.ts.
 
-// The original tags errors by setting `e.echoCode` on a plain Error, which
-// TypeScript does not allow; a subclass carries the same field. Its `name`
-// stays "Error", as the original's does.
-export class EchoError extends Error {
-  echoCode: string;
-  constructor(message: string, echoCode: string) {
-    super(message);
-    this.echoCode = echoCode;
-  }
-}
+import { EchoError } from './errors.ts';
 
 // Wall-clock guard for one CLI call. Bare Number(...) || fallback: a malformed
 // value cannot be abused into anything, it just falls back.
