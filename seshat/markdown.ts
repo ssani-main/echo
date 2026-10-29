@@ -64,15 +64,11 @@ function truthyTags(tags: string[] | null | undefined): string[] {
   return Array.isArray(tags) ? tags.filter(Boolean) : [];
 }
 
-// shortcut: Seshat's localeCompare takes no locales/options (gap: localecompare-options), so
-// sensitivity 'base' (ignore case and accents) is approximated by comparing folded text. It differs from
-// ICU where primary equality is more than lowercase + stripped marks (ß vs ss, æ vs ae). Use
-// a.localeCompare(b, undefined, { sensitivity: 'base' }) once Seshat takes the options.
-function foldBase(s: string): string {
-  return s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
-}
+// shortcut: NFKC first, because Seshat's collation sorts ligatures, fullwidth letters and unit symbols
+// (ﬁ, Ａ, ㎏) after every other letter (gap: localecompare-compat-chars); at base strength ICU already reads
+// them as their NFKC form, so Node's order is unchanged. Drop the normalize() calls once fixed.
 function compareBase(a: string, b: string): number {
-  return foldBase(a).localeCompare(foldBase(b));
+  return a.normalize('NFKC').localeCompare(b.normalize('NFKC'), undefined, { sensitivity: 'base' });
 }
 
 interface Bucket {

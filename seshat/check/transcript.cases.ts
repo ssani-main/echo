@@ -94,10 +94,7 @@ async function retryCase(name: string, failures: string[], delays: number[] | un
     const result = delays === undefined
       ? await fetchWithRetry(fetcher, 'GRzaq5AHiV8', undefined)
       : await fetchWithRetry(fetcher, 'GRzaq5AHiV8', 'de', delays);
-    // shortcut: the result came through a throwing callback, and Seshat serialises such a value as null
-    // (gap: throwing-callback-result-json), so a field-by-field copy is printed. Print `result` again once fixed.
-    const copy = result.map((s) => ({ text: s.text, offset: s.offset }));
-    out(`fetchWithRetry/${name}`, { result: copy, attempts, seen });
+    out(`fetchWithRetry/${name}`, { result, attempts, seen });
   } catch (e) {
     const err = e as Error;
     out(`fetchWithRetry/${name}`, { error: `${err.name}: ${err.message}`, typeError: err instanceof TypeError, attempts, seen });

@@ -5,10 +5,9 @@ piece at a time, next to the Node server, which keeps working unchanged througho
 Dossier's `seshat/PORT.md`: a port folder next to the original, this tracker, every piece checked against
 the original, and every Seshat gap written down with a minimal repro.
 
-Branch: `seshat-port`, pushed to `origin` (2026-10-28). Compiler: Seshat `main` bb9c898
-(`../Seshat/target/release/seshat.exe`) for the pure ports; the service and everything from step 2 on
-are checked on Seshat's `echo-gaps` branch at 16a505d (`../Seshat/target-suite/release/seshat.exe`, pass it
-as `SESHAT=`), which fixes 20 of the 23 gaps below and isn't merged to `main` yet.
+Branch: `seshat-port`, pushed to `origin`. Compiler: Seshat `main` ee849ba
+(`../Seshat/target/release/seshat.exe`, what `check/run.mjs` uses unless `SESHAT=` names another), which
+has the `echo-gaps` work: 20 of the first 23 gaps fixed, and the workarounds for them removed (2026-10-29).
 
 ## Layout
 
@@ -51,11 +50,11 @@ scratch folder, not in this repo):
 |---|---|---|---|
 | `sanitize.ts` | `sanitize.js` (`safeHttpUrl`) | 32 | identical |
 | `text.ts` | `common/text.js` (`extractVideoId`, `extractSummary`) | 64 | identical. tests/shared-parity.test.js's corpus plus Unicode, CRLF, emoji at the cut, junk |
-| `markdown.ts` | `markdown.js` (`entryToMarkdown`, `buildVaultIndex`) | 42 | identical. Dates as V8 reads them (date-only, local time, `October 28, 2026`, `2026-02-30`) bucket the same in Seshat. Shortcut: collation (below) |
-| `transcript.ts` | `transcript.js`: `classifyTranscriptFailure`, `isMillisecondOffsets`, `isPermanentFetchError`, `fetchWithRetry`, `MEMBERS_ONLY_PATTERNS` | 80 | identical. Shortcuts: `Error` parameters, `fetchWithRetry` not generic |
-| `digest.ts` | `digest.js`: `buildClaudeArgs`, `buildClaudeStreamArgs`, `buildSpawnTarget`, `scaledTimeoutMs`, `thresholdCharsFor`, `chunkBudgetCharsFor`, `mergeUsage`, `parseJsonLoose`, `chunkText` | 231 | identical. Includes lone surrogates, `1e400`, `__proto__` keys, integer-key order, chunk cuts through emoji. Shortcuts: `Number()`, `Math.ceil` |
-| `providers.ts` | `providers.js`'s registry: `PROVIDERS`, `REASONING_LEVELS`, `normalizeProviderId`, `normalizeReasoningLevel`, `getProviderId`, `getProviderLimits`, `getReasoningLevel`, `reasoningFields`, `publicProviderList`, `truncationFields`, `isTruncationReason`, `deepseekModelFor`, `parseSseLine` | 286 | identical. `parseSseLine` walks junk frames as the original does (`"choices":"abc"`, `{"0":…}`, `data: null` throwing its TypeError). Shortcuts: the `&&`/`||` lookup, `first()`, `parseSseLine`'s fallbacks |
-| `whisper.ts` | `whisper.js`: `buildWhisperArgs`, `chooseModelForLanguage`, `isTransientDownloadFailure`, `withDownloadRetry`, `mapWhisperError`, `LOCAL_MEDIA_EXTENSIONS` | 117 | identical. Shortcuts: `opts?.`, typed `lastErr` |
+| `markdown.ts` | `markdown.js` (`entryToMarkdown`, `buildVaultIndex`) | 44 | identical. Dates as V8 reads them (date-only, local time, `October 28, 2026`, `2026-02-30`) bucket the same in Seshat. Collation as ICU's at base strength (`Straße`/`strasse`, `Æther`, `Ⅻ`, `ﬁle`, `Ａpple`, `㎏`). Shortcut: NFKC before `localeCompare` (gap 26) |
+| `transcript.ts` | `transcript.js`: `classifyTranscriptFailure`, `isMillisecondOffsets`, `isPermanentFetchError`, `fetchWithRetry`, `MEMBERS_ONLY_PATTERNS` | 80 | identical |
+| `digest.ts` | `digest.js`: `buildClaudeArgs`, `buildClaudeStreamArgs`, `buildSpawnTarget`, `scaledTimeoutMs`, `thresholdCharsFor`, `chunkBudgetCharsFor`, `mergeUsage`, `parseJsonLoose`, `chunkText` | 251 | identical. Includes lone surrogates, `1e400`, `__proto__` keys, integer-key order, chunk cuts through emoji, `scaledTimeoutMs` of strings, arrays, `null` and `Infinity` |
+| `providers.ts` | `providers.js`'s registry: `PROVIDERS`, `REASONING_LEVELS`, `normalizeProviderId`, `normalizeReasoningLevel`, `getProviderId`, `getProviderLimits`, `getReasoningLevel`, `reasoningFields`, `publicProviderList`, `truncationFields`, `isTruncationReason`, `deepseekModelFor`, `parseSseLine` | 286 | identical. `parseSseLine` walks junk frames as the original does (`"choices":"abc"`, `{"0":…}`, `data: null` throwing its TypeError) |
+| `whisper.ts` | `whisper.js`: `buildWhisperArgs`, `chooseModelForLanguage`, `isTransientDownloadFailure`, `withDownloadRetry`, `mapWhisperError`, `LOCAL_MEDIA_EXTENSIONS` | 117 | identical |
 | `vault.ts` | `vault.js` (`slugify`, `monthFolder`) | 31 | identical |
 
 Differences on purpose:
@@ -66,14 +65,10 @@ Differences on purpose:
   handled as before. Where an original really reads fields off arbitrary values (`parseSseLine`, the
   Whisper error mappers), the port does too.
 - **`EchoError`** (`errors.ts`): the originals set `echoCode`, `hint` and `detail` on a plain `Error` (87
-  places), which TypeScript does not allow and Seshat traps on (gap: error-add-property). One subclass
+  places), which TypeScript does not allow (Seshat did trap on it, gap 7, fixed now). One subclass
   carries the three fields; its `name` is still `"Error"`.
 - **`WhisperErrorInfo.message` is `string | undefined`**: the original returns `undefined` there for an
   `echoCode` error with no message.
-- **Collation shortcut** (`markdown.ts`): `localeCompare(b, undefined, { sensitivity: 'base' })` is
-  approximated by comparing case- and accent-folded text. It differs from ICU only for titles ICU calls
-  equal at base strength and folding doesn't: `Straße`/`strasse`, `Æther`/`aether`, `Øl`/`ol`, `Ⅻ`/`xii`,
-  `ﬁle`/`file` (measured in Node). Then the two titles can swap places in the index.
 
 Found in Echo itself (the original is left as it is):
 
@@ -103,8 +98,8 @@ so the tests, Docker, the Tauri sidecar and `npm start` keep working as they are
 
 Why this way round for Echo: Express already owns everything that is not a route (static files with
 pre-compressed brotli/gzip, the CSP, response compression, the gate screens), and three of the routes
-Echo depends on stream (gap: serve-streaming-body), which Seshat can't serve yet. Seshat as the front door
-would have to proxy those streams back to Node, which needs the very feature it lacks.
+Echo depends on stream, which Seshat couldn't serve when this was decided (gap 1, fixed since). Seshat as the
+front door would have had to proxy those streams back to Node.
 
 The forwarding is the first change to server.js and the only one until the end: about 30 lines, a `fetch`
 to the service with the method, path, query, headers and body passed through, and the answer copied back.
@@ -124,12 +119,12 @@ twin copies), add the route to the forwarded list, run the Node test suite with 
 | 1 | **Pure logic, rest** (done, above, but `errLabel`) | providers.js registry, whisper.js's pure parts | | | |
 | 2 | **Service skeleton + forwarding** (done, below) | `seshat/server.ts`: `Bun.serve`'s own `routes` (method + `:param` paths, so no router of ours), `sendError` envelope; server.js's `seshat` middleware | `GET /api/health`, `GET /api/providers` | express (for these) | done (gap 24 worked around) |
 | 3 | Usage meter | usagelog.js (`appendFile`, `stat`, `rename`, `errLabel`); the 5 MB JSON body cap comes with this first POST route | `POST /api/event` | | done |
-| 4 | Library (local/desktop) | store.js on `bun:sqlite` (FTS5 is compiled in; `PRAGMA user_version` migrations, rowid-keyed FTS), vault.js `syncVault` | `GET/POST/DELETE /api/saved*`, `PATCH .../tags`, `GET /api/search`, `GET /api/saved/:id/export.md`, `POST /api/vault/sync` | (node:sqlite → bun:sqlite) | `db.transaction()` and named parameters are "not yet" in Seshat; store.js uses positional ones. **`GET /api/saved/export` streams** gzip: stays on Node until serve-streaming-body |
-| 5 | Transcripts | transcript.js; **youtube-transcript replaced by Echo's own code**: InnerTube `youtubei/v1/player` for the caption tracks, then the track's XML, ~150 lines (the package is 257). Keep its error messages word for word: `isPermanentFetchError` and `classifyTranscriptFailure` match on them. yt-dlp through `promisify(execFile)` (proven by seshat-acceptance) | `POST /api/transcript`, `GET /api/languages`, `GET /api/video-meta` (oEmbed via `fetch`) | youtube-transcript | throwing-callback-result-json (the segments come back through `fetchWithRetry`), define-property-on-array (fetchers return `{ segments, langUsed, source }` instead of tagging the array) |
-| 6 | Whisper (local/desktop) | whisper.js (spawn, kill, stderr progress: proven), whisperModel.js (download: `fetch` body reader + `std/crypto` sha256 instead of `stream.pipeline`/`Transform`) | `GET /api/whisper/status`, `POST /api/whisper/model`, `POST /api/transcript/file` (raw body) | | **`GET /api/transcript/progress` is SSE**: stays on Node until serve-streaming-body |
-| 7 | Digest | providers.js: **@anthropic-ai/sdk replaced by `fetch`** to `POST https://api.anthropic.com/v1/messages` (`x-api-key`, `anthropic-version: 2023-06-01`; `stream: true` parsed like DeepSeek's frames; SDK error classes mapped from HTTP status in `mapAnthropicError`; `validateApiKey` via `GET /v1/models?limit=1`). DeepSeek already uses `fetch`. digest.js: the CLI spawn (proven), map-reduce, prompts | `POST /api/digest` (JSON), `POST /api/validate-key` | @anthropic-ai/sdk | **`POST /api/digest?stream=1` (the default in the UI) is SSE**: serve-streaming-body. Until then Node keeps the streamed variant, or the client's existing buffered fallback is used |
+| 4 | Library (local/desktop) | store.js on `bun:sqlite` (FTS5 is compiled in; `PRAGMA user_version` migrations, rowid-keyed FTS), vault.js `syncVault` | `GET/POST/DELETE /api/saved*`, `PATCH .../tags`, `GET /api/search`, `GET /api/saved/:id/export.md`, `POST /api/vault/sync` | (node:sqlite → bun:sqlite) | `db.transaction()` and named parameters are "not yet" in Seshat; store.js uses positional ones. **`GET /api/saved/export` streams** gzip: Seshat can now (gap 1 fixed), the forwarding has to stream too |
+| 5 | Transcripts | transcript.js; **youtube-transcript replaced by Echo's own code**: InnerTube `youtubei/v1/player` for the caption tracks, then the track's XML, ~150 lines (the package is 257). Keep its error messages word for word: `isPermanentFetchError` and `classifyTranscriptFailure` match on them. yt-dlp through `promisify(execFile)` (proven by seshat-acceptance) | `POST /api/transcript`, `GET /api/languages`, `GET /api/video-meta` (oEmbed via `fetch`) | youtube-transcript | nothing left: gaps 3 (throwing-callback-result-json) and 5 (define-property-on-array) are fixed, so the fetchers can tag the array as the original does |
+| 6 | Whisper (local/desktop) | whisper.js (spawn, kill, stderr progress: proven), whisperModel.js (download: `fetch` body reader + `std/crypto` sha256 instead of `stream.pipeline`/`Transform`) | `GET /api/whisper/status`, `POST /api/whisper/model`, `POST /api/transcript/file` (raw body) | | **`GET /api/transcript/progress` is SSE**: Seshat can now (gap 1 fixed), the forwarding has to stream too |
+| 7 | Digest | providers.js: **@anthropic-ai/sdk replaced by `fetch`** to `POST https://api.anthropic.com/v1/messages` (`x-api-key`, `anthropic-version: 2023-06-01`; `stream: true` parsed like DeepSeek's frames; SDK error classes mapped from HTTP status in `mapAnthropicError`; `validateApiKey` via `GET /v1/models?limit=1`). DeepSeek already uses `fetch`. digest.js: the CLI spawn (proven), map-reduce, prompts | `POST /api/digest` (JSON), `POST /api/validate-key` | @anthropic-ai/sdk | **`POST /api/digest?stream=1` (the default in the UI) is SSE**: Seshat can now (gap 1 fixed), the forwarding has to stream too |
 | 8 | Accounts (config-gated) | auth.js (HMAC cookies, Google OAuth + PKCE: `std/crypto` createHmac, createHash, randomBytes, timingSafeEqual), atproto.js (AES-GCM), syncStore.js (sqlite), pds.js, pdsSync.js | `/api/auth/*`, `/api/admin/*`, `/api/sync/*`, `/api/pds/*` | | then the service checks the session itself and `x-echo-forward` goes |
-| 9 | Front door swap | static `dist/` with the boot-time gzip/brotli cache (zlib proven), CSP and security headers, rate limiters, `requireApproved`, `blockInWeb`, SIGTERM closing the databases | everything | express (gone) | serve-streaming-body must be fixed by here |
+| 9 | Front door swap | static `dist/` with the boot-time gzip/brotli cache (zlib proven), CSP and security headers, rate limiters, `requireApproved`, `blockInWeb`, SIGTERM closing the databases | everything | express (gone) | (gap 1, streaming bodies, is fixed) |
 | 10 | Desktop | Tauri sidecar runs the Seshat binary instead of Node + `node_modules`; `tauri.conf.json` `bundle.resources` and `tests/tauri-bundle.test.js` change | | | Seshat builds for linux-x64 and win32-x64 |
 
 After step 9 Node only builds the frontend (Astro), as in Dossier's end state; the Chrome extension and
@@ -168,16 +163,41 @@ ECHO_SESHAT_URL=http://127.0.0.1:8001 ECHO_SESHAT_SECRET=<same> npm start  # Ech
 
 ## Seshat gaps found while porting
 
-**Status on `echo-gaps` 16a505d (2026-10-28):** 20 of 23 fixed; the repro gives Node's output (Bun's for
-gap 1). Still different: 8 (any-undefined-as-string), 12's `as-cast-traps` half (an array holding a `null`
-cast to `{ text: string }[]`), and 14 for a thrown non-`Error` object (the `any` parameter is accepted
-now; throwing `{ message }` traps "an `any` holding a value was used as Error"). Echo's ports don't hit
-these three. The `shortcut:` workarounds stay until `echo-gaps` is on Seshat's `main`; then delete them
-(grep the gap names) and rerun `node seshat/check/run.mjs`. With `SESHAT=` set to that build, all 883
-cases are already identical.
+**Status on Seshat `main` ee849ba (2026-10-29):** 26 gaps found, 20 fixed, and their workarounds removed
+from the ports and case files: every case is still identical (905 now). Open: 8, 12's `as-cast-traps` half,
+14 for a thrown non-`Error` object, 24 and 25 (being fixed in the Seshat session), and 26 (new). Each gap
+has a repro in `seshat/gaps/<name>.ts` that runs under `node` and that `tsc --strict` accepts (the two
+`Bun.serve` ones need `@types/bun`); `seshat run seshat/gaps/<name>.ts` shows the gap.
 
-New in step 2:
+**Fixed** (on `main` since ee849ba; the repro gives Node's output, Bun's for 1): 1 serve-streaming-body,
+2 json-undefined-unknown-field, 3 throwing-callback-result-json, 4 rethrow-any-c-error, 5
+define-property-on-array, 6 guard-on-object-literal-crashes, 7 error-add-property, 9
+index-out-of-range-traps, 10 record-lookup-in-conditional, 11 math-ceil-infinity, 12's as-record-traps
+half, 13 number-of-non-string, 14's `any` parameter half, 15 generic-throwing-callback, 16
+default-param-then-null-default, 17 and-or-narrowing, 18 in-operator-narrowing, 19
+error-to-structural-type, 20 error-intersection, 21 isarray-unknown-is-any-array, 22
+empty-array-as-unknown, 23 localecompare-options (but see 26).
 
+### Open
+
+8. **any-undefined-as-string: an `any` holding undefined, used where a `string` is declared, traps.**
+   `function messageOf(err: any): { message: string } { return { message: err.message } }` on `{}`:
+   ```
+   trap: TypeError: an `any` holding undefined was used as a string
+   ```
+   Node prints `{}`. Answered in `whisper.ts` by typing the field `string | undefined`, which is the truth.
+12. **as-cast-traps: `as` is checked at runtime and traps** where TypeScript's never fails: an array holding
+    a `null`, cast to `{ text: string }[]`:
+    ```
+    trap: `as` cast failed: the value is of a different type
+    ```
+    The ports don't cast such values.
+14. **throw-any: throwing a non-`Error` object traps.** Rethrowing an `any` parameter compiles now, but
+    throwing `{ message }` through it:
+    ```
+    trap: TypeError: an `any` holding a value was used as Error
+    ```
+    Workaround in `check/whisper.cases.ts` (`shortcut:`): the scripted failures are Errors.
 24. **serve-route-handler-value: a `routes` handler must be written inline.** `routes: { "/a": { GET: ok } }`
     with `ok` a function of the right type is refused with a misleading message:
     ```
@@ -187,167 +207,14 @@ New in step 2:
 25. **A running service's binary can't be rebuilt, reported as a C compile failure.** With the service still
     running, `seshat run seshat/server.ts` after an edit printed "internal error: the generated C failed to
     compile (this is a bug in seshat)"; stopped, the same file built. Likely Windows locking the cached
-    `.exe` (not confirmed). A clearer message would have saved a wrong turn.
-
-23 gaps. Each has a repro in `seshat/gaps/<name>.ts` that runs under `node` and that `tsc --strict`
-accepts; `seshat run seshat/gaps/<name>.ts` shows the gap. Grouped, most blocking first: what blocks a
-route or silently gives a wrong answer, then what compiles and then stops the program, then what refuses
-valid TypeScript.
-
-### Blocks a route, or gives a wrong answer silently
-
-1. **serve-streaming-body: no streaming response bodies.** Missing API: `new ReadableStream({ start })` and
-   `new Response(stream)`. Blocks `POST /api/digest?stream=1` (SSE, the UI default),
-   `GET /api/transcript/progress` (SSE) and `GET /api/saved/export` (streamed gzip). Seshat's docs list it
-   ("Not yet: ... streaming bodies"). Bun's API, so the reference is `bun run` (Node has no `Bun.serve`),
-   which prints the three events. No workaround: those routes stay on Node.
-   ```
-   error[T0201] serve-streaming-body.ts:6:18: `new ReadableStream` takes 0 arguments, found 1
-   error[T0301] serve-streaming-body.ts:7:13: can't infer the type of parameter `controller`
-   error[T0001] serve-streaming-body.ts:12:25: expected `BodyInit | undefined`, found `ReadableStream`
-   ```
-2. **json-undefined-unknown-field: an `unknown` or `any` field holding undefined serialises as `null`.**
-   `interface Frame { usage?: unknown }; JSON.stringify({} as Frame)` prints `{"usage":null}`; Node
-   prints `{}`. A `string` field holding undefined is dropped correctly. Every response envelope with an
-   optional field built from error or JSON values (`hint: err.hint`, `usage: json.usage || undefined`)
-   would differ from Node's. Workarounds in `check/providers.cases.ts` and `check/whisper.cases.ts`
-   (`shortcut:`): print only the defined fields.
-3. **throwing-callback-result-json: a value that came back through a throwing callback serialises as
-   `null`.** Once a function that can throw is passed as a plain function type, `JSON.stringify` of what it
-   returned prints `{"segs":[null]}` where Node prints `{"segs":[{"text":"a"}]}`. Field reads are right.
-   Stringified directly instead of through `unknown` it's a compile error that names the right type
-   (`throwing-callback-result-json-compile.ts`):
-   ```
-   error[T0840] throwing-callback-result-json-compile.ts:7:28: `Seg[]` can't be converted to JSON
-   ```
-   This is exactly the transcript route: `fetchWithRetry(fetcher)` then a JSON response. Workaround in
-   `check/transcript.cases.ts` (`shortcut:`): serialise a field-by-field copy.
-4. **rethrow-any-c-error: the generated C doesn't compile.** An `any` variable that receives a caught error
-   inside a function and is then thrown:
-   ```
-   error: internal error: the generated C failed to compile (this is a bug in seshat)
-   ...: error: conversion to non-scalar type requested
-   ...: error: cannot convert to a pointer type
-   ```
-   This is `withDownloadRetry`'s shape (and `fetchWithRetry`'s in the original). Workaround in `whisper.ts`
-   (`shortcut:`): `lastErr` typed `Error`, its extra fields read through an `any` parameter.
-5. **define-property-on-array: no `Object.defineProperty`.** Echo tags segment arrays with non-enumerable
-   `langUsed`/`source` (transcript.js, whisper.js; read in server.js). Plan: fetchers return
-   `{ segments, langUsed, source }` in the port; the route's JSON is unchanged.
-   ```
-   error[T0107] define-property-on-array.ts:2:8: `Object` has no member `defineProperty`
-   ```
-
-### Compiles, then stops the program (TypeScript would run on)
-
-6. **guard-on-object-literal-crashes: crash.** A user type guard over an object literal held in `unknown`:
-   `const s: unknown = { text: "a" }; if (isRecord(s)) console.log(s.text)` with
-   `isRecord(v): v is Record<string, unknown>`. The same value from `JSON.parse` works.
-   ```
-   error: the program crashed: exception 0xC0000005 (access violation)
-   ```
-   Also hit by `parseSseLine`'s `|| {}` fallback. Workaround in `providers.ts` (`shortcut:`): `|| undefined`,
-   which has the same (no) fields.
-7. **error-add-property: an `Error` can't take extra fields.** `const e: any = new Error("boom"); e.echoCode = "CLAUDE_FAILED"`:
-   ```
-   trap: TypeError: can't add a property to an object of a fixed type
-   ```
-   Echo does this in 87 places (`echoCode`, `hint`, `detail`). Answered by `EchoError` (`errors.ts`).
-8. **any-undefined-as-string: an `any` holding undefined, used where a `string` is declared, traps.**
-   `function messageOf(err: any): { message: string } { return { message: err.message } }` on `{}`:
-   ```
-   trap: TypeError: an `any` holding undefined was used as a string
-   ```
-   Node prints `{}`. Answered in `whisper.ts` by typing the field `string | undefined`, which is the truth.
-9. **index-out-of-range-traps: `xs[0]` of an empty array traps** where it isn't an "absent value expected"
-   form (`?? d`, `?.`, `=== undefined`), e.g. as a return value:
-   ```
-   trap: index 0 out of bounds for length 0
-   ```
-   Seshat's documented rule, but it compiles and then behaves differently. Workaround in `providers.ts`
-   (`shortcut:`): length checks in `first()`.
-10. **record-lookup-in-conditional: a missing `Record` key as a conditional's branch traps.**
-    `(key ? table[key] : undefined) || 0` with a missing key:
-    ```
-    trap: value is undefined (`!` assertion failed)
-    ```
-    The same lookup bound to a variable, or with `?? null`, works. Workaround in `providers.ts`.
-11. **math-ceil-infinity: `Math.ceil`/`floor`/`round` trap on Infinity and NaN.**
-    ```
-    trap: Math.ceil(Infinity) is out of the int range
-    ```
-    Node prints `Infinity -Infinity NaN`. Seshat's documented `int` design; 17 call sites in Echo each need
-    a look. Workaround in `digest.ts` `scaledTimeoutMs` (`shortcut:`).
-12. **as-record-traps, as-cast-traps: `as` is checked at runtime and traps** where TypeScript's never fails.
-    Even an honest cast traps: `const s: unknown = { text: "a" }; (s as Record<string, unknown>).text`:
-    ```
-    trap: `as` cast failed: the value is of a different type
-    ```
-
-### Refuses valid TypeScript
-
-13. **number-of-non-string: `Number(x)` takes only a string.** TypeScript's `Number` takes anything. Echo has
-    28 `Number()` calls, many of them `Number(process.env.X) || default` or on unknown input.
-    ```
-    error[T0001] number-of-non-string.ts:1:24: `Number` parses a `string`, found `string | undefined`
-    error[T0001] number-of-non-string.ts:3:29: `Number` parses a `string`, found `unknown`
-    ```
-    Workaround in `digest.ts` (`shortcut:`): `?? ''` on env values, and number parameters.
-14. **throw-any: only `Error` objects can be thrown**, so rethrowing an `any` parameter is refused:
-    ```
-    error[T0834] throw-any.ts:2:9: can only throw `Error` objects, found `any`
-    ```
-    Workaround in `check/whisper.cases.ts` (`shortcut:`): the scripted failures are Errors.
-15. **generic-throwing-callback: a generic `() => Promise<T>` parameter refuses a callback that throws.**
-    Non-generic function types accept it, as the docs say they should; an explicit type argument doesn't help.
-    ```
-    error[T0001] generic-throwing-callback.ts:5:27: expected `() => Promise<string>`, found `() => Promise<string, Error>`
-    ```
-    Workaround in `transcript.ts` (`shortcut:`): `fetchWithRetry` fixed to `CaptionSegment[]`.
-16. **default-param-then-null-default: a defaulted parameter reads as possibly undefined** when the next
-    parameter defaults to `null` (`function pick(opts: {...} = {}, onDone: (() => void) | null = null)`):
-    ```
-    error[T0120] default-param-then-null-default.ts:3:10: `opts` may be `undefined`
-    ```
-    With a number default after it, it compiles. Workaround in `whisper.ts` (`shortcut:`): `opts?.`.
-17. **and-or-narrowing: `(key && table[key]) || fallback` keeps `string` in its type**; TypeScript narrows
-    the falsy string out:
-    ```
-    error[T0108] and-or-narrowing.ts:4:16: not every variant of `string | { n: f64 }` has field `n`
-    ```
-    Workaround in `providers.ts` `reasoningFields` (`shortcut:`).
-18. **in-operator-narrowing: `"key" in v` doesn't narrow** (TypeScript 4.9's narrowing of `unknown`):
-    ```
-    error[T0107] in-operator-narrowing.ts:2:71: `unknown` has no member `text`
-    ```
-19. **error-to-structural-type: an `Error` isn't accepted for a structural type** such as `{ message?: string }`:
-    ```
-    error[T0001] error-to-structural-type.ts:4:23: expected `{ message?: string | undefined }`, found `Error`
-    ```
-    Workaround in `transcript.ts` (`shortcut:`): the parameters take `Error`.
-20. **error-intersection: no intersection with a class** (`type Tagged = Error & { echoCode?: string }`):
-    ```
-    error[X0014] error-intersection.ts:1:15: an intersection (`&`) combines record types, and `Error` isn't one
-    ```
-    Workaround in `check/digest.cases.ts` (`shortcut:`): cast to `EchoError`.
-21. **isarray-unknown-is-any-array: `Array.isArray` of an `unknown` gives `unknown[]`, not `any[]`**, so
-    `const xs: string[] = Array.isArray(input) ? input : []` is refused:
-    ```
-    error[T0001] isarray-unknown-is-any-array.ts:2:22: expected `string[]`, found `string[] | unknown[]`
-    ```
-    The ports avoid it by typing their inputs.
-22. **empty-array-as-unknown: `[]` where an `unknown` is expected** (`const x: unknown = []`, `x || []`):
-    ```
-    error[T0301] empty-array-as-unknown.ts:1:20: can't infer the element type of an empty array
-    ```
-    Workarounds in `check/text.cases.ts` and `providers.ts` (`shortcut:`): a typed binding.
-23. **localecompare-options: `localeCompare` takes no locales or options**:
-    ```
-    error[T0201] localecompare-options.ts:2:34: `string.localeCompare` takes 1 argument, found 3
-    signature: string.localeCompare(that: string): int
-    ```
-    The one-argument form orders as Node's ICU does (checked). Workaround in `markdown.ts` (`shortcut:`),
-    with its known differences above.
+    `.exe` (not confirmed). Workaround: stop the service before rebuilding.
+26. **localecompare-compat-chars: ligatures, fullwidth letters and unit symbols sort after every letter.**
+    `'ﬁle'.localeCompare('file', undefined, { sensitivity: 'base' })` is 1 (ICU: 0), and even the
+    one-argument `'ﬁle'.localeCompare('zebra')` is 1 (ICU: -1); the same for `Ａ` (U+FF21) and `㎏`. `²`,
+    `Ⅻ`, `ß`, `Æ` and `ſ` collate as ICU does. Repro `gaps/localecompare-compat-chars.ts`: Node prints
+    `[0,-1,0,0]`, Seshat `[1,1,1,1]`. Found removing gap 23's workaround (an index with a `ﬁle` title
+    sorted it last). Workaround in `markdown.ts` (`shortcut:`): both sides `normalize('NFKC')` first, which
+    ICU at base strength already sees through, so Node's order is unchanged.
 
 Things that worked the first time and were worth checking: V8's lenient `new Date(string)` parsing
 (including local time and rollover), JSON with lone surrogates and integer keys, UTF-16 `slice` through
@@ -359,9 +226,9 @@ vendored SQLite.
 
 Next is step 3, the usage meter: `usagelog.js` on the service, `POST /api/event` forwarded (the first POST,
 so the 5 MB JSON body cap and the `sendError` 400/413 cases come with it), checked with `routes.sh`
-(extend it for a POST body) plus the JSONL lines it writes on twin log files. Gaps 24 and 25 aren't
-reported to the Seshat session yet; find it with ListAgents rather than editing ../Seshat from here. When a gap is
-fixed: delete its `shortcut:` workaround (grep for the gap's name), rerun `node seshat/check/run.mjs`, and
+(extend it for a POST body) plus the JSONL lines it writes on twin log files. Gaps 24 and 25 are being
+fixed in the Seshat session; gap 26 isn't reported there yet (find the session with ListAgents rather than
+editing ../Seshat from here). When a gap is fixed: delete its `shortcut:` workaround (grep for the gap's name), rerun `node seshat/check/run.mjs`, and
 move the gap to a "fixed" line here.
 
 The branch is pushed to `origin`; push after each step.

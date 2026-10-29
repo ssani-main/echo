@@ -3,7 +3,6 @@ import {
   thresholdCharsFor, chunkBudgetCharsFor,
 } from '../digest.ts';
 import type { Usage } from '../digest.ts';
-import type { EchoError } from '../errors.ts';
 import { out } from './out.ts';
 
 out('buildClaudeArgs', buildClaudeArgs());
@@ -20,6 +19,12 @@ for (const c of charCounts) {
   for (const b of bases) out(`scaledTimeoutMs(${c}, ${b})`, b === undefined ? scaledTimeoutMs(c) : scaledTimeoutMs(c, b));
 }
 out('scaledTimeoutMs(1, null)', scaledTimeoutMs(1, null));
+// The original coerces anything with Number().
+const loose: unknown[] = ['960000', '', ' 12 ', 'abc', '1e6', true, null, [], [960_001], {}];
+for (const v of loose) {
+  out(`scaledTimeoutMs(${JSON.stringify(v)})`, scaledTimeoutMs(v));
+  out(`scaledTimeoutMs(1, ${JSON.stringify(v)})`, scaledTimeoutMs(1, v));
+}
 
 // --- mergeUsage
 const u = (costUsd: number | null, n: number, durationMs: number | null): Usage => ({
@@ -64,9 +69,7 @@ looseInputs.forEach((input, i) => {
   try {
     out(`parseJsonLoose#${i}`, { value: parseJsonLoose(input) });
   } catch (e) {
-    // shortcut: `e as Error & { echoCode?: string }` doesn't compile (gap: error-intersection); every error
-    // parseJsonLoose throws is an EchoError, so cast to that.
-    const err = e as EchoError;
+    const err = e as Error & { echoCode?: string };
     out(`parseJsonLoose#${i}`, { error: err.name, message: err.message, echoCode: err.echoCode });
   }
 });

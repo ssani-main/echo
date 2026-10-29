@@ -72,16 +72,8 @@ async function retryCase(name: string, failures: Error[], delays: number[]): Pro
     out(`withDownloadRetry/${name}`, describe(e, attempts, retries));
   }
 }
-// shortcut: only the defined fields, because an `any`/`unknown` field holding undefined serialises as null in
-// Seshat (gap: json-undefined-unknown-field). Return the object literal once fixed.
 function describe(err: any, attempts: number, retries: number): unknown {
-  const fields: [string, unknown][] = [
-    ['name', err.name], ['message', err.message], ['echoCode', err.echoCode], ['hint', err.hint], ['detail', err.detail],
-    ['attempts', attempts], ['retries', retries],
-  ];
-  const shown: Record<string, unknown> = {};
-  for (const [key, value] of fields) if (value !== undefined) shown[key] = value;
-  return shown;
+  return { name: err.name, message: err.message, echoCode: err.echoCode, hint: err.hint, detail: err.detail, attempts, retries };
 }
 const transient = new Error('Command failed: HTTP Error 403: Forbidden');
 const permanent = new Error('Private video');

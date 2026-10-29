@@ -1,9 +1,6 @@
 import { extractVideoId, extractSummary } from '../text.ts';
 import { out } from './out.ts';
 
-// shortcut: `[]` where an `unknown` is expected doesn't compile (gap: empty-array-as-unknown), so the
-// empty array is a typed binding; inline it again once Seshat infers it.
-const emptyArray: unknown[] = [];
 
 // The corpus of tests/shared-parity.test.js, plus Unicode and junk inputs.
 const ids: unknown[] = [
@@ -22,7 +19,7 @@ const ids: unknown[] = [
   '\u00a0GRzaq5AHiV8\u00a0', '\u3000https://youtu.be/GRzaq5AHiV8\u2029', 'https://youtu.be/GRzaq5AHiV8\u00a0x',
   'https://www.youtube.com/watch?v=GRzaq5AHiV8\u2003', 'https://www.youtube.com/watch?v=GRzaq5AHiV',
   'GRzaq5AHiV8\n', 'v=GRzaq5AHiV8', 'https://m.youtube.com/watch?feature=share&v=GRzaq5AHiV8',
-  null, undefined, 42, {}, emptyArray,
+  null, undefined, 42, {}, [],
 ];
 ids.forEach((v, i) => out(`extractVideoId#${i}`, extractVideoId(v)));
 

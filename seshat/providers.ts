@@ -104,11 +104,7 @@ export interface ReasoningFields {
  * {} when the provider has no such concept, which keeps the CLI path unchanged.
  */
 export function reasoningFields(opts: ProviderOpts = {}, providerId: string | null = null): ReasoningFields {
-  // shortcut: `(providerId && PROVIDERS[providerId]) || getProviderLimits(opts)` keeps `string` in its type
-  // in Seshat (gap: and-or-narrowing), and the lookup as a conditional's branch traps on a missing key (gap:
-  // record-lookup-in-conditional), so the lookup ends in `?? null`. Back to the original once both are fixed.
-  const named = providerId ? PROVIDERS[providerId] ?? null : null;
-  const facts = named || getProviderLimits(opts);
+  const facts = (providerId && PROVIDERS[providerId]) || getProviderLimits(opts);
   const dialect = facts.reasoning && facts.reasoning.dialect;
   if (!dialect) return {};
 
@@ -316,10 +312,8 @@ function field(v: unknown, key: string): unknown {
 
 /** `v[0]` as JavaScript reads it: an array's first element, a string's first char, a record's "0". */
 function first(v: unknown): unknown {
-  // shortcut: the length checks, because `v[0]` on an empty array traps in Seshat where JavaScript gives
-  // undefined (gap: index-out-of-range-traps). Plain `v[0]` once it doesn't.
-  if (Array.isArray(v)) return v.length > 0 ? v[0] : undefined;
-  if (typeof v === 'string') return v.length > 0 ? v[0] : undefined;
+  if (Array.isArray(v)) return v[0];
+  if (typeof v === 'string') return v[0];
   return field(v, '0');
 }
 
@@ -348,11 +342,7 @@ export function parseSseLine(line: string): SseLine | null {
   // The original's `json.choices` throws on a `null` frame, outside its try.
   if (json === null) throw new TypeError("Cannot read properties of null (reading 'choices')");
 
-  // shortcut: `|| []` doesn't compile where the result is `unknown` (gap: empty-array-as-unknown), and the
-  // original's `|| {}` crashes when the guard in field() reads it (gap: guard-on-object-literal-crashes), so
-  // the fallback is undefined, which has the same (no) fields. `|| [] ... || {}` again once both are fixed.
-  const noChoices: unknown[] = [];
-  const choice = first(field(json, 'choices') || noChoices) || undefined;
+  const choice = first(field(json, 'choices') || []) || {};
   const delta = field(field(choice, 'delta'), 'content') || '';
   return {
     text: typeof delta === 'string' && delta ? delta : undefined,

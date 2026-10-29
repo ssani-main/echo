@@ -10,9 +10,7 @@ import type { ProviderOpts } from './providers.ts';
 
 // Wall-clock guard for one CLI call. Bare Number(...) || fallback: a malformed
 // value cannot be abused into anything, it just falls back.
-// shortcut: `?? ''` because Seshat's Number() takes only a string (gap: number-of-non-string); Number('')
-// and Number(undefined) both fall back here. Drop it when Number() takes anything, as in TypeScript.
-const DEFAULT_TIMEOUT_MS = Number(process.env.ECHO_DIGEST_TIMEOUT_MS ?? '') || 180_000;
+const DEFAULT_TIMEOUT_MS = Number(process.env.ECHO_DIGEST_TIMEOUT_MS) || 180_000;
 
 // System prompt that pins the CLI subprocess to a pure text-transformation
 // role. Without it the spawned `claude -p` runs as an interactive Claude Code
@@ -76,16 +74,10 @@ export function chunkBudgetCharsFor(opts: ProviderOpts = {}): number {
  * Per-call time allowance for a single-call digest of `chars` transcript
  * chars: base x ceil(chars / 480k), never below base.
  */
-// shortcut: the original coerces anything with Number() (scaledTimeoutMs('960000') works there); Seshat's
-// Number() takes only a string (gap: number-of-non-string), so the parameters are numbers, which is what
-// every caller passes. Take `unknown` again when Number() does.
-export function scaledTimeoutMs(chars: number, baseMs: number | null = DEFAULT_TIMEOUT_MS): number {
-  const base = Number(baseMs ?? NaN) > 0 ? Number(baseMs ?? NaN) : DEFAULT_TIMEOUT_MS;
+export function scaledTimeoutMs(chars: unknown, baseMs: unknown = DEFAULT_TIMEOUT_MS): number {
+  const base = Number(baseMs) > 0 ? Number(baseMs) : DEFAULT_TIMEOUT_MS;
   const n = Number(chars) || 0;
-  const ratio = n / LONG_PATH_THRESHOLD_CHARS;
-  // shortcut: Seshat's Math.ceil returns an int and traps on Infinity (gap: math-ceil-infinity), where
-  // JavaScript gives Infinity; an infinite ratio is passed through as it is. Plain Math.ceil once fixed.
-  return base * Math.max(1, Number.isFinite(ratio) ? Math.ceil(ratio) : ratio);
+  return base * Math.max(1, Math.ceil(n / LONG_PATH_THRESHOLD_CHARS));
 }
 
 // On Windows `claude` is a .cmd shim, which cannot be spawned without

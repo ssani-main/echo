@@ -46,6 +46,10 @@ const items: VaultItem[] = [
 out('buildVaultIndex/all', buildVaultIndex(items));
 out('buildVaultIndex/one', buildVaultIndex(items.slice(0, 1)));
 out('buildVaultIndex/empty', buildVaultIndex([]));
+// Titles ICU calls equal at base strength where case- and accent-folding doesn't (the old collation shortcut).
+const icuEqual = ['strasse', 'Straße', 'aether', 'Æther', 'ol', 'Øl', 'xii', 'Ⅻ', 'file', 'ﬁle', 'Strasse', 'Zebra', 'apple', 'Ａpple', '㎏', 'kg', 'ﬂow', 'flow'];
+out('buildVaultIndex/icu-base', buildVaultIndex(icuEqual.map((title, i) => ({ link: `c/${i}`, title, savedAt: '2026-04-01T00:00:00Z' }))));
+out('buildVaultIndex/icu-base-reversed', buildVaultIndex([...icuEqual].reverse().map((title, i) => ({ link: `r/${i}`, title, savedAt: '2026-04-01T00:00:00Z' }))));
 out('buildVaultIndex/null', buildVaultIndex(null));
 out('buildVaultIndex/undefined', buildVaultIndex(undefined));
 

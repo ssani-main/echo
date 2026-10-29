@@ -64,10 +64,7 @@ const sseLines = [
 sseLines.forEach((line, i) => {
   try {
     const parsed = parseSseLine(line);
-    // shortcut: an absent `usage` (an optional `unknown`) serialises as null in Seshat (gap:
-    // json-undefined-unknown-field), so it is printed without the field then. Print `parsed` once fixed.
-    if (parsed && parsed.usage === undefined) out(`parseSseLine#${i}`, { text: parsed.text, finishReason: parsed.finishReason });
-    else out(`parseSseLine#${i}`, parsed);
+    out(`parseSseLine#${i}`, parsed);
   } catch (e) {
     const err = e as Error;
     out(`parseSseLine#${i}`, { error: `${err.name}: ${err.message}` });

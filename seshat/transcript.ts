@@ -57,10 +57,7 @@ const PERMANENT_ERROR_PATTERNS = [
   /impossible to retrieve/i,
 ];
 
-// shortcut: the original reads err.message off anything; a structural { message?: string } would say that,
-// but Seshat refuses an Error for it (gap: error-to-structural-type), so the parameters take Error. Go back
-// to { message?: string } when Seshat accepts it.
-export function isPermanentFetchError(err: Error | null | undefined): boolean {
+export function isPermanentFetchError(err: { message?: string } | null | undefined): boolean {
   const message = (err && err.message) || '';
   return PERMANENT_ERROR_PATTERNS.some((re) => re.test(message));
 }
@@ -77,15 +74,12 @@ export interface CaptionSegment {
   offset: number;
 }
 
-// shortcut: generic in the original (any fetcher's result); a generic `() => Promise<T>` parameter refuses
-// a fetcher that throws (gap: generic-throwing-callback), so it is fixed to the one result every caller
-// has. Make it generic again when Seshat accepts the throwing callback.
-export async function fetchWithRetry(
-  fetcher: (videoId: string, lang: string | undefined) => Promise<CaptionSegment[]>,
+export async function fetchWithRetry<T>(
+  fetcher: (videoId: string, lang: string | undefined) => Promise<T>,
   videoId: string,
   lang: string | undefined,
   retryDelaysMs: number[] = DEFAULT_RETRY_DELAYS_MS,
-): Promise<CaptionSegment[]> {
+): Promise<T> {
   let lastErr: Error | undefined;
   const maxAttempts = 1 + retryDelaysMs.length;
 
@@ -117,7 +111,7 @@ export interface TranscriptFailure {
  * two-strike machine log. Inspects the combined primary + yt-dlp error text.
  */
 export function classifyTranscriptFailure(
-  primaryError: Error | null | undefined, // shortcut: Error, not { message?: string } (see isPermanentFetchError)
+  primaryError: { message?: string } | null | undefined,
   ytDlpDetail: string | null | undefined,
 ): TranscriptFailure {
   const text = `${primaryError?.message || ''}\n${ytDlpDetail || ''}`;

@@ -84,19 +84,15 @@ export async function withDownloadRetry(
   opts: { downloadRetryDelaysMs?: number[] } = {},
   onRetry: ((pct: number) => void) | null = null,
 ): Promise<unknown> {
-  // shortcut: `opts?.`, because a defaulted parameter followed by a `= null` one reads as possibly
-  // undefined in Seshat (gap: default-param-then-null-default). Plain `opts.` once fixed.
-  const given = opts?.downloadRetryDelaysMs;
-  const delays = given !== undefined ? given : DEFAULT_DOWNLOAD_RETRY_DELAYS_MS;
-  // shortcut: typed Error, not `any`, because an `any` variable holding a caught error and then rethrown
-  // makes Seshat's generated C fail to compile (gap: rethrow-any-c-error); the extra fields are read
-  // through downloadDetail()'s `any` parameter. `let lastErr: any` once fixed.
-  let lastErr: Error | undefined;
+  const delays = opts.downloadRetryDelaysMs !== undefined
+    ? opts.downloadRetryDelaysMs
+    : DEFAULT_DOWNLOAD_RETRY_DELAYS_MS;
+  let lastErr: any;
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     try {
       return await run();
     } catch (err) {
-      lastErr = err as Error;
+      lastErr = err;
       const canRetry = attempt < delays.length && isTransientDownloadFailure(err);
       if (!canRetry) break;
       if (onRetry) { try { onRetry(0); } catch { /* progress is best-effort */ } }
@@ -110,14 +106,10 @@ export async function withDownloadRetry(
       'YouTube refused the audio download.',
       'AUDIO_DOWNLOAD_REFUSED',
       'YouTube throttles audio downloads under load. This is usually temporary — try again in a minute.',
-      downloadDetail(lastErr),
+      lastErr.stderr || lastErr.message || '',
     );
   }
-  throw lastErr!;
-}
-
-function downloadDetail(err: any): string {
-  return err.stderr || err.message || '';
+  throw lastErr;
 }
 
 // Audio/video containers ffmpeg will happily decode; only for a friendlier
