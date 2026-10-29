@@ -7,6 +7,7 @@
 
 import { DEFAULT_PROVIDER_ID, getProviderId, getReasoningLevel, publicProviderList, type PublicProvider } from './providers.ts';
 import { thresholdCharsFor } from './digest.ts';
+import { logEvent } from './usagelog.ts';
 
 // Same derivation as server.js: an unrecognised value is local.
 const ECHO_MODE = process.env.ECHO_MODE === 'web' ? 'web' : process.env.ECHO_MODE === 'desktop' ? 'desktop' : 'local';
@@ -21,9 +22,10 @@ if (secret.length < 32) {
   process.exit(1);
 }
 
-// Express's spelling of the JSON type, so a forwarded answer's headers match server.js's own.
 // x-echo-mode: server.js refuses an answer made in another mode than its own.
-const headers: Record<string, string> = { 'x-served-by': 'seshat', 'x-echo-mode': ECHO_MODE, 'content-type': 'application/json; charset=utf-8' };
+const bare: Record<string, string> = { 'x-served-by': 'seshat', 'x-echo-mode': ECHO_MODE };
+// Express's spelling of the JSON type, so a forwarded answer's headers match server.js's own.
+const headers: Record<string, string> = { ...bare, 'content-type': 'application/json; charset=utf-8' };
 
 interface ErrorBody { error: { code: string; message: string; hint: string } }
 
@@ -60,6 +62,67 @@ function providers(): Response {
   return Response.json(body, { headers });
 }
 
+// server.js's express.json({ limit: '5mb' }): body-parser's 5 MiB, a body of exactly that much is read.
+const BODY_LIMIT = 5 * 1024 * 1024;
+
+interface JsonBody { value: unknown; error: Response | undefined }
+
+/**
+ * The request body as express.json() leaves req.body: {} unless the type is application/json, {} for an
+ * empty body, and server.js's own 413 and 400 envelopes (its error middleware) for too large and not JSON,
+ * where body-parser's strict mode takes only an object or an array.
+ * shortcut: no charset or content-encoding handling (Node answers a gzipped or latin1 body; here it would be
+ * read as UTF-8), and a chunked body is read whole before the size check. Behind server.js neither happens,
+ * as express.json() has already read the body; needed by the front-door swap (step 9).
+ */
+async function jsonBody(req: Request): Promise<JsonBody> {
+  const type = (req.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase();
+  if (type !== 'application/json') return { value: {}, error: undefined };
+  if (Number(req.headers.get('content-length')) > BODY_LIMIT) return tooLarge();
+  const bytes = await req.bytes();
+  if (bytes.length > BODY_LIMIT) return tooLarge();
+  const text = new TextDecoder().decode(bytes);
+  if (text.length === 0) return { value: {}, error: undefined };
+  const first = /^[\x20\x09\x0a\x0d]*([^\x20\x09\x0a\x0d])/.exec(text);
+  if (!first || (first[1] !== '{' && first[1] !== '[')) return notJson();
+  try {
+    const value: unknown = JSON.parse(text);
+    return { value, error: undefined };
+  } catch {
+    return notJson();
+  }
+}
+
+function tooLarge(): JsonBody {
+  const hint = 'Echo sends large libraries in batches — if you are seeing this, try syncing again.';
+  return { value: undefined, error: sendError('TRANSCRIPT_UNAVAILABLE', 'That request is too large.', hint, 413) };
+}
+
+function notJson(): JsonBody {
+  return { value: undefined, error: sendError('INTERNAL', 'That request body was not valid JSON.', '', 400) };
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+// What happens to a digest after it is read happens in the browser, so the meter only learns it if the page
+// says so. Names are an allow-list: this writes to a local file and must not become a way to write lines.
+const CLIENT_EVENTS = new Set(['digest-copy', 'digest-download', 'digest-print', 'entry-export']);
+
+/** POST /api/event: one line in the usage log (none in web mode), 204. */
+async function clientEvent(req: Request): Promise<Response> {
+  const body = await jsonBody(req);
+  if (body.error) return body.error;
+  const fields = isRecord(body.value) ? body.value : {};
+  const event = fields.event;
+  const videoId = fields.videoId;
+  if (typeof event !== 'string' || !CLIENT_EVENTS.has(event)) return sendError('INTERNAL', 'Unknown event.', '', 400);
+  logEvent(event, { videoId: typeof videoId === 'string' ? videoId.slice(0, 32) : null, ok: true });
+  // shortcut: `undefined`, because Seshat refuses TypeScript's `null` body (gap: response-null-body). `null` once fixed.
+  return new Response(undefined, { status: 204, headers: bare });
+}
+
 /** Every route checks this first: refuse what didn't come through server.js. */
 function refused(req: Request): Response | undefined {
   return notForwarded(req) ? sendError('FORBIDDEN', 'Not forwarded by Echo.', '', 403) : undefined;
@@ -71,6 +134,7 @@ const server = Bun.serve({
   routes: {
     "/api/health": { GET: (req) => refused(req) ?? health() },
     "/api/providers": { GET: (req) => refused(req) ?? providers() },
+    "/api/event": { POST: async (req) => refused(req) ?? await clientEvent(req) },
   },
   fetch() {
     return sendError('NOT_FOUND', 'Not found.', '', 404);

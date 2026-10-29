@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
+import { createServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -11,9 +11,13 @@ import { join } from 'node:path';
 const SECRET = 'test-secret-0123456789abcdef0123456789';
 let service = { mode: 'local', status: 201, body: '{"from":"service"}' };
 let seen = null;
-const fake = createServer((req, res) => {
+const fake = createServer(async (req, res) => {
+  let body = '';
+  for await (const chunk of req) body += chunk;
   seen = { url: req.url, secret: req.headers['x-echo-forward'] };
-  res.writeHead(service.status, { 'x-served-by': 'seshat', 'x-echo-mode': service.mode, 'content-type': 'application/json; charset=utf-8' });
+  if (req.method === 'POST') seen.body = body;
+  const type = service.body ? { 'content-type': 'application/json; charset=utf-8' } : {};
+  res.writeHead(service.status, { 'x-served-by': 'seshat', 'x-echo-mode': service.mode, ...type });
   res.end(service.body);
 });
 await new Promise((r) => fake.listen(0, '127.0.0.1', r));
@@ -43,6 +47,22 @@ test('a service running in another mode is not trusted: server.js answers itself
   const res = await fetch(`${base}/api/health`);
   assert.equal(res.headers.get('x-served-by'), null);
   assert.deepEqual(await res.json(), { status: 'ok', mode: 'local' });
+});
+
+test('a POST is forwarded with its JSON body, even with expect: 100-continue, and a 204 gets no ETag', async () => {
+  service = { mode: 'local', status: 204, body: '' };
+  // fetch() can't send `expect`; curl does, for bodies over 1 MB, and fetch() refused to forward it.
+  const payload = JSON.stringify({ event: 'digest-copy', videoId: 'GRzaq5AHiV8' });
+  const res = await new Promise((resolve, reject) => {
+    const req = request(`${base}/api/event`, { method: 'POST', headers: { 'content-type': 'application/json', expect: '100-continue' } }, resolve);
+    req.on('continue', () => req.end(payload));
+    req.on('error', reject);
+  });
+  res.resume();
+  assert.equal(res.statusCode, 204);
+  assert.equal(res.headers['x-served-by'], 'seshat');
+  assert.equal(res.headers.etag, undefined);
+  assert.deepEqual(seen, { url: '/api/event', secret: SECRET, body: payload });
 });
 
 test('with the service down, server.js answers itself', async () => {

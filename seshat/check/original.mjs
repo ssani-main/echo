@@ -15,6 +15,7 @@ const ORIGINALS = {
   'digest.ts': 'digest.js',
   'providers.ts': 'providers.js',
   'whisper.ts': 'whisper.js',
+  'usagelog.ts': 'usagelog.js',
 };
 
 registerHooks({

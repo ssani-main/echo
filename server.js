@@ -965,8 +965,9 @@ const SESHAT_SECRET = process.env.ECHO_SESHAT_SECRET || '';
 if (SESHAT_URL && SESHAT_SECRET.length < 32) {
   throw new Error('ECHO_SESHAT_URL is set, so ECHO_SESHAT_SECRET must be too (32+ characters, the same value the Seshat service gets).');
 }
-// Per connection, or describing a body fetch() has already decoded.
-const SESHAT_SKIP_HEADERS = new Set(['x-echo-mode', 'host', 'connection', 'keep-alive', 'content-length', 'transfer-encoding', 'accept-encoding', 'content-encoding', 'date']);
+// Per connection, or describing a body fetch() has already decoded. `expect: 100-continue` (curl sends it
+// with bodies over 1 MB) is answered by this server, and fetch() refuses to send it ("expect header not supported").
+const SESHAT_SKIP_HEADERS = new Set(['x-echo-mode', 'host', 'connection', 'keep-alive', 'content-length', 'transfer-encoding', 'accept-encoding', 'content-encoding', 'date', 'expect']);
 
 async function seshat(req, res, next) {
   if (!SESHAT_URL) return next();
@@ -997,6 +998,8 @@ async function seshat(req, res, next) {
   answer.headers.forEach((value, name) => {
     if (!SESHAT_SKIP_HEADERS.has(name)) res.set(name, value);
   });
+  // A bodiless answer (204) ends as the handlers end theirs; res.send() would add an ETag of the empty body.
+  if (bytes.length === 0) return res.end();
   res.send(bytes);
 }
 
@@ -1540,7 +1543,7 @@ const DIGEST_VIA = new Set(['paste', 'extension', 'file', 'library']);
 // writes to a local file and must not become a way to write arbitrary lines.
 const CLIENT_EVENTS = new Set(['digest-copy', 'digest-download', 'digest-print', 'entry-export']);
 
-app.post('/api/event', requireApproved, (req, res) => {
+app.post('/api/event', requireApproved, seshat, (req, res) => {
   const { event, videoId } = req.body || {};
   if (!CLIENT_EVENTS.has(event)) return sendError(res, 'INTERNAL', 'Unknown event.', '', 400);
   logEvent(event, { videoId: typeof videoId === 'string' ? videoId.slice(0, 32) : null, ok: true });

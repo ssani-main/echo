@@ -56,6 +56,7 @@ scratch folder, not in this repo):
 | `providers.ts` | `providers.js`'s registry: `PROVIDERS`, `REASONING_LEVELS`, `normalizeProviderId`, `normalizeReasoningLevel`, `getProviderId`, `getProviderLimits`, `getReasoningLevel`, `reasoningFields`, `publicProviderList`, `truncationFields`, `isTruncationReason`, `deepseekModelFor`, `parseSseLine` | 286 | identical. `parseSseLine` walks junk frames as the original does (`"choices":"abc"`, `{"0":…}`, `data: null` throwing its TypeError) |
 | `whisper.ts` | `whisper.js`: `buildWhisperArgs`, `chooseModelForLanguage`, `isTransientDownloadFailure`, `withDownloadRetry`, `mapWhisperError`, `LOCAL_MEDIA_EXTENSIONS` | 117 | identical |
 | `vault.ts` | `vault.js` (`slugify`, `monthFolder`) | 31 | identical |
+| `usagelog.ts` | `usagelog.js` (`logEvent`, `errLabel`) | 17 | identical: the JSONL lines written (ts masked), rotation at 400 bytes, lone surrogates, fields overriding `event`/`ts`. Shortcuts: the default path from the working directory (gap 28), rotation by copy + unlink (gap 29), the case file's environment set by `run.mjs` (gap 27) |
 
 Differences on purpose:
 
@@ -83,7 +84,7 @@ Found in Echo itself (the original is left as it is):
 Not ported yet from these modules, on purpose: `transcript.js`'s fetching (`fetchViaPackage`,
 `fetchViaYtDlp`, `getVideoMeta`, `listCaptionTracks`, `fetchTranscript`), `digest.js`'s CLI and provider
 calls, prompts and map-reduce, `providers.js`'s three providers, `whisper.js`'s spawns and
-`mapWhisperJson`, `vault.js`'s `syncVault`, and usagelog's one-line `errLabel`. They come with their routes,
+`mapWhisperJson`, and `vault.js`'s `syncVault`. They come with their routes,
 below.
 
 ## The plan
@@ -116,9 +117,9 @@ twin copies), add the route to the forwarded list, run the Node test suite with 
 | # | Step | Modules | Routes | npm dependency replaced | Seshat needs |
 |---|---|---|---|---|---|
 | 0 | **Pure logic** (done, above) | sanitize, common/text, markdown, the pure parts of transcript, digest, vault | | | |
-| 1 | **Pure logic, rest** (done, above, but `errLabel`) | providers.js registry, whisper.js's pure parts | | | |
+| 1 | **Pure logic, rest** (done, above) | providers.js registry, whisper.js's pure parts | | | |
 | 2 | **Service skeleton + forwarding** (done, below) | `seshat/server.ts`: `Bun.serve`'s own `routes` (method + `:param` paths, so no router of ours), `sendError` envelope; server.js's `seshat` middleware | `GET /api/health`, `GET /api/providers` | express (for these) | done (gap 24 worked around) |
-| 3 | Usage meter | usagelog.js (`appendFile`, `stat`, `rename`, `errLabel`); the 5 MB JSON body cap comes with this first POST route | `POST /api/event` | | done |
+| 3 | **Usage meter** (done, below) | usagelog.js (`appendFile`, `stat`, `rename`, `errLabel`); the 5 MB JSON body cap comes with this first POST route | `POST /api/event` | | done |
 | 4 | Library (local/desktop) | store.js on `bun:sqlite` (FTS5 is compiled in; `PRAGMA user_version` migrations, rowid-keyed FTS), vault.js `syncVault` | `GET/POST/DELETE /api/saved*`, `PATCH .../tags`, `GET /api/search`, `GET /api/saved/:id/export.md`, `POST /api/vault/sync` | (node:sqlite → bun:sqlite) | `db.transaction()` and named parameters are "not yet" in Seshat; store.js uses positional ones. **`GET /api/saved/export` streams** gzip: Seshat can now (gap 1 fixed), the forwarding has to stream too |
 | 5 | Transcripts | transcript.js; **youtube-transcript replaced by Echo's own code**: InnerTube `youtubei/v1/player` for the caption tracks, then the track's XML, ~150 lines (the package is 257). Keep its error messages word for word: `isPermanentFetchError` and `classifyTranscriptFailure` match on them. yt-dlp through `promisify(execFile)` (proven by seshat-acceptance) | `POST /api/transcript`, `GET /api/languages`, `GET /api/video-meta` (oEmbed via `fetch`) | youtube-transcript | nothing left: gaps 3 (throwing-callback-result-json) and 5 (define-property-on-array) are fixed, so the fetchers can tag the array as the original does |
 | 6 | Whisper (local/desktop) | whisper.js (spawn, kill, stderr progress: proven), whisperModel.js (download: `fetch` body reader + `std/crypto` sha256 instead of `stream.pipeline`/`Transform`) | `GET /api/whisper/status`, `POST /api/whisper/model`, `POST /api/transcript/file` (raw body) | | **`GET /api/transcript/progress` is SSE**: Seshat can now (gap 1 fixed), the forwarding has to stream too |
@@ -161,11 +162,43 @@ ECHO_SESHAT_URL=http://127.0.0.1:8001 ECHO_SESHAT_SECRET=<same> npm start  # Ech
 - Shortcuts in the middleware (`shortcut:`): JSON request bodies only (raw-body routes come in step 6),
   and the answer is buffered (streamed routes wait for the front-door swap or a streaming forward).
 
+### Step 3: the usage meter (done)
+
+- **`seshat/usagelog.ts`** on the service, and `POST /api/event` in `server.ts`, forwarded by server.js
+  after `requireApproved`. Its JSON body is read as server.js's `express.json({ limit: '5mb' })` leaves
+  `req.body` (`jsonBody()`): `{}` unless the type is `application/json`, `{}` for an empty body, a body of
+  exactly 5 MiB read, one byte more server.js's 413 envelope, and anything but an object or array
+  (body-parser's strict mode: `5`, `"x"`, `null`, blanks) or broken JSON its 400. Behind server.js those
+  two never reach the service, since express.json() answers first; the service has them for the front-door
+  swap. Shortcut (`shortcut:`): no charset or content-encoding handling yet, and a chunked body is read
+  whole before the size check.
+- **`routes.sh`** takes a request per argument now: `'POST /api/event <json>'`, `@file` for a body,
+  `POST:<type>` for another content type, and a leading `!` for a request server.js answers before
+  forwarding, which is then also sent to the service directly and must get the same status and body.
+  Afterwards it compares the usage logs: server.js alone writes one, the service the other (lines with the
+  `ts` masked, and the rotated `.1.jsonl`).
+- **Checked:** 24 `/api/event` requests (each allow-listed event; `videoId` a number, null, cut through an
+  emoji; arrays, `{}`, no body, `__proto__`, unknown names, `text/plain`, `charset`, upper case, 5 MiB, 5 MiB
+  + 1, broken JSON, `5`, `"x"`, `null`, blanks) identical plain and gzipped, and the usage logs identical: in
+  local mode, in web mode (no log on either side), with `ECHO_USAGE_SYNTHETIC=1 ECHO_USAGE_ROTATE_BYTES=600`
+  (rotated several times), and `/api/health`, `/api/providers` and an event with `ECHO_PROVIDER=deepseek
+  ECHO_THINKING=high`. The Node suite: 721 pass, 15 skipped, 0 fail with forwarding off, and the same with
+  it on (the service started with `ECHO_USAGE_LOG_PATH` set to the suite's `ECHO_TEST_USAGE_LOG`, a
+  test-only name, so `api.test.js` reads the line the service wrote). One run with forwarding on failed
+  `digest-idle-timeout.test.js` (a 1 s idle timer, under load); alone it passed 3 of 3, and the full rerun
+  passed.
+- **Two bugs in step 2's forwarding, found by routes.sh:** curl sends `expect: 100-continue` with a body
+  over 1 MB, which server.js copied onto its `fetch()`, which refuses it ("expect header not supported"),
+  so a large body was quietly served by Node instead (now a skipped header); and a forwarded 204 got an
+  `etag` that server.js's own 204 doesn't have (`res.send()` of an empty body; now `res.end()`). Both are in
+  `tests/seshat-forward.test.js`, and reverting either fix fails it.
+
 ## Seshat gaps found while porting
 
-**Status on Seshat `main` ee849ba (2026-10-29):** 26 gaps found, 20 fixed, and their workarounds removed
-from the ports and case files: every case is still identical (905 now). Open: 8, 12's `as-cast-traps` half,
-14 for a thrown non-`Error` object, 24 and 25 (being fixed in the Seshat session), and 26 (new). Each gap
+**Status on Seshat `main` ee849ba (2026-10-29):** 31 gaps found, 20 fixed, and their workarounds removed
+from the ports and case files: every case is still identical (922 now, with usagelog). Open: 8, 12's
+`as-cast-traps` half, 14 for a thrown non-`Error` object, 24 and 25 (being fixed in the Seshat session), and
+26 to 31 (new, not reported to the Seshat session yet). Each gap
 has a repro in `seshat/gaps/<name>.ts` that runs under `node` and that `tsc --strict` accepts (the two
 `Bun.serve` ones need `@types/bun`); `seshat run seshat/gaps/<name>.ts` shows the gap.
 
@@ -216,6 +249,43 @@ empty-array-as-unknown, 23 localecompare-options (but see 26).
     sorted it last). Workaround in `markdown.ts` (`shortcut:`): both sides `normalize('NFKC')` first, which
     ICU at base strength already sees through, so Node's order is unchanged.
 
+New in step 3:
+
+27. **dynamic-import: `await import()` doesn't parse.**
+    ```
+    error[P0004] dynamic-import.ts:3:24: expected an expression, found `import`
+    ```
+    A module that reads its environment when it loads (usagelog.js) is tested by setting the environment,
+    then importing it. Side-effect imports aren't Seshat's either (documented). Workaround in
+    `check/usagelog.cases.ts` (`shortcut:`): `run.mjs` sets that case file's environment.
+28. **import-meta: `import.meta.url` doesn't parse** (nor, so, Node 22's `import.meta.dirname`):
+    ```
+    error[P0004] import-meta.ts:3:30: expected an expression, found `import`
+    ```
+    usagelog.js finds `data/` from it. Workaround in `usagelog.ts` (`shortcut:`): `process.cwd()`, the repo
+    root the service is started from.
+29. **fs-rename: no `rename`.** It isn't one of Seshat's own `node:fs/promises` calls, so the import goes to
+    Node's JavaScript module, which needs JavaScriptCore; on Windows:
+    ```
+    error: npm packages need JavaScriptCore: install WebKitGTK's (on Debian and Ubuntu, libjavascriptcoregtk-4.1-dev; pkg-config finds it)
+    ```
+    And the other names in the same import become `Js`: `(await stat(p)).size >= n` is T0501, "can't
+    compare `Js` with `f64` using `>=`". Workaround in `usagelog.ts` (`shortcut:`): rotation copies the
+    file and unlinks it, which can lose an append landing in between.
+30. **top-level-await-loop-regex: the generated C doesn't compile.** A regex literal at the top level and an
+    `await` inside a top-level loop; the top level is emitted twice, each copy declaring the literal's cache:
+    ```
+    error: internal error: the generated C failed to compile (this is a bug in seshat)
+    ...: error: redeclaration of 'rec2' with no linkage
+    ```
+    Workaround in `check/usagelog.cases.ts` (`shortcut:`): the loop is in an async function.
+31. **response-null-body: `new Response(null, ...)` is refused**, the usual way to write a 204 (TypeScript's
+    `BodyInit | null`):
+    ```
+    error[T0001] response-null-body.ts:4:26: expected `string | URLSearchParams | u8[] | Blob | FormData | ReadableStream | undefined`, found `null`
+    ```
+    Workaround in `server.ts` (`shortcut:`): `undefined`.
+
 Things that worked the first time and were worth checking: V8's lenient `new Date(string)` parsing
 (including local time and rollover), JSON with lone surrogates and integer keys, UTF-16 `slice` through
 emoji, `\p{M}` with `normalize('NFD')`, regex flags, `toLocaleString('en-US')`, `Object.values` over a
@@ -224,11 +294,16 @@ vendored SQLite.
 
 ## Picking this up
 
-Next is step 3, the usage meter: `usagelog.js` on the service, `POST /api/event` forwarded (the first POST,
-so the 5 MB JSON body cap and the `sendError` 400/413 cases come with it), checked with `routes.sh`
-(extend it for a POST body) plus the JSONL lines it writes on twin log files. Gaps 24 and 25 are being
-fixed in the Seshat session; gap 26 isn't reported there yet (find the session with ListAgents rather than
-editing ../Seshat from here). When a gap is fixed: delete its `shortcut:` workaround (grep for the gap's name), rerun `node seshat/check/run.mjs`, and
-move the gap to a "fixed" line here.
+Next is step 4, the library: store.js on `bun:sqlite` and the `/api/saved*`, `/api/search` and
+`/api/vault/sync` routes (the table above), checked as step 3 was, plus the same database rows afterwards on
+twin copies. `GET /api/saved/export` streams: Seshat can serve that now (gap 1 fixed), but server.js's
+forwarding buffers the answer, so it needs a streaming forward or stays on Node until the swap. Run the
+suite with forwarding on as step 3 describes (the service with `ECHO_USAGE_LOG_PATH`, the suite with
+`ECHO_TEST_USAGE_LOG`, the same file).
+
+Gaps 24 and 25 are being fixed in the Seshat session; 26 to 31 aren't reported there yet (find the session
+with ListAgents rather than editing ../Seshat from here). When a gap is fixed: delete its `shortcut:`
+workaround (grep for the gap's name), rerun `node seshat/check/run.mjs`, and move the gap to the "fixed"
+line here.
 
 The branch is pushed to `origin`; push after each step.

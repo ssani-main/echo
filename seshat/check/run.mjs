@@ -6,6 +6,7 @@
 // SESHAT names the compiler (default: ../Seshat/target/release/seshat.exe).
 import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -15,8 +16,13 @@ const names = process.argv.slice(2).length
   ? process.argv.slice(2)
   : readdirSync(HERE).filter((f) => f.endsWith('.cases.ts')).map((f) => f.replace('.cases.ts', ''));
 
+// usagelog.cases.ts's environment (see the shortcut there); the three runs are sequential, so one file serves.
+const env = { ...process.env, ECHO_USAGE_LOG_PATH: join(tmpdir(), 'echo-usagelog-cases.jsonl'), ECHO_USAGE_ROTATE_BYTES: '400' };
+delete env.ECHO_MODE;
+delete env.ECHO_USAGE_SYNTHETIC;
+
 function run(cmd, args) {
-  const r = spawnSync(cmd, args, { cwd: HERE, encoding: 'utf8', maxBuffer: 64 << 20 });
+  const r = spawnSync(cmd, args, { cwd: HERE, env, encoding: 'utf8', maxBuffer: 64 << 20 });
   return { out: r.stdout ?? '', err: (r.stderr ?? '') + (r.error ? String(r.error) : ''), code: r.status };
 }
 

@@ -11,7 +11,10 @@ process.env.ECHO_DB_PATH = DB;
 // synthetic flag alone still filters at read time, but pointing the log at a
 // throwaway path means this test never appends to the real file at all.
 process.env.ECHO_USAGE_SYNTHETIC = '1';
-const USAGE_LOG = join(tmpdir(), `echo-test-api-usage-${process.pid}-${Date.now()}.jsonl`);
+// With forwarding to the Seshat service on (seshat/PORT.md), the service writes
+// /api/event's line, so the suite and the service are given one throwaway file:
+// ECHO_TEST_USAGE_LOG here, ECHO_USAGE_LOG_PATH there. Test-only, as it's deleted after.
+const USAGE_LOG = process.env.ECHO_TEST_USAGE_LOG || join(tmpdir(), `echo-test-api-usage-${process.pid}-${Date.now()}.jsonl`);
 process.env.ECHO_USAGE_LOG_PATH = USAGE_LOG;
 
 const { app } = await import('../server.js');
