@@ -7,6 +7,7 @@ import { Database } from 'bun:sqlite';
 import { mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { safeHttpUrl } from './sanitize.ts';
+import { jsString } from './js.ts';
 
 // The repo root is one up from seshat/, so the default file is the one store.js opens.
 const DB_FILE = process.env.ECHO_DB_PATH || join(dirname(import.meta.dirname), 'data', 'library.db');
@@ -216,16 +217,6 @@ function migrateTranscriptSourceColumns(owner: string): void {
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-
-/** JavaScript's String(v) for a JSON value: arrays joined with commas (null as ''), objects as [object Object]. */
-export function jsString(v: unknown): string {
-  if (typeof v === 'string') return v;
-  if (v === null) return 'null';
-  if (v === undefined) return 'undefined';
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-  if (Array.isArray(v)) return v.map((e) => (e === null || e === undefined ? '' : jsString(e))).join(',');
-  return '[object Object]';
-}
 
 /** `[...new Set(tags.map((t) => String(t).trim()).filter(Boolean))].slice(0, 20)` */
 function sanitizeTags(tags: unknown[]): string[] {

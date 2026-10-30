@@ -1,8 +1,9 @@
 import {
   classifyTranscriptFailure, isMillisecondOffsets, isPermanentFetchError, fetchWithRetry,
-  DEFAULT_RETRY_DELAYS_MS, MEMBERS_ONLY_PATTERNS, extractVideoId,
+  DEFAULT_RETRY_DELAYS_MS, MEMBERS_ONLY_PATTERNS, extractVideoId, fetchViaPackage, fetchTranscript,
 } from '../transcript.ts';
-import type { CaptionSegment } from '../transcript.ts';
+import type { CaptionSegment, FetchedSegment, Segments, FetchTranscriptOptions } from '../transcript.ts';
+import { EchoError } from '../errors.ts';
 import { out } from './out.ts';
 
 // --- classifyTranscriptFailure: the corpus of tests/transcript-error-classify.test.js, plus edges.
@@ -109,3 +110,100 @@ await retryCase('permanent at once', ['Transcript is disabled on this video'], [
 await retryCase('transient then permanent', ['fetch failed', 'Video no longer available'], [1, 2]);
 await retryCase('last error is a TypeError', ['a', 'TypeError'], [1]);
 await retryCase('default delays', ['fetch failed'], undefined);
+
+// --- fetchViaPackage, through its transcriptFetcher seam: which tracks it asks for, the unit, langUsed.
+async function packageCase(name: string, lang: string | undefined, answers: Record<string, FetchedSegment[] | string>): Promise<void> {
+  const calls: string[] = [];
+  const fetcher = async (id: string, ytOpts?: { lang: string }): Promise<FetchedSegment[]> => {
+    const key = ytOpts ? ytOpts.lang : '-';
+    calls.push(`${id}/${key}`);
+    const answer = answers[key];
+    if (answer === undefined) throw new Error(`no ${key} track`);
+    if (typeof answer === 'string') throw new Error(answer);
+    return answer;
+  };
+  try {
+    const segments = await fetchViaPackage('GRzaq5AHiV8', lang, { transcriptFetcher: fetcher });
+    out(`fetchViaPackage/${name}`, { segments, langUsed: segments.langUsed ?? null, calls });
+  } catch (e: any) {
+    out(`fetchViaPackage/${name}`, { error: String(e.message), calls });
+  }
+}
+const ms: FetchedSegment[] = [{ text: 'it&amp;#39;s &amp;quot;q&amp;quot; &lt;b&gt;', offset: 1000, lang: 'en' }, { text: 'two', offset: 3500, lang: 'en' }];
+const secs: FetchedSegment[] = [{ text: 'eins', offset: 1.5, lang: 'de' }, { text: 'zwei', offset: 4, lang: 'de' }];
+await packageCase('preferred en, ms', undefined, { en: ms });
+await packageCase('no en, first track', undefined, { en: 'No transcripts are available in en', '-': secs });
+await packageCase('en empty, first track', undefined, { en: [], '-': secs });
+await packageCase('asked fr, no lang on segments', 'fr', { fr: [{ text: 'un', offset: 2 }] });
+await packageCase('en without lang', undefined, { en: [{ text: 'x', offset: 2 }] });
+await packageCase('missing text and offset', 'en', { en: [{ offset: '3' }, { text: '' }, { text: 'ok', offset: 7 }] });
+await packageCase('asked fr, fails', 'fr', {});
+await packageCase('single segment in ms', 'en', { en: [{ text: 'only', offset: 5000, lang: 'en' }] });
+await packageCase('no tracks at all', undefined, { en: 'down' });
+
+// --- fetchTranscript, through its seams: captions, the yt-dlp fallback, Whisper, and how failures are classified.
+const segs = (text: string): Segments => [{ text, offset: 1 }];
+function failure(message: string, fields: { code?: string; syscall?: string; stderr?: string } = {}): Error {
+  const err: any = new Error(message);
+  if (fields.code !== undefined) err.code = fields.code;
+  if (fields.syscall !== undefined) err.syscall = fields.syscall;
+  if (fields.stderr !== undefined) err.stderr = fields.stderr;
+  return err;
+}
+type Step = Segments | Error;
+async function transcriptCase(name: string, primary: Step, fallback: Step, whisper: { mode?: string; installed?: boolean; result?: Step } = {}, lang?: string): Promise<void> {
+  const calls: string[] = [];
+  const opts: FetchTranscriptOptions = {
+    retryDelaysMs: [],
+    primaryFetcher: async (id: string, l: string | undefined): Promise<Segments> => {
+      calls.push(`primary ${id}/${l ?? '-'}`);
+      if (primary instanceof Error) throw primary;
+      return primary;
+    },
+    captionFallback: async (id: string, l: string | undefined): Promise<Segments> => {
+      calls.push(`yt-dlp ${id}/${l ?? '-'}`);
+      if (fallback instanceof Error) throw fallback;
+      return fallback;
+    },
+    whisperResolver: (_: FetchTranscriptOptions): unknown => {
+      calls.push('resolve whisper');
+      return whisper.installed === true;
+    },
+    transcriber: async (id: string, _: FetchTranscriptOptions): Promise<Segments> => {
+      calls.push(`whisper ${id}`);
+      const result = whisper.result ?? segs('whispered');
+      if (result instanceof Error) throw result;
+      return result;
+    },
+  };
+  if (whisper.mode !== undefined) opts.transcribe = whisper.mode;
+  if (lang !== undefined) opts.lang = lang;
+  try {
+    const result = await fetchTranscript('GRzaq5AHiV8', opts);
+    out(`fetchTranscript/${name}`, { result, calls });
+  } catch (e: any) {
+    out(`fetchTranscript/${name}`, { error: { message: e.message, echoCode: e.echoCode, hint: e.hint, reason: e.reason ?? null, detail: e.detail }, calls });
+  }
+}
+const disabled = failure('[YoutubeTranscript] 🚨 Transcript is disabled on this video (GRzaq5AHiV8)');
+const noTrack = failure('yt-dlp produced no en subtitle track (captions unavailable for this video).');
+await transcriptCase('captions', segs('caption'), noTrack);
+await transcriptCase('captions empty, yt-dlp', [], segs('from yt-dlp'));
+await transcriptCase('transient then yt-dlp', failure('fetch failed'), segs('from yt-dlp'), {}, 'de');
+await transcriptCase('yt-dlp not installed', disabled, failure('spawn yt-dlp ENOENT', { code: 'ENOENT', syscall: 'spawn yt-dlp' }));
+await transcriptCase('ENOENT not from spawn', disabled, failure('ENOENT: no such file or directory, open x.json3', { code: 'ENOENT' }));
+await transcriptCase('members only', disabled, failure('Command failed: yt-dlp', { stderr: 'ERROR: Join this channel to get access to members-only content' }));
+await transcriptCase('no captions', disabled, noTrack);
+await transcriptCase('bot block', disabled, failure('Command failed: yt-dlp', { stderr: 'ERROR: [youtube] GRzaq5AHiV8: Sign in to confirm you’re not a bot.' }));
+await transcriptCase('premiere', failure('Premieres in 3 days'), failure('Command failed', { stderr: '' }));
+await transcriptCase('yt-dlp returns nothing', disabled, []);
+await transcriptCase('whisper always', segs('caption'), noTrack, { mode: 'always', installed: true });
+await transcriptCase('whisper always, not installed', segs('caption'), noTrack, { mode: 'always', installed: false });
+await transcriptCase('whisper fallback', disabled, noTrack, { mode: 'fallback', installed: true });
+await transcriptCase('whisper fallback, not installed', disabled, noTrack, { mode: 'fallback', installed: false });
+await transcriptCase('whisper off', disabled, noTrack, { mode: 'off', installed: true });
+await transcriptCase('whisper fails, ffmpeg', disabled, noTrack, { mode: 'fallback', installed: true, result: new EchoError('ffmpeg was not found on PATH', 'FFMPEG_MISSING') });
+await transcriptCase('whisper fails, stderr', disabled, noTrack, { mode: 'fallback', installed: true, result: failure('whisper-cli exited 1', { stderr: 'bad model file' }) });
+await transcriptCase('whisper fails, plain', disabled, noTrack, { mode: 'fallback', installed: true, result: failure('something broke') });
+await transcriptCase('whisper fails, refused', disabled, noTrack, { mode: 'fallback', installed: true, result: new EchoError('HTTP 403', 'AUDIO_DOWNLOAD_REFUSED') });
+await transcriptCase('members only beats whisper', disabled, failure('x', { stderr: 'This video is available to this channel’s members' }), { mode: 'fallback', installed: true });

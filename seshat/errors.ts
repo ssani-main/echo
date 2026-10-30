@@ -8,10 +8,13 @@ export class EchoError extends Error {
   echoCode: string;
   hint?: string;
   detail?: string;
-  constructor(message: string, echoCode: string, hint?: string, detail?: string) {
+  /** Which error card the client shows (transcript failures: premiere, bot_block, ...). */
+  reason?: string;
+  constructor(message: string, echoCode: string, hint?: string, detail?: string, reason?: string) {
     super(message);
     this.echoCode = echoCode;
     if (hint !== undefined) this.hint = hint;
     if (detail !== undefined) this.detail = detail;
+    if (reason !== undefined) this.reason = reason;
   }
 }

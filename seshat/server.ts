@@ -12,6 +12,7 @@ import { forOwner, type Meta, type SaveInput, type SearchResult } from './store.
 import { EchoError } from './errors.ts';
 import { syncVault, markdownEntry } from './vault.ts';
 import { entryToMarkdown } from './markdown.ts';
+import { extractVideoId, fetchTranscript, getVideoMeta, listCaptionTracks, type CaptionSegment, type CaptionTrack, type FetchTranscriptOptions } from './transcript.ts';
 
 // Same derivation as server.js: an unrecognised value is local.
 const ECHO_MODE = process.env.ECHO_MODE === 'web' ? 'web' : process.env.ECHO_MODE === 'desktop' ? 'desktop' : 'local';
@@ -31,24 +32,30 @@ const bare: Record<string, string> = { 'x-served-by': 'seshat', 'x-echo-mode': E
 // Express's spelling of the JSON type, so a forwarded answer's headers match server.js's own.
 const headers: Record<string, string> = { ...bare, 'content-type': 'application/json; charset=utf-8' };
 
-interface ErrorBody { error: { code: string; message: string; hint: string } }
+interface ErrorFields { code: string; message: string; hint: string; reason?: string; detail?: string }
+interface ErrorBody { error: ErrorFields }
 
-/** server.js's sendError envelope, without the optional reason/detail (no ported route sends them yet). */
-function sendError(code: string, message: string, hint: string, status: number): Response {
+/** server.js's sendError envelope; reason and detail only when given and not empty. */
+function sendError(code: string, message: string, hint: string, status: number, reason?: string, detail?: string): Response {
   console.error(`[echo] ${code}: ${message}`);
-  const body: ErrorBody = { error: { code, message, hint } };
+  const error: ErrorFields = { code, message, hint };
+  if (reason) error.reason = reason;
+  if (detail) error.detail = detail;
+  const body: ErrorBody = { error };
   return Response.json(body, { status, headers });
 }
 
 // server.js's ECHO_ERROR_STATUS, for the codes a ported route can throw.
-const ERROR_STATUS: Record<string, number> = { INVALID_URL: 400, INTERNAL: 500 };
+const ERROR_STATUS: Record<string, number> = {
+  INVALID_URL: 400, TRANSCRIPT_UNAVAILABLE: 422, YTDLP_MISSING: 503, MEMBERS_ONLY: 422, INTERNAL: 500,
+};
 
 /** server.js's sendCaughtError: a tagged error keeps its code and message, anything else is a generic 500. */
 function sendCaughtError(err: unknown): Response {
   console.error('[echo] caught error:', err);
   if (err instanceof EchoError) {
     const status = ERROR_STATUS[err.echoCode];
-    if (status !== undefined) return sendError(err.echoCode, err.message, err.hint || '', status);
+    if (status !== undefined) return sendError(err.echoCode, err.message, err.hint || '', status, err.reason, err.detail);
   }
   return sendError('INTERNAL', 'An unexpected server error occurred.', '', 500);
 }
@@ -159,6 +166,14 @@ const library = forOwner();
 function queryValue(req: Request, name: string): string | undefined {
   const all = new URL(req.url).searchParams.getAll(name);
   return all.length > 0 ? all.join(',') : undefined;
+}
+
+/** A query parameter as req.query holds it: a string, an array when repeated, undefined when absent. */
+function queryRaw(req: Request, name: string): string | string[] | undefined {
+  const all = new URL(req.url).searchParams.getAll(name);
+  if (all.length === 0) return undefined;
+  if (all.length === 1) return all[0];
+  return all;
 }
 
 /** blockInWeb. Behind server.js it answers first; this is for when the service is the front door. */
@@ -322,6 +337,113 @@ async function search(req: Request): Promise<Response> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Transcripts (transcript.ts). POST /api/transcript is forwarded only with Whisper off (web mode, or
+// `transcribe: 'off'`): Whisper comes in step 6, and until then server.js keeps every request that might use it.
+// ---------------------------------------------------------------------------
+
+function numFromEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number(raw);
+  // server.js refuses to start on a bad value, so behind it this never sees one.
+  return Number.isFinite(n) && n >= 1 ? n : fallback;
+}
+
+const MAX_TRANSCRIPT_CHARS = numFromEnv('ECHO_MAX_TRANSCRIPT_CHARS', 200_000);
+
+function invalidUrl(): Response {
+  return sendError('INVALID_URL', 'Could not find a valid YouTube video ID in that URL.', 'Paste a full YouTube URL (e.g. youtube.com/watch?v=…) or an 11-character video ID.', 400);
+}
+
+interface TranscriptBody {
+  videoId: string; url: unknown; title: string | null; channel: string | null; channelUrl: string | null;
+  segments: CaptionSegment[]; langCode: unknown; transcriptSource: string; whisperModel: string | null;
+}
+
+/** POST /api/transcript: the captions, the title and the channel. */
+async function transcriptRoute(req: Request): Promise<Response> {
+  const body = await jsonBody(req);
+  if (body.error) return body.error;
+  const fields = isRecord(body.value) ? body.value : {};
+  const videoId = extractVideoId(fields.url);
+  if (!videoId) return invalidUrl();
+  // Different on purpose (PORT.md): server.js passes any JSON as the language (a number asks YouTube for a
+  // track called "5"); the service wants text.
+  // shortcut: the type is checked once, as a second typeof on the same value after the refusal reads false in
+  // Seshat (gap: typeof-after-narrowing); `typeof fields.lang !== 'string'` then `opts.lang = lang` once fixed.
+  const rawLang = fields.lang;
+  let lang: string | undefined;
+  if (typeof rawLang === 'string') lang = rawLang;
+  else if (rawLang !== undefined && rawLang !== null) return sendError('INTERNAL', 'lang must be a string.', '', 400);
+  const transcribe = fields.transcribe;
+  // shortcut: no cancelling when the client goes away (server.js aborts its Whisper job); captions take
+  // seconds and yt-dlp is capped at 30 s. With Whisper (step 6), listen for the disconnect.
+  const t0 = Date.now();
+  try {
+    let whisperMode = 'fallback';
+    if (isWeb) whisperMode = 'off';
+    else if (typeof transcribe === 'string' && transcribe) whisperMode = transcribe;
+    const opts: FetchTranscriptOptions = { transcribe: whisperMode };
+    if (lang !== undefined) opts.lang = lang;
+    const segments = await fetchTranscript(videoId, opts);
+    const meta = await getVideoMeta(videoId);
+    const langCode = segments.langUsed || lang || null;
+    const chars = segments.reduce((sum, s) => sum + s.text.length, 0);
+    if (isWeb && chars > MAX_TRANSCRIPT_CHARS) {
+      return sendError(
+        'TRANSCRIPT_UNAVAILABLE',
+        `Transcript is too long (${chars} characters, limit is ${MAX_TRANSCRIPT_CHARS}).`,
+        'This hosted instance caps transcript length. Try a shorter video, or run Echo locally for unlimited length.',
+        422,
+      );
+    }
+    logEvent('transcript', { videoId, chars, langCode, ok: true, ms: Date.now() - t0 });
+    const answer: TranscriptBody = {
+      videoId, url: fields.url, title: meta.title, channel: meta.channel, channelUrl: meta.channelUrl, segments, langCode,
+      transcriptSource: segments.source || 'captions', whisperModel: segments.modelUsed || null,
+    };
+    return json(answer);
+  } catch (err) {
+    logEvent('transcript', { videoId, ok: false, err: errLabel(err), ms: Date.now() - t0 });
+    return sendCaughtError(err);
+  }
+}
+
+interface TracksBody { tracks: CaptionTrack[] }
+
+/** GET /api/languages: the caption tracks yt-dlp lists for a video. */
+async function languages(req: Request): Promise<Response> {
+  const rawId = queryRaw(req, 'videoId');
+  if (!rawId) return sendError('INTERNAL', 'videoId query parameter is required.', '', 400);
+  const videoId = extractVideoId(rawId);
+  if (!videoId) return invalidUrl();
+  try {
+    const answer: TracksBody = { tracks: await listCaptionTracks(videoId) };
+    return json(answer);
+  } catch (err) {
+    return sendCaughtError(err);
+  }
+}
+
+interface VideoMetaBody { videoId: string; title: string | null; channel: string | null; channelUrl: string | null }
+
+/** GET /api/video-meta: title and channel through oEmbed. */
+async function videoMeta(req: Request): Promise<Response> {
+  // shortcut: `if` rather than `rawId || url`, which Seshat compiles wrongly for these unions (gap: or-of-union-values).
+  let raw = queryRaw(req, 'videoId');
+  if (!raw) raw = queryRaw(req, 'url');
+  const videoId = extractVideoId(raw);
+  if (!videoId) return invalidUrl();
+  try {
+    const meta = await getVideoMeta(videoId);
+    const answer: VideoMetaBody = { videoId, title: meta.title, channel: meta.channel, channelUrl: meta.channelUrl };
+    return json(answer);
+  } catch (err) {
+    return sendCaughtError(err);
+  }
+}
+
 /** Every route checks this first: refuse what didn't come through server.js. */
 function refused(req: Request): Response | undefined {
   return notForwarded(req) ? sendError('FORBIDDEN', 'Not forwarded by Echo.', '', 403) : undefined;
@@ -346,6 +468,9 @@ const server = Bun.serve({
     "/api/saved/:videoId/export.md": { GET: async (req) => refused(req) ?? blockedInWeb() ?? await exportSavedMarkdown(req, req.params.videoId) },
     "/api/vault/sync": { POST: async (req) => refused(req) ?? blockedInWeb() ?? await syncVaultRoute(req) },
     "/api/search": { GET: async (req) => refused(req) ?? blockedInWeb() ?? await search(req) },
+    "/api/transcript": { POST: async (req) => refused(req) ?? await transcriptRoute(req) },
+    "/api/languages": { GET: async (req) => refused(req) ?? await languages(req) },
+    "/api/video-meta": { GET: async (req) => refused(req) ?? await videoMeta(req) },
   },
   fetch() {
     return sendError('NOT_FOUND', 'Not found.', '', 404);

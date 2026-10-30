@@ -1015,6 +1015,14 @@ function seshatLibrary(req, res, next) {
   return ACCOUNTS_ENABLED ? next() : seshat(req, res, next);
 }
 
+/**
+ * `seshat` for POST /api/transcript, when Whisper is off for the request: web mode, or `transcribe: 'off'`.
+ * Whisper (its fallback, its progress stream, cancelling it) stays here until it is ported (PORT.md step 6).
+ */
+function seshatTranscript(req, res, next) {
+  return isWeb || req.body?.transcribe === 'off' ? seshat(req, res, next) : next();
+}
+
 // ---------------------------------------------------------------------------
 // Health
 // ---------------------------------------------------------------------------
@@ -1170,7 +1178,7 @@ app.get('/api/transcript/progress', blockInWeb, requireApproved, (req, res) => {
   res.on('close', finish);
 });
 
-app.post('/api/transcript', requireApproved, userFetchLimit, webLimit(20, 60_000), async (req, res) => {
+app.post('/api/transcript', requireApproved, userFetchLimit, webLimit(20, 60_000), seshatTranscript, async (req, res) => {
   const { url, lang, transcribe, whisperModel } = req.body;
 
   const videoId = extractVideoId(url);
@@ -1407,7 +1415,7 @@ app.post('/api/whisper/model', blockInWeb, requireApproved, (req, res) => {
 // Languages
 // ---------------------------------------------------------------------------
 
-app.get('/api/languages', requireApproved, userFetchLimit, webLimit(20, 60_000), async (req, res) => {
+app.get('/api/languages', requireApproved, userFetchLimit, webLimit(20, 60_000), seshat, async (req, res) => {
   const { videoId: rawId } = req.query;
   if (!rawId) {
     return sendError(res, 'INTERNAL', 'videoId query parameter is required.', '', 400);
@@ -1434,7 +1442,7 @@ app.get('/api/languages', requireApproved, userFetchLimit, webLimit(20, 60_000),
 // info on saved library entries created before channelUrl was stored)
 // ---------------------------------------------------------------------------
 
-app.get('/api/video-meta', requireApproved, userFetchLimit, webLimit(20, 60_000), async (req, res) => {
+app.get('/api/video-meta', requireApproved, userFetchLimit, webLimit(20, 60_000), seshat, async (req, res) => {
   const { videoId: rawId, url: rawUrl } = req.query;
   const videoId = extractVideoId(rawId || rawUrl);
   if (!videoId) {

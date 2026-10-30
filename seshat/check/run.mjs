@@ -7,7 +7,7 @@
 import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -22,8 +22,19 @@ const env = { ...process.env, ECHO_USAGE_LOG_PATH: join(tmpdir(), 'echo-usagelog
 delete env.ECHO_MODE;
 delete env.ECHO_USAGE_SYNTHETIC;
 
-function run(cmd, args) {
-  const r = spawnSync(cmd, args, { cwd: HERE, env, encoding: 'utf8', maxBuffer: 64 << 20 });
+// ytdlp.cases.ts's yt-dlp is fake-ytdlp.ts, built with Seshat and put first on PATH, for all three runs.
+const fakeDir = join(tmpdir(), 'echo-fake-ytdlp');
+function envFor(name) {
+  if (name !== 'ytdlp') return env;
+  const built = spawnSync(SESHAT, ['build', 'fake-ytdlp.ts', '-o', join(fakeDir, 'yt-dlp.exe')], { cwd: HERE, encoding: 'utf8' });
+  if (built.status !== 0) throw new Error(`fake-ytdlp.ts didn't build:
+${built.stdout}${built.stderr}`);
+  const pathKey = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+  return { ...env, [pathKey]: fakeDir + delimiter + process.env[pathKey], FAKE_YTDLP_LOG: join(fakeDir, 'args.jsonl') };
+}
+
+function run(cmd, args, runEnv = env) {
+  const r = spawnSync(cmd, args, { cwd: HERE, env: runEnv, encoding: 'utf8', maxBuffer: 64 << 20 });
   return { out: r.stdout ?? '', err: (r.stderr ?? '') + (r.error ? String(r.error) : ''), code: r.status };
 }
 
@@ -38,7 +49,8 @@ function firstDiff(a, b) {
 let failed = 0;
 for (const name of names) {
   const file = `${name}.cases.ts`;
-  const original = run(process.execPath, ['--no-warnings', '--import', './original.mjs', file]);
+  const caseEnv = envFor(name);
+  const original = run(process.execPath, ['--no-warnings', '--import', './original.mjs', file], caseEnv);
   if (original.code !== 0 || !original.out) {
     failed++;
     console.log(`FAIL ${name}: the original did not run\n${original.err}`);
@@ -46,8 +58,8 @@ for (const name of names) {
   }
   const cases = original.out.trimEnd().split('\n').length;
   const ports = [
-    ['port@node', run(process.execPath, ['--no-warnings', '--import', './node-bun.mjs', file])],
-    ['port@seshat', run(SESHAT, ['run', file])],
+    ['port@node', run(process.execPath, ['--no-warnings', '--import', './node-bun.mjs', file], caseEnv)],
+    ['port@seshat', run(SESHAT, ['run', file], caseEnv)],
   ];
   for (const [label, r] of ports) {
     if (r.out === original.out && r.code === 0) {

@@ -3,7 +3,8 @@
 
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { forOwner, jsString, type Entry, type Library } from './store.ts';
+import { forOwner, type Entry, type Library } from './store.ts';
+import { jsString } from './js.ts';
 import { entryToMarkdown, extractSummary, buildVaultIndex, type Entry as MarkdownEntry, type Segment, type VaultItem } from './markdown.ts';
 import { EchoError } from './errors.ts';
 

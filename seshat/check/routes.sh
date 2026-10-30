@@ -56,7 +56,10 @@ for spec in "$@"; do
     direct=
     if [ -n "$ok" ] && [ -n "$node_only" ] && [ $enc = identity ]; then
       args=(-X "$method"); [ "$method" != GET ] && args+=(-H "content-type: $type" --data-binary "${body//@VAULT@/$(vault 8101)}")
+      # The direct call is a cross-check, not a request of the run: what it logs is taken back out.
+      cp $T/fwd.jsonl $T/fwd.keep 2>/dev/null || : > $T/fwd.keep
       curl -s -D $T/hs -o $T/bs -H "x-echo-forward: $SEC" "${args[@]}" http://127.0.0.1:8001$path
+      sleep 0.5; cp $T/fwd.keep $T/fwd.jsonl
       if [ "$(head -1 $T/hs | tr -d '\r')" = "$(head -1 $T/h8100 | tr -d '\r')" ] && [ "$(norm $T/bs $T/hs)" = "$(norm $T/b8100 $T/h8100)" ]; then direct=", service direct: same status and body"; else ok=; direct=", service direct: $(head -1 $T/hs | tr -d '\r') $(head -c 200 $T/bs)"; fi
     fi
     if [ -n "$ok" ]; then echo "same  $label ($enc, ${served:-server.js}, $(wc -c < $T/b8101) bytes$masked$direct)"; else echo "DIFF  $label ($enc) served='$served'$direct"; diff $T/hh8100 $T/hh8101; if [ -n "$masked" ]; then diff $T/n8100 $T/n8101 | head -6; else cmp $T/b8100 $T/b8101; fi; fail=1; fi

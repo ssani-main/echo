@@ -48,6 +48,19 @@ test('the route\'s own path is forwarded: Express matches any case and a trailin
   assert.deepEqual(seen, { url: '/api/saved/a%20b%2Fc?limit=1', secret: SECRET });
 });
 
+test('a transcript is forwarded only with Whisper off; otherwise server.js keeps it (Whisper is not ported)', async () => {
+  service = { mode: 'local', status: 200, body: '{"from":"service"}' };
+  const post = (body) => fetch(`${base}/api/transcript`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const off = await post({ url: 'nope', transcribe: 'off' });
+  assert.equal(off.headers.get('x-served-by'), 'seshat');
+  assert.equal(await off.text(), '{"from":"service"}');
+  for (const body of [{ url: 'nope' }, { url: 'nope', transcribe: 'fallback' }, { url: 'nope', transcribe: 'always' }]) {
+    const res = await post(body);
+    assert.equal(res.headers.get('x-served-by'), null, JSON.stringify(body));
+    assert.equal((await res.json()).error.code, 'INVALID_URL');
+  }
+});
+
 test('a service running in another mode is not trusted: server.js answers itself', async () => {
   service = { mode: 'web', status: 200, body: '{"status":"ok","mode":"web"}' };
   const res = await fetch(`${base}/api/health`);

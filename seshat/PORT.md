@@ -23,6 +23,8 @@ has the `echo-gaps` work: 20 of the first 23 gaps fixed, and the workarounds for
 | `seshat/check/suite.sh` | the Node suite with forwarding on |
 | `seshat/check/node-bun.mjs` | under node, `bun:sqlite` as a stand-in over node:sqlite (the port@node row) |
 | `seshat/check/dbdump.mjs` | a library database's rows, timestamps masked |
+| `seshat/check/transcripts.sh` | step 5's requests (live YouTube), through routes.sh; `web` for the web-mode list |
+| `seshat/check/fake-ytdlp.ts` | a stand-in yt-dlp, built by run.mjs and put first on PATH for `ytdlp.cases.ts` |
 | `seshat/check/original.mjs` | Node import hook: points `seshat/<module>.ts` at the original module |
 | `seshat/gaps/*.ts` | one minimal repro per Seshat gap (runs under `node`, `tsc --strict` accepts it) |
 
@@ -55,7 +57,10 @@ scratch folder, not in this repo):
 | `sanitize.ts` | `sanitize.js` (`safeHttpUrl`) | 32 | identical |
 | `text.ts` | `common/text.js` (`extractVideoId`, `extractSummary`) | 64 | identical. tests/shared-parity.test.js's corpus plus Unicode, CRLF, emoji at the cut, junk |
 | `markdown.ts` | `markdown.js` (`entryToMarkdown`, `buildVaultIndex`) | 44 | identical. Dates as V8 reads them (date-only, local time, `October 28, 2026`, `2026-02-30`) bucket the same in Seshat. Collation as ICU's at base strength (`Straße`/`strasse`, `Æther`, `Ⅻ`, `ﬁle`, `Ａpple`, `㎏`). Shortcut: NFKC before `localeCompare` (gap 26) |
-| `transcript.ts` | `transcript.js`: `classifyTranscriptFailure`, `isMillisecondOffsets`, `isPermanentFetchError`, `fetchWithRetry`, `MEMBERS_ONLY_PATTERNS` | 80 | identical |
+| `transcript.ts` | `transcript.js`: all of it (`fetchTranscript`'s Whisper branches through its seams; the real Whisper is step 6) | 109 | identical. The pure parts, plus `fetchViaPackage` and `fetchTranscript` through their seams: which tracks are asked for, the unit, langUsed, retries, the yt-dlp fallback, every failure classification and the Whisper branches |
+| | live, `check/transcript-live.cases.ts` | 9 | identical on the real YouTube: oEmbed (and a missing video), the 157-track list, 866 caption lines through the package against youtube.ts, a missing language, the yt-dlp fallback (bot-blocked on this IP at the time, so classified identically) |
+| | yt-dlp, `check/ytdlp.cases.ts` | 15 | identical with `check/fake-ytdlp.ts` as yt-dlp: json3 parsing (entities, line breaks, emoji, events without text or start), no track written, broken JSON, members-only, bot block, premiere, the track list (junk, a missing video, broken JSON, output over execFile's 1 MiB), and the arguments passed |
+| `youtube.ts` | the youtube-transcript package (1.3.1): InnerTube, the watch page, the track XML | 21 | identical, through the package's own `fetch` option: a stand-in YouTube answers from a script and every request is compared too. srv3 and classic XML, entities, every error, the SSRF host check, a brace inside the page's JSON, `retrieveVideoId` |
 | `digest.ts` | `digest.js`: `buildClaudeArgs`, `buildClaudeStreamArgs`, `buildSpawnTarget`, `scaledTimeoutMs`, `thresholdCharsFor`, `chunkBudgetCharsFor`, `mergeUsage`, `parseJsonLoose`, `chunkText` | 251 | identical. Includes lone surrogates, `1e400`, `__proto__` keys, integer-key order, chunk cuts through emoji, `scaledTimeoutMs` of strings, arrays, `null` and `Infinity` |
 | `providers.ts` | `providers.js`'s registry: `PROVIDERS`, `REASONING_LEVELS`, `normalizeProviderId`, `normalizeReasoningLevel`, `getProviderId`, `getProviderLimits`, `getReasoningLevel`, `reasoningFields`, `publicProviderList`, `truncationFields`, `isTruncationReason`, `deepseekModelFor`, `parseSseLine` | 286 | identical. `parseSseLine` walks junk frames as the original does (`"choices":"abc"`, `{"0":…}`, `data: null` throwing its TypeError) |
 | `whisper.ts` | `whisper.js`: `buildWhisperArgs`, `chooseModelForLanguage`, `isTransientDownloadFailure`, `withDownloadRetry`, `mapWhisperError`, `LOCAL_MEDIA_EXTENSIONS` | 117 | identical |
@@ -125,7 +130,7 @@ twin copies), add the route to the forwarded list, run the Node test suite with 
 | 2 | **Service skeleton + forwarding** (done, below) | `seshat/server.ts`: `Bun.serve`'s own `routes` (method + `:param` paths, so no router of ours), `sendError` envelope; server.js's `seshat` middleware | `GET /api/health`, `GET /api/providers` | express (for these) | done (gap 24 worked around) |
 | 3 | **Usage meter** (done, below) | usagelog.js (`appendFile`, `stat`, `rename`, `errLabel`); the 5 MB JSON body cap comes with this first POST route | `POST /api/event` | | done |
 | 4 | **Library** (done, below) | store.js on `bun:sqlite` (FTS5 is compiled in; `PRAGMA user_version` migrations, rowid-keyed FTS), vault.js `syncVault` | `GET/POST/DELETE /api/saved*`, `PATCH .../tags`, `GET /api/search`, `GET /api/saved/:id/export.md`, `POST /api/vault/sync` | (node:sqlite → bun:sqlite) | `db.transaction()` and named parameters are "not yet" in Seshat; store.js uses positional ones. **`GET /api/saved/export` streams** gzip: Seshat can now (gap 1 fixed), the forwarding has to stream too |
-| 5 | Transcripts | transcript.js; **youtube-transcript replaced by Echo's own code**: InnerTube `youtubei/v1/player` for the caption tracks, then the track's XML, ~150 lines (the package is 257). Keep its error messages word for word: `isPermanentFetchError` and `classifyTranscriptFailure` match on them. yt-dlp through `promisify(execFile)` (proven by seshat-acceptance) | `POST /api/transcript`, `GET /api/languages`, `GET /api/video-meta` (oEmbed via `fetch`) | youtube-transcript | nothing left: gaps 3 (throwing-callback-result-json) and 5 (define-property-on-array) are fixed, so the fetchers can tag the array as the original does |
+| 5 | **Transcripts** (done, below; `POST /api/transcript` only with Whisper off) | transcript.js; **youtube-transcript replaced by Echo's own code**: InnerTube `youtubei/v1/player` for the caption tracks, then the track's XML, ~150 lines (the package is 257). Keep its error messages word for word: `isPermanentFetchError` and `classifyTranscriptFailure` match on them. yt-dlp through `promisify(execFile)` (proven by seshat-acceptance) | `POST /api/transcript`, `GET /api/languages`, `GET /api/video-meta` (oEmbed via `fetch`) | youtube-transcript | nothing left: gaps 3 (throwing-callback-result-json) and 5 (define-property-on-array) are fixed, so the fetchers can tag the array as the original does |
 | 6 | Whisper (local/desktop) | whisper.js (spawn, kill, stderr progress: proven), whisperModel.js (download: `fetch` body reader + `std/crypto` sha256 instead of `stream.pipeline`/`Transform`) | `GET /api/whisper/status`, `POST /api/whisper/model`, `POST /api/transcript/file` (raw body) | | **`GET /api/transcript/progress` is SSE**: Seshat can now (gap 1 fixed), the forwarding has to stream too |
 | 7 | Digest | providers.js: **@anthropic-ai/sdk replaced by `fetch`** to `POST https://api.anthropic.com/v1/messages` (`x-api-key`, `anthropic-version: 2023-06-01`; `stream: true` parsed like DeepSeek's frames; SDK error classes mapped from HTTP status in `mapAnthropicError`; `validateApiKey` via `GET /v1/models?limit=1`). DeepSeek already uses `fetch`. digest.js: the CLI spawn (proven), map-reduce, prompts | `POST /api/digest` (JSON), `POST /api/validate-key` | @anthropic-ai/sdk | **`POST /api/digest?stream=1` (the default in the UI) is SSE**: Seshat can now (gap 1 fixed), the forwarding has to stream too |
 | 8 | Accounts (config-gated) | auth.js (HMAC cookies, Google OAuth + PKCE: `std/crypto` createHmac, createHash, randomBytes, timingSafeEqual), atproto.js (AES-GCM), syncStore.js (sqlite), pds.js, pdsSync.js | `/api/auth/*`, `/api/admin/*`, `/api/sync/*`, `/api/pds/*` | | then the service checks the session itself and `x-echo-forward` goes |
@@ -234,12 +239,42 @@ ECHO_SESHAT_URL=http://127.0.0.1:8001 ECHO_SESHAT_SECRET=<same> npm start  # Ech
   `atproto-gating`'s "accounts off" guard reaches the shared service rather than its own database; it only
   asserts that nothing is refused.
 
+### Step 5: transcripts (done)
+
+- **`seshat/youtube.ts`** replaces the youtube-transcript package (its last npm use on the service side but
+  for Whisper): the InnerTube player API, the watch page's `ytInitialPlayerResponse`, the track XML, error
+  messages word for word. One behaviour worth knowing, kept: the package returns (not awaits) the track fetch
+  inside its InnerTube `try`, so a track's own failure (no such language) does not fall back to the page.
+- **`seshat/transcript.ts`** has the rest of transcript.js: `fetchViaPackage`, `fetchViaYtDlp`,
+  `getVideoMeta`, `listCaptionTracks`, `fetchTranscript`. Without its Whisper seams, `fetchTranscript` takes
+  Whisper as not installed (`shortcut:`, step 6).
+- **Routes** in `server.ts`: `POST /api/transcript`, `GET /api/languages`, `GET /api/video-meta`. server.js
+  forwards the two GETs always and the POST with `seshatTranscript`: **only when Whisper is off for the
+  request** (web mode, or `transcribe: 'off'`). Local mode's default is `fallback`, so until step 6 most local
+  transcripts are still Node's; the page opens its progress stream only when Whisper may run, so nothing is
+  lost by forwarding the others. `tests/seshat-forward.test.js` covers the rule.
+- **Different on purpose:** a non-string `lang` in `POST /api/transcript` is a 400 (`lang must be a
+  string.`); server.js would ask YouTube for a track called `5`.
+- **`EchoError` has `reason`** now, and the service's envelope carries `reason` and `detail` as server.js's
+  does (the transcript error cards need them).
+- **routes.sh**: a `!` request's direct call to the service no longer leaves its usage-log line behind.
+- **Checked:** every case file identical (1,068 cases in 13 files, `youtube`, `ytdlp` and `transcript-live`
+  new). `bash seshat/check/transcripts.sh` against the real YouTube: 29 comparisons identical (a 866-line
+  transcript plain and gzipped, a language, a missing language, bad and missing URLs, the Whisper-default
+  request answered by server.js and by the service directly, the track list, oEmbed), and the usage logs.
+  In web mode (`ECHO_MODE=web ECHO_MAX_TRANSCRIPT_CHARS=5000 … web`) 8 identical, the too-long error
+  included. Step 4's `library.sh` still 107 identical. The Node suite: 721 pass with forwarding off and on
+  (`suite.sh`); both runs had `digest-idle-timeout`'s known load flake, which passed 3 of 3 alone.
+- **Found by the checks, before they shipped:** the port first awaited the package's returned promise (a
+  track failure then fell back to the page: 4 requests instead of 2); Seshat dropped every forwarded
+  request's `lang` (gap 46) and crashed on `/api/video-meta?url=` (gap 47).
+
 ## Seshat gaps found while porting
 
-**Status on Seshat `main` 4882a0e (2026-10-30):** 41 gaps found, 32 fixed, and their workarounds removed
-from the ports and case files: every case is still identical (994, with store). Open: 8, 12's
+**Status on Seshat `main` 4882a0e (2026-10-30):** 48 gaps found, 32 fixed, and their workarounds removed
+from the ports and case files: every case is still identical (1,068 with step 5). Open: 8, 12's
 `as-cast-traps` half, 14 for a thrown non-`Error` object, 25 (not reproduced there), 27's general form, 35,
-39, 40 and 41. Each gap has a repro in `seshat/gaps/<name>.ts` that runs under `node` and that `tsc --strict`
+39 to 48. Each gap has a repro in `seshat/gaps/<name>.ts` that runs under `node` and that `tsc --strict`
 accepts (the `Bun.serve` and `bun:sqlite` ones need `@types/bun`, and run under node with
 `--import ./seshat/check/node-bun.mjs`); `seshat run seshat/gaps/<name>.ts` shows the gap.
 
@@ -286,14 +321,41 @@ interface took the interface's members sorted by internal id as its key order), 
     `usagelog.cases.ts`'s environment instead (`shortcut:` there). Stays that way: a module's top level runs
     at startup in Seshat, so import-after-setup can't be expressed.
 35. **sqlite-unknown-number:** a number held in `unknown` (from JSON.parse) is bound to a `bun:sqlite`
-    parameter as a truncated integer: `gaps/sqlite-unknown-number.ts` still stores 1.5 as `1` on 4882a0e,
-    though the Seshat session reported it covered by a native test. Data loss for anyone binding parsed JSON;
-    Echo checks its types first.
+    parameter as a truncated integer: `gaps/sqlite-unknown-number.ts` stores 1.5 as `1` on 4882a0e. Fixed on
+    Seshat's local branch `key-order` (f69ad8c), not merged. Data loss for anyone binding parsed JSON; Echo
+    checks its types first.
 39. **string-of-nested-array:** `String([1, [null, 'x'], 3])` (and `join`) is `1,null,x,3`; JavaScript writes
-    `1,,x,3`. Workaround in `vault.ts` (`shortcut:`): a segment's text array goes through store.ts's `jsString`.
+    `1,,x,3`. Workaround in `vault.ts` (`shortcut:`): a segment's text array goes through js.ts's `jsString`.
 40. **unknown-or-empty-array:** `x || []` with `x: unknown` is T0301 (can't infer the empty array's type).
 41. **isarray-field-narrowing:** `Array.isArray(rec.tags) ? rec.tags : []` doesn't narrow the field (T0001).
     Workaround for both in `store.ts`'s legacy import (`shortcut:`): locals.
+
+New in step 5 (reported 2026-10-30):
+
+42. **literal-equality-narrowing:** `if (x === 'throw') throw …` doesn't narrow `Answer | 'throw' | undefined`
+    (T0108, not every variant has field `body`). Workaround in `check/youtube.cases.ts` (`shortcut:`): typeof.
+43. **fetch-init-conversion:** passing one's own init interface to the global fetch was an internal compiler
+    error in youtube.ts (C0003, "no conversion from `FetchInit` to `RequestInit`"), and the same call written
+    as a ternary of two awaits made the code generator panic (codegen/body.rs:5103). Not reduced: the shapes
+    cut out alone build (the repro says how to see it in youtube.ts). Workaround in `youtube.ts`
+    (`shortcut:`): the init written out field by field.
+44. **fetch-as-function-value:** an async function that can throw (awaiting fetch, or youtube.ts's
+    fetchTranscript) doesn't go where a `(…) => Promise<T>` type goes: Seshat's promises carry their thrown
+    type (T0001, `Promise<Response>` against `Promise<Response, Error>`). Workaround in `youtube.ts` and
+    `transcript.ts` (`shortcut:`): a function that calls one or the other.
+45. **return-promise-in-try:** `return p` (not awaited) inside a `try` in an async function: JavaScript lets
+    p's rejection past that try's catch, Seshat catches it. youtube-transcript relies on it (a track's failure
+    on the InnerTube path rejects instead of falling back to the watch page). `youtube.ts` puts that call
+    after the try, which means the same in both.
+46. **typeof-after-narrowing (silently wrong):** after `if (v !== undefined && v !== null && typeof v !==
+    'string') return`, a later `typeof v === 'string'` is false for a string, with no error. It dropped the
+    `lang` of every forwarded transcript request until routes.sh caught it. Workaround in `server.ts`
+    (`shortcut:`): the type checked once.
+47. **or-of-union-values:** `a || b` on two `string | string[] | undefined` values: at the top level the
+    generated C doesn't compile ('u10' undeclared); in the service's route it built and crashed the service
+    (access violation) on `GET /api/video-meta?url=…`. Workaround in `server.ts` (`shortcut:`): an `if`.
+48. **iterate-array-union:** `for...of` refuses `any[] | unknown[]` (an inline `Array.isArray(v) ? v : none`),
+    T0402. Workaround in `transcript.ts`: js.ts's `arrayOf`.
 
 Things that worked the first time and were worth checking: V8's lenient `new Date(string)` parsing
 (including local time and rollover), JSON with lone surrogates and integer keys, UTF-16 `slice` through
@@ -306,14 +368,14 @@ vendored SQLite, and (the bun:sqlite probe, `check/sqlite-probe/`) WAL, foreign 
 
 ## Picking this up
 
-Next is step 5, transcripts (the table above): transcript.js's fetching, youtube-transcript replaced by
-Echo's own InnerTube + caption XML code, yt-dlp through `execFile`, and `POST /api/transcript`,
-`GET /api/languages`, `GET /api/video-meta`. Check it as step 4 was: case files through `check/run.mjs`,
-requests through `check/routes.sh` (a list like `check/library.sh`), and the suite both ways
-(`npm run test:only`, and `bash seshat/check/suite.sh` with forwarding on). Live YouTube answers change, so
-fetches need a stand-in YouTube or recorded answers to be compared byte for byte.
+Next is step 6, Whisper (the table above): whisper.js's spawns and progress, whisperModel.js's download,
+`GET /api/whisper/status`, `POST /api/whisper/model`, `POST /api/transcript/file` (a raw body, which the
+forwarding doesn't pass yet), and `GET /api/transcript/progress` (SSE, which the forwarding doesn't stream
+yet). With it, `POST /api/transcript` can be forwarded whatever `transcribe` says: drop `seshatTranscript`'s
+condition, give `fetchTranscript` the real `resolveWhisper` and `transcribeViaWhisper`, and cancel on a
+client's disconnect. A stand-in whisper-cli and ffmpeg can be built with Seshat, as `check/fake-ytdlp.ts` is.
 
-`GET /api/saved/export` is still Node's (it streams; the forwarding buffers).
+Still Node's: `GET /api/saved/export` (it streams; the forwarding buffers).
 
 Gaps go to the Seshat session (find it with ListAgents rather than editing ../Seshat from here). When one is
 fixed: delete its `shortcut:` workaround (grep for the gap's name), rerun `node seshat/check/run.mjs`, and

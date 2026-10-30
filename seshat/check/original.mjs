@@ -18,6 +18,7 @@ const ORIGINALS = {
   'whisper.ts': 'whisper.js',
   'usagelog.ts': 'usagelog.js',
   'store.ts': 'store.js',
+  'youtube.ts': 'node_modules/youtube-transcript/dist/esm/index.js',
 };
 
 registerHooks({
