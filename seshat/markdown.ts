@@ -64,11 +64,8 @@ function truthyTags(tags: string[] | null | undefined): string[] {
   return Array.isArray(tags) ? tags.filter(Boolean) : [];
 }
 
-// shortcut: NFKC first, because Seshat's collation sorts ligatures, fullwidth letters and unit symbols
-// (ﬁ, Ａ, ㎏) after every other letter (gap: localecompare-compat-chars); at base strength ICU already reads
-// them as their NFKC form, so Node's order is unchanged. Drop the normalize() calls once fixed.
 function compareBase(a: string, b: string): number {
-  return a.normalize('NFKC').localeCompare(b.normalize('NFKC'), undefined, { sensitivity: 'base' });
+  return a.localeCompare(b, undefined, { sensitivity: 'base' });
 }
 
 interface Bucket {

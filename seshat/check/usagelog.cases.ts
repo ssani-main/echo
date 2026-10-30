@@ -30,15 +30,10 @@ const events: [string, Record<string, unknown>][] = [
   ['event', { event: 'overridden', ts: 'overridden too' }],
   ['digest-print', {}],
 ];
-// shortcut: the loop is in a function, because an `await` in a top-level loop next to a top-level regex
-// literal makes Seshat's generated C fail to compile (gap: top-level-await-loop-regex). Inline it once fixed.
-async function logAll(): Promise<void> {
-  for (const [name, fields] of events) {
-    logEvent(name, fields);
-    await new Promise((r) => setTimeout(r, 30)); // fire-and-forget: let the append land, in order
-  }
+for (const [name, fields] of events) {
+  logEvent(name, fields);
+  await new Promise((r) => setTimeout(r, 30)); // fire-and-forget: let the append land, in order
 }
-await logAll();
 logEvent('web-check');
 await new Promise((r) => setTimeout(r, 30));
 const mask = (text: string): string => text.replace(/"ts":"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z"/g, '"ts":"<iso>"');

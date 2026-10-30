@@ -7,13 +7,11 @@
 //   - NEVER records raw transcript / selection / answer / query text — only
 //     lengths, counts, enums, ids, and outcomes.
 
-import { appendFile, stat, readFile, writeFile, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { appendFile, stat, rename } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
-// The repo root, so the default file is the one usagelog.js writes.
-// shortcut: the working directory (the service is started from the repo root), because `import.meta.url`
-// doesn't parse in Seshat (gap: import-meta); one up from this file's folder once it does.
-const root = process.cwd();
+// The repo root (one up from seshat/), so the default file is the one usagelog.js writes.
+const root = dirname(import.meta.dirname);
 // Overridable the same way ECHO_DB_PATH/ECHO_SYNC_DB_PATH are, so tests can
 // point this at an isolated file instead of the real local usage history.
 const LOG_PATH = process.env.ECHO_USAGE_LOG_PATH || join(root, 'data', 'usage-events.jsonl');
@@ -33,10 +31,7 @@ async function rotateIfNeeded(): Promise<void> {
   try {
     const st = await stat(LOG_PATH);
     if (st.size >= ROTATE_BYTES) {
-      // shortcut: copy then unlink, because Seshat has no rename (gap: fs-rename); an append landing between
-      // the two is lost, where rename moves it along. `await rename(LOG_PATH, ROTATED_PATH)` once it has.
-      await writeFile(ROTATED_PATH, await readFile(LOG_PATH, 'utf8'));
-      await unlink(LOG_PATH);
+      await rename(LOG_PATH, ROTATED_PATH);
     }
   } catch {
     // No file yet, or rotation failed: appendFile creates/continues the file as normal.

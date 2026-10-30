@@ -5,7 +5,7 @@ piece at a time, next to the Node server, which keeps working unchanged througho
 Dossier's `seshat/PORT.md`: a port folder next to the original, this tracker, every piece checked against
 the original, and every Seshat gap written down with a minimal repro.
 
-Branch: `seshat-port`, pushed to `origin`. Compiler: Seshat `main` ee849ba
+Branch: `seshat-port`, pushed to `origin`. Compiler: Seshat `main` 4882a0e
 (`../Seshat/target/release/seshat.exe`, what `check/run.mjs` uses unless `SESHAT=` names another), which
 has the `echo-gaps` work: 20 of the first 23 gaps fixed, and the workarounds for them removed (2026-10-29).
 
@@ -60,7 +60,7 @@ scratch folder, not in this repo):
 | `providers.ts` | `providers.js`'s registry: `PROVIDERS`, `REASONING_LEVELS`, `normalizeProviderId`, `normalizeReasoningLevel`, `getProviderId`, `getProviderLimits`, `getReasoningLevel`, `reasoningFields`, `publicProviderList`, `truncationFields`, `isTruncationReason`, `deepseekModelFor`, `parseSseLine` | 286 | identical. `parseSseLine` walks junk frames as the original does (`"choices":"abc"`, `{"0":…}`, `data: null` throwing its TypeError) |
 | `whisper.ts` | `whisper.js`: `buildWhisperArgs`, `chooseModelForLanguage`, `isTransientDownloadFailure`, `withDownloadRetry`, `mapWhisperError`, `LOCAL_MEDIA_EXTENSIONS` | 117 | identical |
 | `vault.ts` | `vault.js` (`slugify`, `monthFolder`; `syncVault` is checked through its route, step 4) | 31 | identical |
-| `store.ts` | `store.js` on `bun:sqlite` (all but `adoptDefaultLibrary`, which only accounts call: step 8) | 72 | port@node identical; port@seshat the same values, **keys in another order** (gap 37, open). One scripted session: saves, updates keeping omitted fields, junk segments and tags as JSON brings them, a null segment failing after the insert as store.js does, paging edge cases, FTS search and its malformed queries, a second owner's file, and a pre-migration database (columns added, FTS re-keyed). Shortcuts: one-level mkdir (gap 34), locals for gaps 40 and 41. Under node, `bun:sqlite` is `check/node-bun.mjs`, a stand-in over node:sqlite |
+| `store.ts` | `store.js` on `bun:sqlite` (all but `adoptDefaultLibrary`, which only accounts call: step 8) | 72 | identical. One scripted session: saves, updates keeping omitted fields, junk segments and tags as JSON brings them, a null segment failing after the insert as store.js does, paging edge cases, FTS search and its malformed queries, a second owner's file, and a pre-migration database (columns added, FTS re-keyed). Shortcut: locals for gaps 40 and 41. Under node, `bun:sqlite` is `check/node-bun.mjs`, a stand-in over node:sqlite |
 | `usagelog.ts` | `usagelog.js` (`logEvent`, `errLabel`) | 17 | identical: the JSONL lines written (ts masked), rotation at 400 bytes, lone surrogates, fields overriding `event`/`ts`. Shortcuts: the default path from the working directory (gap 28), rotation by copy + unlink (gap 29), the case file's environment set by `run.mjs` (gap 27) |
 
 Differences on purpose:
@@ -124,7 +124,7 @@ twin copies), add the route to the forwarded list, run the Node test suite with 
 | 1 | **Pure logic, rest** (done, above) | providers.js registry, whisper.js's pure parts | | | |
 | 2 | **Service skeleton + forwarding** (done, below) | `seshat/server.ts`: `Bun.serve`'s own `routes` (method + `:param` paths, so no router of ours), `sendError` envelope; server.js's `seshat` middleware | `GET /api/health`, `GET /api/providers` | express (for these) | done (gap 24 worked around) |
 | 3 | **Usage meter** (done, below) | usagelog.js (`appendFile`, `stat`, `rename`, `errLabel`); the 5 MB JSON body cap comes with this first POST route | `POST /api/event` | | done |
-| 4 | **Library** (built, below; the byte check waits for gap 37) | store.js on `bun:sqlite` (FTS5 is compiled in; `PRAGMA user_version` migrations, rowid-keyed FTS), vault.js `syncVault` | `GET/POST/DELETE /api/saved*`, `PATCH .../tags`, `GET /api/search`, `GET /api/saved/:id/export.md`, `POST /api/vault/sync` | (node:sqlite → bun:sqlite) | `db.transaction()` and named parameters are "not yet" in Seshat; store.js uses positional ones. **`GET /api/saved/export` streams** gzip: Seshat can now (gap 1 fixed), the forwarding has to stream too |
+| 4 | **Library** (done, below) | store.js on `bun:sqlite` (FTS5 is compiled in; `PRAGMA user_version` migrations, rowid-keyed FTS), vault.js `syncVault` | `GET/POST/DELETE /api/saved*`, `PATCH .../tags`, `GET /api/search`, `GET /api/saved/:id/export.md`, `POST /api/vault/sync` | (node:sqlite → bun:sqlite) | `db.transaction()` and named parameters are "not yet" in Seshat; store.js uses positional ones. **`GET /api/saved/export` streams** gzip: Seshat can now (gap 1 fixed), the forwarding has to stream too |
 | 5 | Transcripts | transcript.js; **youtube-transcript replaced by Echo's own code**: InnerTube `youtubei/v1/player` for the caption tracks, then the track's XML, ~150 lines (the package is 257). Keep its error messages word for word: `isPermanentFetchError` and `classifyTranscriptFailure` match on them. yt-dlp through `promisify(execFile)` (proven by seshat-acceptance) | `POST /api/transcript`, `GET /api/languages`, `GET /api/video-meta` (oEmbed via `fetch`) | youtube-transcript | nothing left: gaps 3 (throwing-callback-result-json) and 5 (define-property-on-array) are fixed, so the fetchers can tag the array as the original does |
 | 6 | Whisper (local/desktop) | whisper.js (spawn, kill, stderr progress: proven), whisperModel.js (download: `fetch` body reader + `std/crypto` sha256 instead of `stream.pipeline`/`Transform`) | `GET /api/whisper/status`, `POST /api/whisper/model`, `POST /api/transcript/file` (raw body) | | **`GET /api/transcript/progress` is SSE**: Seshat can now (gap 1 fixed), the forwarding has to stream too |
 | 7 | Digest | providers.js: **@anthropic-ai/sdk replaced by `fetch`** to `POST https://api.anthropic.com/v1/messages` (`x-api-key`, `anthropic-version: 2023-06-01`; `stream: true` parsed like DeepSeek's frames; SDK error classes mapped from HTTP status in `mapAnthropicError`; `validateApiKey` via `GET /v1/models?limit=1`). DeepSeek already uses `fetch`. digest.js: the CLI spawn (proven), map-reduce, prompts | `POST /api/digest` (JSON), `POST /api/validate-key` | @anthropic-ai/sdk | **`POST /api/digest?stream=1` (the default in the UI) is SSE**: Seshat can now (gap 1 fixed), the forwarding has to stream too |
@@ -197,7 +197,7 @@ ECHO_SESHAT_URL=http://127.0.0.1:8001 ECHO_SESHAT_SECRET=<same> npm start  # Ech
   `etag` that server.js's own 204 doesn't have (`res.send()` of an empty body; now `res.end()`). Both are in
   `tests/seshat-forward.test.js`, and reverting either fix fails it.
 
-### Step 4: the library (built; byte-identical once gap 37 is fixed)
+### Step 4: the library (done)
 
 - **`seshat/store.ts`** (store.js on `bun:sqlite`), **`syncVault`** in `vault.ts`, and the routes in
   `server.ts`: `GET /api/saved` (whole or paged), `POST /api/saved`, `GET`/`DELETE /api/saved/:videoId`,
@@ -224,11 +224,11 @@ ECHO_SESHAT_URL=http://127.0.0.1:8001 ECHO_SESHAT_SECRET=<same> npm start  # Ech
   content-length, and compares headers in any order (fetch's `Headers` lists them sorted, so the forwarding
   can't keep the service's order; `export.md`'s two headers came out swapped). Step 4's requests are
   `check/library.sh`.
-- **Checked:** `bash seshat/check/library.sh`: of 107 comparisons, 67 identical and 40 different only in key
-  order (gap 37: status, headers and values match). The databases (rows, tags, FTS rows, user_version), the
-  usage logs and the 9 vault files are identical. The Node suite: 721 pass with forwarding off (one run had
-  `digest-idle-timeout`'s known load flake; alone it passed 3 of 3), and with forwarding on
-  (`bash seshat/check/suite.sh`) 722 pass, 0 fail, 15 skipped. suite.sh runs `api`, `saved-pagination` and
+- **Checked** on Seshat `main` 4882a0e: `bash seshat/check/library.sh`, all 107 comparisons identical (on
+  ee849ba, 40 differed only in key order: gap 37, now fixed), and the databases (rows, tags, FTS rows,
+  user_version), the usage logs and the 9 vault files identical. The step 2 and 3 routes still identical,
+  `/API/Health/` included. Every case file identical (994). The Node suite: 722 pass, 0 fail, 15 skipped with
+  forwarding off (`npm run test:only`) and with it on (`bash seshat/check/suite.sh`). suite.sh runs `api`, `saved-pagination` and
   `page-serving` each against a service on that test's own database (`ECHO_TEST_DB_PATH`, test-only, like
   `ECHO_TEST_USAGE_LOG`), since they count what they save; their 400s and 404s are in those services' logs.
   `atproto-gating`'s "accounts off" guard reaches the shared service rather than its own database; it only
@@ -236,21 +236,26 @@ ECHO_SESHAT_URL=http://127.0.0.1:8001 ECHO_SESHAT_SECRET=<same> npm start  # Ech
 
 ## Seshat gaps found while porting
 
-**Status on Seshat `main` ee849ba (2026-10-29; gaps 32 to 41 added 2026-10-30):** 41 gaps found, 20 fixed, and their workarounds removed
-from the ports and case files: every case is still identical (922 now, with usagelog). Open: 8, 12's
-`as-cast-traps` half, 14 for a thrown non-`Error` object, 24 and 25 (being fixed in the Seshat session), and
-26 to 31 (new, not reported to the Seshat session yet). Each gap
-has a repro in `seshat/gaps/<name>.ts` that runs under `node` and that `tsc --strict` accepts (the two
-`Bun.serve` ones need `@types/bun`); `seshat run seshat/gaps/<name>.ts` shows the gap.
+**Status on Seshat `main` 4882a0e (2026-10-30):** 41 gaps found, 32 fixed, and their workarounds removed
+from the ports and case files: every case is still identical (994, with store). Open: 8, 12's
+`as-cast-traps` half, 14 for a thrown non-`Error` object, 25 (not reproduced there), 27's general form, 35,
+39, 40 and 41. Each gap has a repro in `seshat/gaps/<name>.ts` that runs under `node` and that `tsc --strict`
+accepts (the `Bun.serve` and `bun:sqlite` ones need `@types/bun`, and run under node with
+`--import ./seshat/check/node-bun.mjs`); `seshat run seshat/gaps/<name>.ts` shows the gap.
 
-**Fixed** (on `main` since ee849ba; the repro gives Node's output, Bun's for 1): 1 serve-streaming-body,
-2 json-undefined-unknown-field, 3 throwing-callback-result-json, 4 rethrow-any-c-error, 5
-define-property-on-array, 6 guard-on-object-literal-crashes, 7 error-add-property, 9
-index-out-of-range-traps, 10 record-lookup-in-conditional, 11 math-ceil-infinity, 12's as-record-traps
-half, 13 number-of-non-string, 14's `any` parameter half, 15 generic-throwing-callback, 16
-default-param-then-null-default, 17 and-or-narrowing, 18 in-operator-narrowing, 19
-error-to-structural-type, 20 error-intersection, 21 isarray-unknown-is-any-array, 22
-empty-array-as-unknown, 23 localecompare-options (but see 26).
+**Fixed** (the repro gives Node's output, Bun's for the Bun ones). On `main` since ee849ba: 1
+serve-streaming-body, 2 json-undefined-unknown-field, 3 throwing-callback-result-json, 4 rethrow-any-c-error, 5
+define-property-on-array, 6 guard-on-object-literal-crashes, 7 error-add-property, 9 index-out-of-range-traps,
+10 record-lookup-in-conditional, 11 math-ceil-infinity, 12's as-record-traps half, 13 number-of-non-string,
+14's `any` parameter half, 15 generic-throwing-callback, 16 default-param-then-null-default, 17
+and-or-narrowing, 18 in-operator-narrowing, 19 error-to-structural-type, 20 error-intersection, 21
+isarray-unknown-is-any-array, 22 empty-array-as-unknown, 23 localecompare-options. Since then, on `main`
+4882a0e: 24 serve-route-handler-value, 26 localecompare-compat-chars, 27 dynamic-import (only
+`const x = await import('node:…')` of a built-in module at a module's top level; anything else is X0040,
+since a module's top level runs at startup), 28 import-meta (`url`, `dirname`, `filename`), 29 fs-rename, 30
+top-level-await-loop-regex, 31 response-null-body, 32 sqlite-all-infer, 33 writefilesync-encoding, 34
+mkdir-recursive, 36 sqlite-real-as-number, 37 object-key-order (an object literal checked against an
+interface took the interface's members sorted by internal id as its key order), 38 union-array-in-unknown.
 
 ### Open
 
@@ -272,88 +277,18 @@ empty-array-as-unknown, 23 localecompare-options (but see 26).
     trap: TypeError: an `any` holding a value was used as Error
     ```
     Workaround in `check/whisper.cases.ts` (`shortcut:`): the scripted failures are Errors.
-24. **serve-route-handler-value: a `routes` handler must be written inline.** `routes: { "/a": { GET: ok } }`
-    with `ok` a function of the right type is refused with a misleading message:
-    ```
-    error[X0017] serve-route-handler-value.ts:4:47: "/a" isn't a field name: records have identifier field names
-    ```
-    Workaround in `server.ts`: `GET: (req) => refused(req) ?? health()`.
 25. **A running service's binary can't be rebuilt, reported as a C compile failure.** With the service still
     running, `seshat run seshat/server.ts` after an edit printed "internal error: the generated C failed to
-    compile (this is a bug in seshat)"; stopped, the same file built. Likely Windows locking the cached
-    `.exe` (not confirmed). Workaround: stop the service before rebuilding.
-26. **localecompare-compat-chars: ligatures, fullwidth letters and unit symbols sort after every letter.**
-    `'ﬁle'.localeCompare('file', undefined, { sensitivity: 'base' })` is 1 (ICU: 0), and even the
-    one-argument `'ﬁle'.localeCompare('zebra')` is 1 (ICU: -1); the same for `Ａ` (U+FF21) and `㎏`. `²`,
-    `Ⅻ`, `ß`, `Æ` and `ſ` collate as ICU does. Repro `gaps/localecompare-compat-chars.ts`: Node prints
-    `[0,-1,0,0]`, Seshat `[1,1,1,1]`. Found removing gap 23's workaround (an index with a `ﬁle` title
-    sorted it last). Workaround in `markdown.ts` (`shortcut:`): both sides `normalize('NFKC')` first, which
-    ICU at base strength already sees through, so Node's order is unchanged.
-
-New in step 3:
-
-27. **dynamic-import: `await import()` doesn't parse.**
-    ```
-    error[P0004] dynamic-import.ts:3:24: expected an expression, found `import`
-    ```
-    A module that reads its environment when it loads (usagelog.js) is tested by setting the environment,
-    then importing it. Side-effect imports aren't Seshat's either (documented). Workaround in
-    `check/usagelog.cases.ts` (`shortcut:`): `run.mjs` sets that case file's environment.
-28. **import-meta: `import.meta.url` doesn't parse** (nor, so, Node 22's `import.meta.dirname`):
-    ```
-    error[P0004] import-meta.ts:3:30: expected an expression, found `import`
-    ```
-    usagelog.js finds `data/` from it. Workaround in `usagelog.ts` (`shortcut:`): `process.cwd()`, the repo
-    root the service is started from.
-29. **fs-rename: no `rename`.** It isn't one of Seshat's own `node:fs/promises` calls, so the import goes to
-    Node's JavaScript module, which needs JavaScriptCore; on Windows:
-    ```
-    error: npm packages need JavaScriptCore: install WebKitGTK's (on Debian and Ubuntu, libjavascriptcoregtk-4.1-dev; pkg-config finds it)
-    ```
-    And the other names in the same import become `Js`: `(await stat(p)).size >= n` is T0501, "can't
-    compare `Js` with `f64` using `>=`". Workaround in `usagelog.ts` (`shortcut:`): rotation copies the
-    file and unlinks it, which can lose an append landing in between.
-30. **top-level-await-loop-regex: the generated C doesn't compile.** A regex literal at the top level and an
-    `await` inside a top-level loop; the top level is emitted twice, each copy declaring the literal's cache:
-    ```
-    error: internal error: the generated C failed to compile (this is a bug in seshat)
-    ...: error: redeclaration of 'rec2' with no linkage
-    ```
-    Workaround in `check/usagelog.cases.ts` (`shortcut:`): the loop is in an async function.
-31. **response-null-body: `new Response(null, ...)` is refused**, the usual way to write a 204 (TypeScript's
-    `BodyInit | null`):
-    ```
-    error[T0001] response-null-body.ts:4:26: expected `string | URLSearchParams | u8[] | Blob | FormData | ReadableStream | undefined`, found `null`
-    ```
-    Workaround in `server.ts` (`shortcut:`): `undefined`.
-
-New before step 4:
-
-32. **sqlite-all-infer: `Statement.all()` without a type argument is refused** (tsc with `@types/bun`
-    gives `unknown[]`; `.get()` without one builds):
-    ```
-    error[T0305] sqlite-all-infer.ts:5:28: can't infer type argument `T` of `Statement.all`
-    ```
-    Answered by typing the rows (`.all<Row>()`), which store.js's port wants anyway.
-
-New in step 4 (33-39 reported 2026-10-30, 37 as blocking; 40 and 41 mentioned there, not numbered):
-
-33. **writefilesync-encoding:** `writeFileSync(path, text, 'utf8')` is refused (T0201, takes 2 arguments).
-    Workaround in `vault.ts` (`shortcut:`): no encoding argument; UTF-8 is the default.
-34. **mkdir-recursive:** `mkdirSync(a/b, { recursive: true })` with `a` missing is ENOENT on Windows.
-    Workaround `mkdirp` in `store.ts` (`shortcut:`): one level at a time.
-35. **sqlite-unknown-number:** a number held in `unknown` (from JSON.parse) is bound as a truncated integer:
-    1.5 is stored as 1. Data loss for anyone binding parsed JSON; Echo checks its types first.
-36. **sqlite-real-as-number:** `get<{ x: number }>()` of a REAL fails ("Expected an integer but found 1.5").
-    Echo reads only integers into number fields.
-37. **object-key-order (blocks step 4):** inside `store.ts`, `Meta`, `Entry` and `SearchResult` serialise their
-    fields in another order than written (the fields shared with `Entry` first, in `Entry`'s order), even a
-    `const m: Meta = {...}` literal. The interfaces alone and a small Entry-to-Meta program print correctly,
-    so the repro (`gaps/object-key-order.ts`) drives `../store.ts`. Not worked around: that would mean
-    serialising every response by hand.
-38. **union-array-in-unknown:** `const xs: unknown[] = [1, [2, null]]`, then `Array.isArray(xs[1])` traps ("an
-    array of a union type held in `unknown` can't be read as `unknown[]` yet"). The same values from JSON.parse
-    work, so `check/store.cases.ts` builds them that way, as the route gets them.
+    compile (this is a bug in seshat)"; stopped, the same file built. Not reproduced in the Seshat session (an
+    edit gives a new cache key): send it the exact steps if it happens again.
+27. **dynamic-import, general form:** an `import()` that isn't a top-level `const … = await import('node:…')`
+    is X0040. usagelog.js is tested by setting the environment, then importing it, so `check/run.mjs` sets
+    `usagelog.cases.ts`'s environment instead (`shortcut:` there). Stays that way: a module's top level runs
+    at startup in Seshat, so import-after-setup can't be expressed.
+35. **sqlite-unknown-number:** a number held in `unknown` (from JSON.parse) is bound to a `bun:sqlite`
+    parameter as a truncated integer: `gaps/sqlite-unknown-number.ts` still stores 1.5 as `1` on 4882a0e,
+    though the Seshat session reported it covered by a native test. Data loss for anyone binding parsed JSON;
+    Echo checks its types first.
 39. **string-of-nested-array:** `String([1, [null, 'x'], 3])` (and `join`) is `1,null,x,3`; JavaScript writes
     `1,,x,3`. Workaround in `vault.ts` (`shortcut:`): a segment's text array goes through store.ts's `jsString`.
 40. **unknown-or-empty-array:** `x || []` with `x: unknown` is T0301 (can't infer the empty array's type).
@@ -364,33 +299,24 @@ Things that worked the first time and were worth checking: V8's lenient `new Dat
 (including local time and rollover), JSON with lone surrogates and integer keys, UTF-16 `slice` through
 emoji, `\p{M}` with `normalize('NFD')`, regex flags, `toLocaleString('en-US')`, `Object.values` over a
 `Record`, `process.env[name]`, `setTimeout`-based retry delays, top-level `await`, FTS5 compiled into the
-vendored SQLite.
+vendored SQLite, and (the bun:sqlite probe, `check/sqlite-probe/`) WAL, foreign keys and cascades,
+`PRAGMA user_version` kept over a reopen, rowid-keyed FTS5 with `snippet()`, SQLite's error messages and
+`BEGIN`/`ROLLBACK`/`COMMIT` on Windows. The only difference there: `run()` returns
+`{changes, lastInsertRowid}`, node:sqlite `{lastInsertRowid, changes}`; store.js reads only `.changes`.
 
 ## Picking this up
 
-Step 4 is built and waits for gap 37 (key order) on Seshat. When the Seshat session says it is fixed,
-`node seshat/check/run.mjs store` must be identical on all three rows and `bash seshat/check/library.sh` must
-show no DIFF; then step 4 is done (mark it done in the plan table, push). Run the suite both ways:
-`npm run test:only`, and `bash seshat/check/suite.sh` with forwarding on.
+Next is step 5, transcripts (the table above): transcript.js's fetching, youtube-transcript replaced by
+Echo's own InnerTube + caption XML code, yt-dlp through `execFile`, and `POST /api/transcript`,
+`GET /api/languages`, `GET /api/video-meta`. Check it as step 4 was: case files through `check/run.mjs`,
+requests through `check/routes.sh` (a list like `check/library.sh`), and the suite both ways
+(`npm run test:only`, and `bash seshat/check/suite.sh` with forwarding on). Live YouTube answers change, so
+fetches need a stand-in YouTube or recorded answers to be compared byte for byte.
 
-Next after that is step 5, transcripts. `GET /api/saved/export` is still Node's (it streams).
+`GET /api/saved/export` is still Node's (it streams; the forwarding buffers).
 
-**bun:sqlite probe (2026-10-30), passed.** `seshat/check/sqlite-probe/` runs store.js's SQLite usage on
-`node:sqlite` (`node.mjs`) and on `bun:sqlite` under Seshat (`bun.ts`), each on its own database file:
-`node --no-warnings seshat/check/sqlite-probe/node.mjs <a.db>` against
-`seshat run seshat/check/sqlite-probe/bun.ts <b.db>`. Identical on Windows: WAL, foreign keys and the
-cascade, `PRAGMA user_version` set and kept over close and reopen, `table_info`, rowid-keyed FTS5 with
-`snippet()` (Unicode, emoji, `…` ellipsis), the error messages of a UNIQUE violation and of two malformed
-MATCH queries, `BEGIN`/`ROLLBACK`/`COMMIT`, a missing row as `null`. The one difference: `run()`'s result
-is `{changes, lastInsertRowid}`, Node's `{lastInsertRowid, changes}`; store.js reads only `.changes`.
-store.js already uses `exec('BEGIN')`/`COMMIT`/`ROLLBACK`, not a transaction helper, so step 4 does not wait
-for `db.transaction()` or named parameters (on Seshat's list after gaps 26-31).
-
-Gap 24 is fixed on Seshat main (the repro prints `ok`); its workaround in `server.ts` is still there. Gaps 26
-to 31 are reported (2026-10-30) and being fixed on Seshat's branch `echo-gaps-2`; keep their workarounds until
-the Seshat session says it is merged. Gaps 33 to 39 are reported too (37 as blocking). Gap 25 did not reproduce there: send exact steps if it happens again.
-Find the session with ListAgents rather than editing ../Seshat from here. When a gap is fixed: delete its `shortcut:`
-workaround (grep for the gap's name), rerun `node seshat/check/run.mjs`, and move the gap to the "fixed"
-line here.
+Gaps go to the Seshat session (find it with ListAgents rather than editing ../Seshat from here). When one is
+fixed: delete its `shortcut:` workaround (grep for the gap's name), rerun `node seshat/check/run.mjs`, and
+move the gap to the "fixed" line here.
 
 The branch is pushed to `origin`; push after each step.

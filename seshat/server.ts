@@ -140,8 +140,7 @@ async function clientEvent(req: Request): Promise<Response> {
   const videoId = fields.videoId;
   if (typeof event !== 'string' || !CLIENT_EVENTS.has(event)) return sendError('INTERNAL', 'Unknown event.', '', 400);
   logEvent(event, { videoId: typeof videoId === 'string' ? videoId.slice(0, 32) : null, ok: true });
-  // shortcut: `undefined`, because Seshat refuses TypeScript's `null` body (gap: response-null-body). `null` once fixed.
-  return new Response(undefined, { status: 204, headers: bare });
+  return new Response(null, { status: 204, headers: bare });
 }
 
 // ---------------------------------------------------------------------------

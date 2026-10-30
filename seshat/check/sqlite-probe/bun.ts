@@ -1,4 +1,3 @@
-// shortcut: rows typed per call (Seshat can't infer Statement.all's T; tsc gives unknown), drop when it infers
 // The bun:sqlite half of the probe (Seshat); node.mjs does the same steps on node:sqlite. Usage: seshat run bun.ts <db file>
 import { Database } from 'bun:sqlite';
 const file = process.argv[2];

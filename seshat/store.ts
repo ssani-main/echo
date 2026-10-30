@@ -8,9 +8,8 @@ import { mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { safeHttpUrl } from './sanitize.ts';
 
-// shortcut: the working directory (the service is started from the repo root), because `import.meta.url`
-// doesn't parse in Seshat (gap: import-meta); one up from this file's folder once it does.
-const DB_FILE = process.env.ECHO_DB_PATH || join(process.cwd(), 'data', 'library.db');
+// The repo root is one up from seshat/, so the default file is the one store.js opens.
+const DB_FILE = process.env.ECHO_DB_PATH || join(dirname(import.meta.dirname), 'data', 'library.db');
 const DATA_DIR = dirname(DB_FILE);
 const LEGACY_JSON = join(DATA_DIR, 'library.json');
 
@@ -89,18 +88,6 @@ export function dbPathFor(owner: string): string {
 
 const MAX_OPEN_LIBRARIES = 64;
 
-/**
- * mkdirSync(dir, { recursive: true }).
- * shortcut: one level at a time, because Seshat's recursive mkdir doesn't make missing parents on Windows
- * (gap: mkdir-recursive); the plain call once fixed.
- */
-export function mkdirp(dir: string): void {
-  if (existsSync(dir)) return;
-  const parent = dirname(dir);
-  if (parent !== dir) mkdirp(parent);
-  mkdirSync(dir, { recursive: true });
-}
-
 function getDb(owner: string = DEFAULT_OWNER): Database {
   const existing = handles.get(owner);
   if (existing) {
@@ -116,7 +103,7 @@ function getDb(owner: string = DEFAULT_OWNER): Database {
   }
 
   const file = dbPathFor(owner);
-  mkdirp(dirname(file));
+  mkdirSync(dirname(file), { recursive: true });
   const db = new Database(file);
   handles.set(owner, db);
   db.exec('PRAGMA journal_mode = WAL');

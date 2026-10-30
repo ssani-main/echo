@@ -1,9 +1,9 @@
 // Port of ../vault.js: slugify and monthFolder (checked by check/vault.cases.ts) and syncVault, which
 // writes the library to a folder of Markdown notes (checked through POST /api/vault/sync by check/routes.sh).
 
-import { writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { forOwner, mkdirp, jsString, type Entry, type Library } from './store.ts';
+import { forOwner, jsString, type Entry, type Library } from './store.ts';
 import { entryToMarkdown, extractSummary, buildVaultIndex, type Entry as MarkdownEntry, type Segment, type VaultItem } from './markdown.ts';
 import { EchoError } from './errors.ts';
 
@@ -64,11 +64,6 @@ function readOrNull(path: string): string | null {
   }
 }
 
-/** writeFileSync(path, text, 'utf8'). shortcut: no encoding argument, Seshat refuses it (gap: writefilesync-encoding); UTF-8 is the default. */
-function writeText(path: string, text: string): void {
-  writeFileSync(path, text);
-}
-
 export interface VaultResult { dir: string; total: number; written: number; unchanged: number; failed: number; index: string }
 
 /**
@@ -80,7 +75,7 @@ export async function syncVault(dir: unknown, opts: { includeTranscript?: unknow
   if (typeof dir !== 'string' || !dir.trim()) throw new EchoError('A vault folder path is required.', 'INVALID_URL');
 
   const target = resolve(dir.trim());
-  mkdirp(target);
+  mkdirSync(target, { recursive: true });
 
   const includeTranscript = opts.includeTranscript !== false;
   const metas = await lib.listEntries();
@@ -114,12 +109,12 @@ export async function syncVault(dir: unknown, opts: { includeTranscript?: unknow
 
       const md = entryToMarkdown(markdownEntry(entry), { includeTranscript });
       const subDir = join(target, monthFolder(entry.savedAt));
-      mkdirp(subDir);
+      mkdirSync(subDir, { recursive: true });
       const filePath = join(subDir, filename);
       if (readOrNull(filePath) === md) {
         unchanged++;
       } else {
-        writeText(filePath, md);
+        writeFileSync(filePath, md, 'utf8');
         written++;
       }
     } catch {
@@ -134,7 +129,7 @@ export async function syncVault(dir: unknown, opts: { includeTranscript?: unknow
     if (readOrNull(indexPath) === indexMd) {
       index = 'unchanged';
     } else {
-      writeText(indexPath, indexMd);
+      writeFileSync(indexPath, indexMd, 'utf8');
       index = 'written';
     }
   }
