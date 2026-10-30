@@ -63,7 +63,8 @@ scratch folder, not in this repo):
 | `youtube.ts` | the youtube-transcript package (1.3.1): InnerTube, the watch page, the track XML | 21 | identical, through the package's own `fetch` option: a stand-in YouTube answers from a script and every request is compared too. srv3 and classic XML, entities, every error, the SSRF host check, a brace inside the page's JSON, `retrieveVideoId` |
 | `digest.ts` | `digest.js`: `buildClaudeArgs`, `buildClaudeStreamArgs`, `buildSpawnTarget`, `scaledTimeoutMs`, `thresholdCharsFor`, `chunkBudgetCharsFor`, `mergeUsage`, `parseJsonLoose`, `chunkText` | 251 | identical. Includes lone surrogates, `1e400`, `__proto__` keys, integer-key order, chunk cuts through emoji, `scaledTimeoutMs` of strings, arrays, `null` and `Infinity` |
 | `providers.ts` | `providers.js`'s registry: `PROVIDERS`, `REASONING_LEVELS`, `normalizeProviderId`, `normalizeReasoningLevel`, `getProviderId`, `getProviderLimits`, `getReasoningLevel`, `reasoningFields`, `publicProviderList`, `truncationFields`, `isTruncationReason`, `deepseekModelFor`, `parseSseLine` | 286 | identical. `parseSseLine` walks junk frames as the original does (`"choices":"abc"`, `{"0":…}`, `data: null` throwing its TypeError) |
-| `whisper.ts` | `whisper.js`: `buildWhisperArgs`, `chooseModelForLanguage`, `isTransientDownloadFailure`, `withDownloadRetry`, `mapWhisperError`, `LOCAL_MEDIA_EXTENSIONS` | 117 | identical |
+| `whisper.ts` | `whisper.js`: all of it. The pure parts (`whisper.cases.ts`), and the pipelines, `transcribeViaWhisper` and `transcribeFile`, against stand-in programs (`whisper-run.cases.ts`) | 117 + 117 | identical |
+| `whisperModel.ts` | `whisperModel.js`: the registry, the cache paths, the download states (`whispermodel.cases.ts`), and the real 60 MB download from Hugging Face with its size and sha256 check (`whispermodel-live.cases.ts`) | 32 + 7 | identical |
 | `vault.ts` | `vault.js` (`slugify`, `monthFolder`; `syncVault` is checked through its route, step 4) | 31 | identical |
 | `store.ts` | `store.js` on `bun:sqlite` (all but `adoptDefaultLibrary`, which only accounts call: step 8) | 72 | identical. One scripted session: saves, updates keeping omitted fields, junk segments and tags as JSON brings them, a null segment failing after the insert as store.js does, paging edge cases, FTS search and its malformed queries, a second owner's file, and a pre-migration database (columns added, FTS re-keyed). Shortcut: locals for gaps 40 and 41. Under node, `bun:sqlite` is `check/node-bun.mjs`, a stand-in over node:sqlite |
 | `usagelog.ts` | `usagelog.js` (`logEvent`, `errLabel`) | 17 | identical: the JSONL lines written (ts masked), rotation at 400 bytes, lone surrogates, fields overriding `event`/`ts`. Shortcuts: the default path from the working directory (gap 28), rotation by copy + unlink (gap 29), the case file's environment set by `run.mjs` (gap 27) |
@@ -269,6 +270,63 @@ ECHO_SESHAT_URL=http://127.0.0.1:8001 ECHO_SESHAT_SECRET=<same> npm start  # Ech
   track failure then fell back to the page: 4 requests instead of 2); Seshat dropped every forwarded
   request's `lang` (gap 46) and crashed on `/api/video-meta?url=` (gap 47).
 
+### Step 6: Whisper (in progress, 2026-10-30)
+
+Built and checked:
+
+- **`seshat/whisperModel.ts`** (all of whisperModel.js). The download reads the fetch body in chunks: each is
+  counted, hashed and appended to the part file (Seshat has no `createWriteStream`/`pipeline`). The real
+  download from Hugging Face is identical on Node and Seshat (`whispermodel-live.cases.ts`, ~90 s, 3 × 60 MB).
+- **`seshat/whisper.ts`** (all of whisper.js). `CaptionSegment` and `Segments` moved here from transcript.ts
+  (which re-exports them), so both modules share one type (gap 49 crashes on a promise of one interface's
+  array used as another's). Process failures are `ProcessError`, an `EchoError` subclass that carries
+  exitCode, stderr, killed, signal and code, so it can be tagged as whisper.js tags its plain Error.
+- **`check/fake-tool.ts`**: one Seshat-built program, copied by run.mjs as whisper-cli.exe, ffmpeg.exe,
+  ffprobe.exe and yt-dlp.exe (in `%TMP%/echo-fake-tools`). It behaves by its arguments: the video id, the
+  input file's name, the model file's name. Its progress goes out in one write, because the parsers read the
+  last percent of each chunk and pipe chunking varies between runs. The slow model's runs don't log, as they
+  are killed 300 ms in. **`whisper-run.cases.ts`**: 117 cases identical, three runs in a row. They cover the
+  model upgrade for a German video (and its pinned/not-downloaded cases), retries, refusals, timeout, abort
+  (on the first transcribe tick, not a timer), and every missing program. The case folders avoid "whisper",
+  "ffmpeg" and "yt-dlp" in their names, as mapWhisperError reads the failed program's path for those words.
+- **`fetchTranscript`** uses the real `resolveWhisper` and `transcribeViaWhisper` (transcript cases still
+  109 identical).
+- **Routes in `server.ts`**: `GET /api/whisper/status`, `POST /api/whisper/model`, `POST
+  /api/transcript/file` (raw body via `req.bytes()`), `GET /api/transcript/progress` (SSE from a
+  `ReadableStream`, the job map, the 32-stream cap, the 30-minute lifetime), and `POST /api/transcript` with
+  jobId, whisperModel, progress and cancelling. `seshat check` passes.
+- **server.js forwarding**: passes express.raw()'s bytes, streams `text/event-stream` answers, and copies
+  headers with `setHeader` (`res.set` added `; charset=utf-8` to the SSE type). `seshatTranscript` is gone:
+  every `POST /api/transcript` is forwarded, and the four Whisper routes carry `seshat`.
+- **Cancelling** (gap 50 workaround): every forwarded request gets an `x-echo-request` id. When its client
+  leaves, server.js aborts its fetch and calls `POST /internal/abort` with the id; the service keeps an
+  AbortController per id (`cancellable()`).
+- **`tests/seshat-forward.test.js`**: 9 tests pass. New: every transcript forwarded, an upload's raw bytes,
+  SSE passed on before the stream ends, a leaving client's abort call. Each new test fails when its code is
+  removed (checked by mutation). The Node suite (`npm run test:only`): 725 pass, its one failure
+  `digest-idle-timeout`'s known load flake.
+
+Different on purpose:
+
+- `POST /api/whisper/model` looks a model up as a string among the registry's own names. server.js's
+  plain-object lookup takes `constructor` (and starts a broken download) and an array (`["base"]`).
+- A non-string `whisperModel` in `POST /api/transcript` is a 400, like `lang`.
+
+Found in the original, kept: a corrupt upload is `WHISPER_FAILED`, not `MEDIA_UNREADABLE`, when ffmpeg is
+given as a path ending in `.exe` (ECHO_FFMPEG). mapWhisperError matches `^ffmpeg exited`, and the message
+says `ffmpeg.exe exited`. With ffmpeg found on PATH (the default) it works.
+
+**Not done yet:**
+
+1. **`bash seshat/check/whisper.sh` hasn't run through.** It's the route comparison with the real
+   whisper-cli, the models and a spoken WAV made by Windows' speech synthesis. Its first run printed nothing;
+   when it was stopped, 8100 and 8101 were listening but nothing was on 8001, so the Seshat service never came
+   up (a build failure, or a crash at start: run `seshat run seshat/server.ts` by hand first).
+2. Then `node seshat/check/run.mjs` (all), `library.sh`, `transcripts.sh` and `transcripts.sh web` (its
+   `!POST /api/transcript {"url":"GRzaq5AHiV8"}` loses the `!`: it's forwarded now), and `suite.sh`.
+3. A cancel end to end: start a file transcription through :8101, close the client, and check whisper-cli
+   is killed.
+
 ## Seshat gaps found while porting
 
 **Status on Seshat `main` 2a6404e (2026-10-30):** 49 gaps found, 39 fixed, and their workarounds removed
@@ -334,6 +392,10 @@ again, as the package does), 46 typeof-after-narrowing, 47 or-of-union-values, 4
 41. **isarray-field-narrowing:** `Array.isArray(rec.tags) ? rec.tags : []` doesn't narrow the field (T0001).
     Workaround for both in `store.ts`'s legacy import (`shortcut:`): locals.
 
+Fixed on Seshat's branch `echo-gaps-4`, not merged yet (keep the workarounds until seshat-86 says merged and
+target/release is rebuilt): 39, 40, 41, 43, 49, 50, 51, 53, 54. Still open there: 52 (std/crypto returns u8[]
+where node:crypto returns a Buffer, so mapping one onto the other would print differently).
+
 New in step 5 (reported 2026-10-30):
 
 43. **fetch-init-conversion:** the global fetch doesn't go where one's own fetch type goes; Seshat reduced it
@@ -348,6 +410,23 @@ New in step 5 (reported 2026-10-30):
     gap 44's workaround was removed. Not reduced (the shapes cut out run as Node does). Workaround in
     `transcript.ts` (`shortcut:`): the arrow `async`, with `await` on both branches.
 
+New in step 6 (reported 2026-10-30):
+
+50. **request-signal:** a served Request has no `signal`, so a handler can't tell its client left.
+    Workaround (`shortcut:` in `server.ts` and server.js): `x-echo-request` and `POST /internal/abort`.
+51. **os-cpus:** node:os has no `cpus()`. Workaround in `whisper.ts`: NUMBER_OF_PROCESSORS, else 4. The fix
+    on Seshat's side is `availableParallelism()`, which Node has too.
+52. **node-crypto-bridged:** `node:crypto` goes to the npm bridge on Windows ("npm packages need
+    JavaScriptCore"). Workaround: `std/crypto` in `whisper.ts`, `whisperModel.ts` and `server.ts`, mapped to
+    node:crypto by `check/node-bun.mjs` under node.
+53. **fs-mkdtemp:** no `mkdtemp`. Workaround in `whisper.ts`: `makeTempDir`, mkdir of a UUID-named folder.
+54. **abort-listener-remove:** `addEventListener` takes no options and there's no `removeEventListener`.
+    Workaround in `whisper.ts`'s runStreaming: a settled flag.
+
+Also missing, not needed: `createWriteStream` (the download appends per chunk). In Seshat a `Uint8Array` is a
+`u8[]` (no `subarray`: `slice`), `process.env` can't be assigned (run.mjs sets case files' environment), and
+`filter(Boolean)` can't infer its parameter.
+
 Things that worked the first time and were worth checking: V8's lenient `new Date(string)` parsing
 (including local time and rollover), JSON with lone surrogates and integer keys, UTF-16 `slice` through
 emoji, `\p{M}` with `normalize('NFD')`, regex flags, `toLocaleString('en-US')`, `Object.values` over a
@@ -359,12 +438,10 @@ vendored SQLite, and (the bun:sqlite probe, `check/sqlite-probe/`) WAL, foreign 
 
 ## Picking this up
 
-Next is step 6, Whisper (the table above): whisper.js's spawns and progress, whisperModel.js's download,
-`GET /api/whisper/status`, `POST /api/whisper/model`, `POST /api/transcript/file` (a raw body, which the
-forwarding doesn't pass yet), and `GET /api/transcript/progress` (SSE, which the forwarding doesn't stream
-yet). With it, `POST /api/transcript` can be forwarded whatever `transcribe` says: drop `seshatTranscript`'s
-condition, give `fetchTranscript` the real `resolveWhisper` and `transcribeViaWhisper`, and cancel on a
-client's disconnect. A stand-in whisper-cli and ffmpeg can be built with Seshat, as `check/fake-ytdlp.ts` is.
+Step 6, Whisper, is in progress: see "Step 6" above, and its **Not done yet** list, which is where to
+start (first: why the service didn't come up in `whisper.sh`). When seshat-86 says `echo-gaps-4` is merged
+and target/release rebuilt, remove the workarounds for 39, 40, 41, 43, 49, 50, 51, 53 and 54 (grep the gap
+names), then rerun everything.
 
 Still Node's: `GET /api/saved/export` (it streams; the forwarding buffers).
 

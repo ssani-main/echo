@@ -5,7 +5,7 @@
 // Usage: node seshat/check/run.mjs [name ...]   (default: every *.cases.ts here)
 // SESHAT names the compiler (default: ../Seshat/target/release/seshat.exe).
 import { spawnSync } from 'node:child_process';
-import { readdirSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,6 +25,16 @@ delete env.ECHO_USAGE_SYNTHETIC;
 // ytdlp.cases.ts's yt-dlp is fake-ytdlp.ts, built with Seshat and put first on PATH, for all three runs.
 const fakeDir = join(tmpdir(), 'echo-fake-ytdlp');
 function envFor(name) {
+  if (name === 'whispermodel' || name === 'whispermodel-live') return { ...env, ECHO_WHISPER_MODEL_DIR: join(tmpdir(), 'echo-whispermodel-cases') };
+  // whisper-run.cases.ts's programs: fake-tool.ts built once, under the four names the pipelines spawn.
+  if (name === 'whisper-run') {
+    const toolDir = join(tmpdir(), 'echo-fake-tools');
+    mkdirSync(toolDir, { recursive: true });
+    const built = spawnSync(SESHAT, ['build', 'fake-tool.ts', '-o', join(toolDir, 'whisper-cli.exe')], { cwd: HERE, encoding: 'utf8' });
+    if (built.status !== 0) throw new Error(`fake-tool.ts didn't build:\n${built.stdout}${built.stderr}`);
+    for (const copy of ['ffmpeg.exe', 'ffprobe.exe', 'yt-dlp.exe']) copyFileSync(join(toolDir, 'whisper-cli.exe'), join(toolDir, copy));
+    return { ...env, FAKE_TOOL_DIR: toolDir, FAKE_TOOL_LOG: join(toolDir, 'args.jsonl'), ECHO_WHISPER_MODEL_DIR: join(tmpdir(), 'echo-wr-cache') };
+  }
   if (name !== 'ytdlp') return env;
   const built = spawnSync(SESHAT, ['build', 'fake-ytdlp.ts', '-o', join(fakeDir, 'yt-dlp.exe')], { cwd: HERE, encoding: 'utf8' });
   if (built.status !== 0) throw new Error(`fake-ytdlp.ts didn't build:

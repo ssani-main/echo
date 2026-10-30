@@ -1,7 +1,7 @@
 // Port of ../transcript.js: the failure classifier, the offset-unit detector and the retry policy
 // (check/transcript.cases.ts), and the fetching: captions through youtube.ts, which replaces the
 // youtube-transcript package (check/youtube.cases.ts), yt-dlp, oEmbed (check/transcript-live.cases.ts and the
-// transcript routes). Whisper comes in step 6 (see fetchTranscript).
+// transcript routes), and Whisper when the captions fail or are skipped (whisper.ts).
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -10,12 +10,16 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { extractVideoId } from './text.ts';
 import { fetchTranscript as fetchPackageTranscript } from './youtube.ts';
-import { mapWhisperError } from './whisper.ts';
+import {
+  mapWhisperError, resolveWhisper, transcribeViaWhisper, type CaptionSegment, type Segments, type WhisperOptions,
+} from './whisper.ts';
 import { EchoError } from './errors.ts';
 import { arrayOf, jsString, prop } from './js.ts';
 
-// extractVideoId lives in text.ts (the port of common/text.js).
+// extractVideoId lives in text.ts (the port of common/text.js); the segment types in whisper.ts, the lowest of
+// the modules that make segments.
 export { extractVideoId };
+export type { CaptionSegment, Segments };
 
 /**
  * Detect whether a set of raw caption offsets are expressed in milliseconds
@@ -76,11 +80,6 @@ export function isPermanentFetchError(err: { message?: string } | null | undefin
  * re-thrown immediately. retryDelaysMs.length is the number of retries;
  * [] means a single attempt.
  */
-/** One caption line, offset in seconds: what every transcript fetcher returns. */
-export interface CaptionSegment {
-  text: string;
-  offset: number;
-}
 
 export async function fetchWithRetry<T>(
   fetcher: (videoId: string, lang: string | undefined) => Promise<T>,
@@ -242,9 +241,6 @@ const execFileAsync = promisify(execFile);
 
 const YTDLP_JS_RUNTIME = process.env.ECHO_YTDLP_JS_RUNTIME ?? 'node';
 const YTDLP_JS_RUNTIME_ARGS: string[] = YTDLP_JS_RUNTIME ? ['--js-runtimes', YTDLP_JS_RUNTIME] : [];
-
-/** Caption lines, tagged (non-enumerable, so not in their JSON) with the track that was really loaded. */
-export type Segments = CaptionSegment[] & { langUsed?: unknown; source?: string; modelUsed?: string | null };
 
 function tagged(segments: CaptionSegment[], langUsed: unknown): Segments {
   const result: Segments = segments;
@@ -424,7 +420,7 @@ function whisperFailureHeadline(code: string): string {
   }
 }
 
-export interface FetchTranscriptOptions {
+export interface FetchTranscriptOptions extends WhisperOptions {
   lang?: string;
   retryDelaysMs?: number[];
   primaryFetcher?: (videoId: string, lang: string | undefined) => Promise<Segments>;
@@ -433,23 +429,20 @@ export interface FetchTranscriptOptions {
   transcribe?: string;
   whisperResolver?: (opts: FetchTranscriptOptions) => unknown;
   transcriber?: (videoId: string, opts: FetchTranscriptOptions) => Promise<Segments>;
-  modelName?: string;
-  signal?: AbortSignal;
 }
 
 /**
  * The transcript of a video: captions (retried), then yt-dlp's, then Whisper if it is on; a classified
  * EchoError when everything fails.
- * shortcut: Whisper isn't ported yet (step 6), so without opts.whisperResolver it counts as not installed,
- * and server.js forwards only requests with Whisper off; transcribeViaWhisper and resolveWhisper with step 6.
  */
 export async function fetchTranscript(videoId: string, opts: FetchTranscriptOptions = {}): Promise<Segments> {
   const lang = opts.lang || undefined;
   const retryDelaysMs = opts.retryDelaysMs !== undefined ? opts.retryDelaysMs : DEFAULT_RETRY_DELAYS_MS;
-  const primaryFetcher = opts.primaryFetcher ?? ((id: string, l: string | undefined) => fetchViaPackage(id, l));
+  const primaryFetcher: (id: string, l: string | undefined) => Promise<Segments> = opts.primaryFetcher
+    ?? (async (id: string, l: string | undefined): Promise<Segments> => await fetchViaPackage(id, l));
   const whisperMode = opts.transcribe || 'off';
-  const resolveW = opts.whisperResolver ?? ((_: FetchTranscriptOptions): unknown => false);
-  const transcribeW = opts.transcriber ?? ((_id: string, _o: FetchTranscriptOptions): Promise<Segments> => Promise.reject(new Error('Whisper is not ported yet.')));
+  const resolveW = opts.whisperResolver ?? ((o: FetchTranscriptOptions): unknown => resolveWhisper(o));
+  const transcribeW = opts.transcriber ?? (async (id: string, o: FetchTranscriptOptions): Promise<Segments> => await transcribeViaWhisper(id, o));
   const captionFallback = opts.captionFallback ?? fetchViaYtDlp;
 
   if (whisperMode === 'always' && resolveW(opts)) return await transcribeW(videoId, opts);

@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'path';
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { gzip, gzipSync, createGzip, brotliCompress, constants } from 'node:zlib';
 import { promisify } from 'node:util';
 import {
@@ -976,16 +976,32 @@ async function seshat(req, res, next) {
     if (!SESHAT_SKIP_HEADERS.has(name)) headers.set(name, Array.isArray(value) ? value.join(', ') : value);
   }
   headers.set('x-echo-forward', SESHAT_SECRET);
-  // shortcut: JSON bodies only (express.json() has consumed the stream); raw-body routes (/api/transcript/file) need the raw bytes, add that with the first of them.
-  const body = req.method !== 'GET' && req.method !== 'HEAD' && req.is('application/json') ? JSON.stringify(req.body) : undefined;
+  // The body as this server's parsers left it: express.raw()'s bytes (an upload), or express.json()'s value.
+  let body;
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    if (Buffer.isBuffer(req.body)) body = req.body;
+    else if (req.is('application/json')) body = JSON.stringify(req.body);
+  }
+  // A client that leaves cancels the request here, and its work on the service (a Whisper job: minutes of CPU).
+  // shortcut: the service is told by POST /internal/abort with this id, as a request served by Seshat can't see
+  // its client go (gap request-signal); once it can, the aborted fetch alone is enough.
+  const requestId = randomUUID();
+  headers.set('x-echo-request', requestId);
+  const ac = new AbortController();
+  res.on('close', () => {
+    if (res.writableEnded) return;
+    ac.abort();
+    fetch(SESHAT_URL + '/internal/abort', { method: 'POST', headers: { 'x-echo-forward': SESHAT_SECRET, 'x-echo-request': requestId } }).catch(() => {});
+  });
   // The route's own path, not the URL as sent: Express matches /API/SAVED/x/ (any case, a trailing slash),
   // the service's router doesn't. Params are already decoded here, so they are encoded again.
   const path = req.baseUrl + req.route.path.replace(/:(\w+)/g, (_, name) => encodeURIComponent(req.params[name]));
   const query = req.originalUrl.indexOf('?') >= 0 ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
   let answer;
   try {
-    answer = await fetch(SESHAT_URL + path + query, { method: req.method, headers, body });
+    answer = await fetch(SESHAT_URL + path + query, { method: req.method, headers, body, signal: ac.signal });
   } catch (err) {
+    if (ac.signal.aborted) return; // the client is gone: nobody to answer
     // Down or restarting: this server still has the handler, so it answers instead.
     console.error(`[echo] Seshat service unreachable for ${req.method} ${req.path}, serving it here:`, err.message);
     return next();
@@ -996,12 +1012,27 @@ async function seshat(req, res, next) {
     answer.body?.cancel();
     return next();
   }
-  // shortcut: the answer is buffered, so streamed routes (SSE, the export) can't be forwarded; stream it with the first of them.
-  const bytes = Buffer.from(await answer.arrayBuffer());
   res.status(answer.status);
+  // setHeader, not res.set(): that adds "; charset=utf-8" to a text type, and the service's headers are final.
   answer.headers.forEach((value, name) => {
-    if (!SESHAT_SKIP_HEADERS.has(name)) res.set(name, value);
+    if (!SESHAT_SKIP_HEADERS.has(name)) res.setHeader(name, value);
   });
+  // Server-sent events go on as they come; anything else is read whole (res.send() then compresses it).
+  if ((answer.headers.get('content-type') || '').startsWith('text/event-stream')) {
+    res.flushHeaders();
+    try {
+      for await (const chunk of answer.body) res.write(chunk);
+    } catch {
+      // the client left (the read was aborted) or the service did: either way the stream is over
+    }
+    return res.end();
+  }
+  let bytes;
+  try {
+    bytes = Buffer.from(await answer.arrayBuffer());
+  } catch {
+    return; // the client left while the answer was read
+  }
   // A bodiless answer (204) ends as the handlers end theirs; res.send() would add an ETag of the empty body.
   if (bytes.length === 0) return res.end();
   res.send(bytes);
@@ -1013,14 +1044,6 @@ async function seshat(req, res, next) {
  */
 function seshatLibrary(req, res, next) {
   return ACCOUNTS_ENABLED ? next() : seshat(req, res, next);
-}
-
-/**
- * `seshat` for POST /api/transcript, when Whisper is off for the request: web mode, or `transcribe: 'off'`.
- * Whisper (its fallback, its progress stream, cancelling it) stays here until it is ported (PORT.md step 6).
- */
-function seshatTranscript(req, res, next) {
-  return isWeb || req.body?.transcribe === 'off' ? seshat(req, res, next) : next();
 }
 
 // ---------------------------------------------------------------------------
@@ -1115,7 +1138,7 @@ let openProgressStreams = 0;
 // /api/transcript ignores `jobId` there and forces transcription off, so this
 // route could only ever heartbeat at a hosted visitor, while still costing a
 // socket and a timer per connection. Gating it removes that sink outright.
-app.get('/api/transcript/progress', blockInWeb, requireApproved, (req, res) => {
+app.get('/api/transcript/progress', blockInWeb, requireApproved, seshat, (req, res) => {
   const jobId = String(req.query.jobId || '');
   if (!jobId) { res.status(400).end(); return; }
 
@@ -1178,7 +1201,7 @@ app.get('/api/transcript/progress', blockInWeb, requireApproved, (req, res) => {
   res.on('close', finish);
 });
 
-app.post('/api/transcript', requireApproved, userFetchLimit, webLimit(20, 60_000), seshatTranscript, async (req, res) => {
+app.post('/api/transcript', requireApproved, userFetchLimit, webLimit(20, 60_000), seshat, async (req, res) => {
   const { url, lang, transcribe, whisperModel } = req.body;
 
   const videoId = extractVideoId(url);
@@ -1312,6 +1335,7 @@ app.post(
   requireApproved,
   userFetchLimit,
   express.raw({ type: '*/*', limit: ECHO_MAX_UPLOAD_BYTES }),
+  seshat,
   async (req, res) => {
     const rawName = typeof req.query.name === 'string' ? req.query.name : '';
     // Only ever used as a display title and as hash input — never as a path.
@@ -1389,7 +1413,7 @@ app.post(
 );
 
 // --- Whisper model management (local/desktop only) ---
-app.get('/api/whisper/status', blockInWeb, requireApproved, (req, res) => {
+app.get('/api/whisper/status', blockInWeb, requireApproved, seshat, (req, res) => {
   const binaryPresent = !!resolveWhisperBinary();
   const models = Object.keys(WHISPER_MODELS).map((n) => {
     const m = WHISPER_MODELS[n];
@@ -1398,7 +1422,7 @@ app.get('/api/whisper/status', blockInWeb, requireApproved, (req, res) => {
   return res.json({ binaryPresent, defaultModel: DEFAULT_WHISPER_MODEL, cacheDir: modelCacheDir(), models });
 });
 
-app.post('/api/whisper/model', blockInWeb, requireApproved, (req, res) => {
+app.post('/api/whisper/model', blockInWeb, requireApproved, seshat, (req, res) => {
   const { model } = req.body || {};
   if (!model || !WHISPER_MODELS[model]) {
     return sendError(res, 'WHISPER_MODEL_UNKNOWN', `Unknown model: ${model}`, 'Choose base or small.');

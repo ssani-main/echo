@@ -13,6 +13,14 @@ import { EchoError } from './errors.ts';
 import { syncVault, markdownEntry } from './vault.ts';
 import { entryToMarkdown } from './markdown.ts';
 import { extractVideoId, fetchTranscript, getVideoMeta, listCaptionTracks, type CaptionSegment, type CaptionTrack, type FetchTranscriptOptions } from './transcript.ts';
+import { LOCAL_MEDIA_EXTENSIONS, resolveWhisperBinary, transcribeFile, type WhisperOptions, type WhisperProgress } from './whisper.ts';
+import { DEFAULT_WHISPER_MODEL, WHISPER_MODELS, downloadState, modelCacheDir, startModelDownload, type DownloadState } from './whisperModel.ts';
+import { jsString } from './js.ts';
+import { rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+// shortcut: std/crypto, as node:crypto goes through Seshat's npm bridge (gap: node-crypto-bridged).
+import { createHash } from 'std/crypto';
 
 // Same derivation as server.js: an unrecognised value is local.
 const ECHO_MODE = process.env.ECHO_MODE === 'web' ? 'web' : process.env.ECHO_MODE === 'desktop' ? 'desktop' : 'local';
@@ -47,7 +55,10 @@ function sendError(code: string, message: string, hint: string, status: number, 
 
 // server.js's ECHO_ERROR_STATUS, for the codes a ported route can throw.
 const ERROR_STATUS: Record<string, number> = {
-  INVALID_URL: 400, TRANSCRIPT_UNAVAILABLE: 422, YTDLP_MISSING: 503, MEMBERS_ONLY: 422, INTERNAL: 500,
+  INVALID_URL: 400, TRANSCRIPT_UNAVAILABLE: 422, YTDLP_MISSING: 503, MEMBERS_ONLY: 422, RATE_LIMITED: 429, INTERNAL: 500,
+  FFMPEG_MISSING: 503, MEDIA_UNREADABLE: 422, AUDIO_DOWNLOAD_REFUSED: 503,
+  WHISPER_MISSING: 503, WHISPER_MODEL_MISSING: 503, WHISPER_FAILED: 502, WHISPER_AUDIO_TOO_LONG: 422, WHISPER_TIMEOUT: 504,
+  WHISPER_MODEL_UNKNOWN: 400, WHISPER_MODEL_DOWNLOAD_FAILED: 502, WHISPER_MODEL_VERIFY_FAILED: 502,
 };
 
 /** server.js's sendCaughtError: a tagged error keeps its code and message, anything else is a generic 500. */
@@ -338,8 +349,7 @@ async function search(req: Request): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------------
-// Transcripts (transcript.ts). POST /api/transcript is forwarded only with Whisper off (web mode, or
-// `transcribe: 'off'`): Whisper comes in step 6, and until then server.js keeps every request that might use it.
+// Transcripts (transcript.ts), Whisper's included (whisper.ts).
 // ---------------------------------------------------------------------------
 
 function numFromEnv(name: string, fallback: number): number {
@@ -374,16 +384,27 @@ async function transcriptRoute(req: Request): Promise<Response> {
   let lang: string | undefined;
   if (typeof rawLang === 'string') lang = rawLang;
   else if (rawLang !== undefined && rawLang !== null) return sendError('INTERNAL', 'lang must be a string.', '', 400);
+  // The same for the model: server.js would look a number up as a model name.
+  const rawModel = fields.whisperModel;
+  let whisperModel: string | undefined;
+  if (typeof rawModel === 'string') whisperModel = rawModel;
+  else if (rawModel !== undefined && rawModel !== null) return sendError('INTERNAL', 'whisperModel must be a string.', '', 400);
   const transcribe = fields.transcribe;
-  // shortcut: no cancelling when the client goes away (server.js aborts its Whisper job); captions take
-  // seconds and yt-dlp is capped at 30 s. With Whisper (step 6), listen for the disconnect.
+
+  // Optional live progress: the client sends a jobId and reads GET /api/transcript/progress?jobId=…. The first
+  // entry comes with the first real tick (only when Whisper runs), so a caption fetch never shows a progress card.
+  const rawJob = fields.jobId;
+  const jobId = !isWeb && typeof rawJob === 'string' && rawJob ? rawJob : null;
+  const job = cancellable(req);
   const t0 = Date.now();
   try {
     let whisperMode = 'fallback';
     if (isWeb) whisperMode = 'off';
     else if (typeof transcribe === 'string' && transcribe) whisperMode = transcribe;
-    const opts: FetchTranscriptOptions = { transcribe: whisperMode };
+    const opts: FetchTranscriptOptions = { transcribe: whisperMode, signal: job.signal };
     if (lang !== undefined) opts.lang = lang;
+    if (whisperModel !== undefined) opts.modelName = whisperModel;
+    if (jobId) opts.onProgress = (p: WhisperProgress): void => setJobProgress(jobId, p);
     const segments = await fetchTranscript(videoId, opts);
     const meta = await getVideoMeta(videoId);
     const langCode = segments.langUsed || lang || null;
@@ -397,14 +418,25 @@ async function transcriptRoute(req: Request): Promise<Response> {
       );
     }
     logEvent('transcript', { videoId, chars, langCode, ok: true, ms: Date.now() - t0 });
+    finishJob(jobId, 'done');
+    // modelUsed can differ from the model asked for: a non-English video on base runs on small.
     const answer: TranscriptBody = {
       videoId, url: fields.url, title: meta.title, channel: meta.channel, channelUrl: meta.channelUrl, segments, langCode,
       transcriptSource: segments.source || 'captions', whisperModel: segments.modelUsed || null,
     };
     return json(answer);
   } catch (err) {
+    // The client went away: the abort surfaces here, and nobody reads the answer.
+    if (job.signal.aborted) {
+      logEvent('transcript', { videoId, ok: false, err: 'client_aborted', ms: Date.now() - t0 });
+      finishJob(jobId, 'error');
+      return new Response(null, { status: 204, headers: bare });
+    }
     logEvent('transcript', { videoId, ok: false, err: errLabel(err), ms: Date.now() - t0 });
+    finishJob(jobId, 'error');
     return sendCaughtError(err);
+  } finally {
+    job.release();
   }
 }
 
@@ -439,6 +471,232 @@ async function videoMeta(req: Request): Promise<Response> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Whisper: cancelling, live progress, local media, the models (local/desktop only)
+// ---------------------------------------------------------------------------
+
+// Requests that can be cancelled, by the id server.js gives each forwarded request (x-echo-request).
+const inFlight = new Map<string, AbortController>();
+
+/**
+ * An abort signal for a long request, fired when its client goes away (server.js aborts its Whisper job then).
+ * shortcut: server.js sees the disconnect and calls POST /internal/abort with the request's id, as a served
+ * Request has no `signal` in Seshat (gap: request-signal). With it (and at the front-door swap), use req.signal.
+ */
+function cancellable(req: Request): { signal: AbortSignal; release: () => void } {
+  const ac = new AbortController();
+  const id = req.headers.get('x-echo-request') ?? '';
+  if (id) inFlight.set(id, ac);
+  return { signal: ac.signal, release: (): void => { if (id) inFlight.delete(id); } };
+}
+
+function abortRequest(req: Request): Response {
+  inFlight.get(req.headers.get('x-echo-request') ?? '')?.abort();
+  return new Response(null, { status: 204, headers: bare });
+}
+
+// Live Whisper progress by the client's jobId: the transcript routes update it, the SSE route reads it. An
+// entry stays 15 s after its job ends, so a stream that connects late still sees 'done' or 'error'.
+interface JobState { phase?: string; pct?: number; status: string; updatedAt: number }
+const whisperJobs = new Map<string, JobState>();
+
+function setJobProgress(jobId: string, p: WhisperProgress): void {
+  whisperJobs.set(jobId, { phase: p.phase, pct: p.pct, status: 'running', updatedAt: Date.now() });
+}
+
+function finishJob(jobId: string | null, status: string): void {
+  if (!jobId) return;
+  const prev = whisperJobs.get(jobId);
+  whisperJobs.set(jobId, { phase: status === 'done' ? 'done' : prev?.phase, pct: prev?.pct, status, updatedAt: Date.now() });
+  setTimeout(() => { whisperJobs.delete(jobId); }, 15_000);
+}
+
+// Polled every 500 ms for a smooth bar; a heartbeat every 10 s while no job entry exists yet.
+const PROGRESS_POLL_MS = 500;
+const PROGRESS_PING_MS = 10_000;
+// One page holds one stream, so reaching this means something is looping.
+const PROGRESS_MAX_STREAMS = 32;
+// A client that vanished without closing its socket would hold its timer forever; EventSource reconnects.
+const PROGRESS_MAX_STREAM_MS = 30 * 60_000;
+let openProgressStreams = 0;
+
+interface ProgressEvent { phase?: string; pct: number; status: string }
+
+/** GET /api/transcript/progress: a job's Whisper progress as server-sent events, until it ends. */
+function progressStream(req: Request): Response {
+  const jobId = queryValue(req, 'jobId') ?? '';
+  if (!jobId) return new Response(null, { status: 400, headers: bare });
+  if (openProgressStreams >= PROGRESS_MAX_STREAMS) {
+    return sendError('RATE_LIMITED', 'Too many progress streams are already open.', 'Close some Echo tabs, or wait for the running transcriptions to finish.', 429);
+  }
+  openProgressStreams++;
+
+  let done = false;
+  let sinceLastPing = 0;
+  let stopTimers = (): void => {};
+  // One teardown for every exit (an ended job, the lifetime cap, the client leaving), so the count can't drift.
+  const stop = (): boolean => {
+    if (done) return false;
+    done = true;
+    stopTimers();
+    openProgressStreams--;
+    return true;
+  };
+  const body = new ReadableStream({
+    start(controller) {
+      const finish = (): void => { if (stop()) controller.close(); };
+      const tick = (): void => {
+        if (done) return;
+        const st = whisperJobs.get(jobId);
+        if (!st) {
+          sinceLastPing += PROGRESS_POLL_MS;
+          if (sinceLastPing >= PROGRESS_PING_MS) {
+            sinceLastPing = 0;
+            controller.enqueue(': ping\n\n');
+          }
+          return;
+        }
+        sinceLastPing = 0;
+        const event: ProgressEvent = { phase: st.phase, pct: st.pct ?? 0, status: st.status || 'running' };
+        controller.enqueue(`data: ${JSON.stringify(event)}\n\n`);
+        if (st.status && st.status !== 'running') finish();
+      };
+      controller.enqueue('retry: 2000\n\n');
+      const iv = setInterval(tick, PROGRESS_POLL_MS);
+      const maxTimer = setTimeout(finish, PROGRESS_MAX_STREAM_MS);
+      stopTimers = (): void => { clearInterval(iv); clearTimeout(maxTimer); };
+      tick();
+    },
+    cancel() {
+      stop();
+    },
+  });
+  return new Response(body, {
+    headers: { ...bare, 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' },
+  });
+}
+
+// An uploaded file's cap: generous (an hour of lecture video is easily 500 MB), but this writes to temp.
+const MAX_UPLOAD_BYTES = numFromEnv('ECHO_MAX_UPLOAD_BYTES', 2_000_000_000);
+
+/**
+ * A stable id for a local file, so it lives in the library beside YouTube entries: name, size, and the first
+ * and last MiB (hashing all of a 500 MB file buys nothing). Fits vault.js's `^[A-Za-z0-9_-]{1,20}$`.
+ */
+function localMediaId(name: string, buf: Uint8Array): string {
+  const hash = createHash('sha256')
+    .update(String(name || ''))
+    .update(String(buf.length))
+    .update(buf.slice(0, 1 << 20))
+    .update(buf.slice(Math.max(0, buf.length - (1 << 20))))
+    .digest('hex');
+  return `file_${hash.slice(0, 14)}`;
+}
+
+interface FileTranscriptBody {
+  videoId: string; url: string; title: string; channel: null; channelUrl: null; segments: CaptionSegment[];
+  langCode: unknown; transcriptSource: string; localFile: boolean;
+}
+
+/** POST /api/transcript/file: the Whisper stage on an uploaded file; the body is the file's raw bytes. */
+async function transcribeFileRoute(req: Request): Promise<Response> {
+  const rawName = queryRaw(req, 'name');
+  // Only ever a display title and hash input, never a path.
+  const displayName = (typeof rawName === 'string' ? rawName : '').replace(/[\r\n]+/g, ' ').trim().slice(0, 300) || 'Untitled recording';
+  const extMatch = displayName.match(/\.[A-Za-z0-9]+$/);
+  const ext = (extMatch ? extMatch[0] : '').toLowerCase();
+
+  // express.raw({ type: '*/*' }) reads a body only when it has a content type; otherwise req.body stays {}.
+  if (Number(req.headers.get('content-length')) > MAX_UPLOAD_BYTES) return tooLarge().error!;
+  const bytes = req.headers.get('content-type') ? await req.bytes() : new Uint8Array(0);
+  if (bytes.length > MAX_UPLOAD_BYTES) return tooLarge().error!;
+  if (bytes.length === 0) return sendError('INTERNAL', 'No file was uploaded.', 'Choose an audio or video file.', 400);
+  if (ext && !LOCAL_MEDIA_EXTENSIONS.has(ext)) {
+    return sendError(
+      'INTERNAL',
+      `Unsupported file type: ${ext}`,
+      'Echo reads audio and video files — mp3, m4a, wav, flac, ogg, mp4, mov, mkv, webm and similar.',
+      400,
+    );
+  }
+
+  const rawJob = queryRaw(req, 'jobId');
+  const jobId = typeof rawJob === 'string' && rawJob ? rawJob : null;
+  const rawModel = queryRaw(req, 'whisperModel');
+  const job = cancellable(req);
+  const t0 = Date.now();
+  const videoId = localMediaId(displayName, bytes);
+  // A generated name in the temp folder, never one derived from the upload's own filename.
+  const tmpPath = join(tmpdir(), `echo-upload-${videoId}${ext}`);
+  try {
+    await writeFile(tmpPath, bytes);
+    const opts: WhisperOptions = { signal: job.signal };
+    if (typeof rawModel === 'string') opts.modelName = rawModel;
+    if (jobId) opts.onProgress = (p: WhisperProgress): void => setJobProgress(jobId, p);
+    const segments = await transcribeFile(tmpPath, opts);
+    const chars = segments.reduce((sum, s) => sum + s.text.length, 0);
+    logEvent('transcript-file', { videoId, chars, bytes: bytes.length, ok: true, ms: Date.now() - t0 });
+    finishJob(jobId, 'done');
+    // The YouTube route's envelope, so the page renders it the same way; no url to link back to.
+    const answer: FileTranscriptBody = {
+      videoId,
+      url: '',
+      title: displayName.replace(/\.[A-Za-z0-9]+$/, ''),
+      channel: null,
+      channelUrl: null,
+      segments,
+      langCode: segments.langUsed || null,
+      transcriptSource: 'whisper',
+      localFile: true,
+    };
+    return json(answer);
+  } catch (err) {
+    if (job.signal.aborted) {
+      logEvent('transcript-file', { videoId, ok: false, err: 'client_aborted', ms: Date.now() - t0 });
+      finishJob(jobId, 'error');
+      return new Response(null, { status: 204, headers: bare });
+    }
+    logEvent('transcript-file', { videoId, ok: false, err: errLabel(err), ms: Date.now() - t0 });
+    finishJob(jobId, 'error');
+    return sendCaughtError(err);
+  } finally {
+    job.release();
+    await rm(tmpPath, { force: true }).catch(() => {});
+  }
+}
+
+interface ModelStatus extends DownloadState { label: string; sizeBytes: number }
+interface WhisperStatusBody { binaryPresent: boolean; defaultModel: string; cacheDir: string; models: ModelStatus[] }
+
+/** GET /api/whisper/status: is the binary there, and each model's download state. */
+function whisperStatus(): Response {
+  const models = Object.keys(WHISPER_MODELS).map((n): ModelStatus => {
+    const m = WHISPER_MODELS[n]!;
+    return { name: m.name, label: m.label, sizeBytes: m.sizeBytes, ...downloadState(n) };
+  });
+  const body: WhisperStatusBody = { binaryPresent: !!resolveWhisperBinary(), defaultModel: DEFAULT_WHISPER_MODEL, cacheDir: modelCacheDir(), models };
+  return json(body);
+}
+
+/**
+ * POST /api/whisper/model: start a model's download. Different on purpose (PORT.md): a model is looked up as
+ * a string among the registry's own names; server.js's plain-object lookup takes `constructor`, and an array.
+ */
+async function whisperModelRoute(req: Request): Promise<Response> {
+  const body = await jsonBody(req);
+  if (body.error) return body.error;
+  const model = isRecord(body.value) ? body.value.model : undefined;
+  if (typeof model !== 'string' || !Object.keys(WHISPER_MODELS).includes(model)) {
+    return sendError('WHISPER_MODEL_UNKNOWN', `Unknown model: ${jsString(model)}`, 'Choose base or small.', 400);
+  }
+  try {
+    startModelDownload(model);
+    return json(downloadState(model));
+  } catch (err) {
+    return sendCaughtError(err);
+  }
+}
+
 /** Every route checks this first: refuse what didn't come through server.js. */
 function refused(req: Request): Response | undefined {
   return notForwarded(req) ? sendError('FORBIDDEN', 'Not forwarded by Echo.', '', 403) : undefined;
@@ -466,6 +724,11 @@ const server = Bun.serve({
     "/api/transcript": { POST: async (req) => refused(req) ?? await transcriptRoute(req) },
     "/api/languages": { GET: async (req) => refused(req) ?? await languages(req) },
     "/api/video-meta": { GET: async (req) => refused(req) ?? await videoMeta(req) },
+    "/api/transcript/progress": { GET: (req) => refused(req) ?? blockedInWeb() ?? progressStream(req) },
+    "/api/transcript/file": { POST: async (req) => refused(req) ?? blockedInWeb() ?? await transcribeFileRoute(req) },
+    "/api/whisper/status": { GET: (req) => refused(req) ?? blockedInWeb() ?? whisperStatus() },
+    "/api/whisper/model": { POST: async (req) => refused(req) ?? blockedInWeb() ?? await whisperModelRoute(req) },
+    "/internal/abort": { POST: (req) => refused(req) ?? abortRequest(req) },
   },
   fetch() {
     return sendError('NOT_FOUND', 'Not found.', '', 404);

@@ -21,6 +21,8 @@ export class Database {
 registerHooks({
   resolve(specifier, context, next) {
     if (specifier === 'bun:sqlite') return { url: 'data:text/javascript,' + encodeURIComponent(SHIM), shortCircuit: true };
+    // Seshat's std/crypto has node:crypto's functions (the port imports it: gap node-crypto-bridged).
+    if (specifier === 'std/crypto') return { url: 'node:crypto', shortCircuit: true };
     return next(specifier, context);
   },
 });

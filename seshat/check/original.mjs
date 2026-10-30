@@ -16,6 +16,7 @@ const ORIGINALS = {
   'digest.ts': 'digest.js',
   'providers.ts': 'providers.js',
   'whisper.ts': 'whisper.js',
+  'whisperModel.ts': 'whisperModel.js',
   'usagelog.ts': 'usagelog.js',
   'store.ts': 'store.js',
   'youtube.ts': 'node_modules/youtube-transcript/dist/esm/index.js',
