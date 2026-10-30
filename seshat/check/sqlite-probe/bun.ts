@@ -1,0 +1,52 @@
+// shortcut: rows typed per call (Seshat can't infer Statement.all's T; tsc gives unknown), drop when it infers
+// The bun:sqlite half of the probe (Seshat); node.mjs does the same steps on node:sqlite. Usage: seshat run bun.ts <db file>
+import { Database } from 'bun:sqlite';
+const file = process.argv[2];
+const out = (k: string, v: unknown) => console.log(JSON.stringify([k, v === undefined ? null : v]));
+const err = (k: string, f: () => unknown) => { try { out(k, f()); } catch (e: any) { out(k, 'ERR ' + e.message); } };
+
+let db = new Database(file);
+out('wal', db.query('PRAGMA journal_mode = WAL').get());
+db.exec('PRAGMA foreign_keys = ON');
+out('fk', db.query('PRAGMA foreign_keys').get());
+out('uv0', db.query('PRAGMA user_version').get());
+db.exec(`CREATE TABLE videos (videoId TEXT PRIMARY KEY, title TEXT, segment_count INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE tags (videoId TEXT NOT NULL REFERENCES videos(videoId) ON DELETE CASCADE, tag TEXT NOT NULL, UNIQUE(videoId, tag));
+CREATE VIRTUAL TABLE videos_fts USING fts5(videoId UNINDEXED, title, transcript_text, digest);`);
+out('cols', db.query('PRAGMA table_info(videos)').all<{ cid: number; name: string; type: string; notnull: number; dflt_value: string | null; pk: number }>());
+const ins = db.query('INSERT INTO videos (videoId, title, segment_count) VALUES (?, ?, ?)');
+out('ins1', ins.run('a', 'Straße café 🎉', 3));
+out('ins2', ins.run('b', null, 0));
+out('dup', (() => { try { return ins.run('a', 'x', 1); } catch (e: any) { return 'ERR ' + e.message; } })());
+const rid = db.query('SELECT rowid FROM videos WHERE videoId = ?');
+const fts = db.query('INSERT INTO videos_fts (rowid, videoId, title, transcript_text, digest) VALUES (?, ?, ?, ?, ?)');
+const long = Array.from({ length: 60 }, (_: unknown, i: number) => 'word' + i).join(' ') + ' machine learning ' + Array.from({ length: 60 }, (_: unknown, i: number) => 'tail' + i).join(' ');
+out('fts1', fts.run((rid.get('a') as { rowid: number }).rowid, 'a', 'Straße café 🎉', long, '## TL;DR\n\nlearning is fun'));
+out('fts2', fts.run((rid.get('b') as { rowid: number }).rowid, 'b', null, 'nothing here', null));
+const search = db.query(`SELECT f.videoId, v.title, snippet(videos_fts, -1, '', '', '…', 24) AS snippet
+  FROM videos_fts f JOIN videos v ON v.videoId = f.videoId WHERE videos_fts MATCH ? ORDER BY rank LIMIT ?`);
+out('search', search.all<{ videoId: string; title: string | null; snippet: string }>('learning', 20));
+out('searchUnicode', search.all<{ videoId: string; title: string | null; snippet: string }>('café', 20));
+out('searchNone', search.all<{ videoId: string; title: string | null; snippet: string }>('zzz', 20));
+err('searchBad', () => search.all<{ videoId: string; title: string | null; snippet: string }>('"unterminated', 20));
+err('searchBad2', () => search.all<{ videoId: string; title: string | null; snippet: string }>('AND OR', 20));
+out('none', db.query('SELECT * FROM videos WHERE videoId = ?').get('nope'));
+db.exec("INSERT INTO tags VALUES ('a', 'ai'), ('a', 'ml')");
+db.exec('BEGIN');
+ins.run('c', 'rolled back', 1);
+db.exec('ROLLBACK');
+out('afterRollback', db.query('SELECT videoId FROM videos ORDER BY videoId').all<{ videoId: string }>());
+db.exec('BEGIN');
+db.exec("DELETE FROM videos_fts WHERE rowid = (SELECT rowid FROM videos WHERE videoId = 'a')");
+db.exec("DELETE FROM videos WHERE videoId = 'a'");
+db.exec('COMMIT');
+out('cascade', db.query('SELECT count(*) AS n FROM tags').get());
+out('ftsLeft', db.query('SELECT videoId FROM videos_fts').all<{ videoId: string }>());
+db.exec('PRAGMA user_version = 2');
+out('uv1', db.query('PRAGMA user_version').get());
+db.close();
+db = new Database(file);
+out('reopenUv', db.query('PRAGMA user_version').get());
+out('reopenWal', db.query('PRAGMA journal_mode').get());
+out('reopenRows', db.query('SELECT videoId, title, segment_count FROM videos').all<{ videoId: string; title: string | null; segment_count: number }>());
+db.close();

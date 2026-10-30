@@ -978,9 +978,13 @@ async function seshat(req, res, next) {
   headers.set('x-echo-forward', SESHAT_SECRET);
   // shortcut: JSON bodies only (express.json() has consumed the stream); raw-body routes (/api/transcript/file) need the raw bytes, add that with the first of them.
   const body = req.method !== 'GET' && req.method !== 'HEAD' && req.is('application/json') ? JSON.stringify(req.body) : undefined;
+  // The route's own path, not the URL as sent: Express matches /API/SAVED/x/ (any case, a trailing slash),
+  // the service's router doesn't. Params are already decoded here, so they are encoded again.
+  const path = req.baseUrl + req.route.path.replace(/:(\w+)/g, (_, name) => encodeURIComponent(req.params[name]));
+  const query = req.originalUrl.indexOf('?') >= 0 ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : '';
   let answer;
   try {
-    answer = await fetch(SESHAT_URL + req.originalUrl, { method: req.method, headers, body });
+    answer = await fetch(SESHAT_URL + path + query, { method: req.method, headers, body });
   } catch (err) {
     // Down or restarting: this server still has the handler, so it answers instead.
     console.error(`[echo] Seshat service unreachable for ${req.method} ${req.path}, serving it here:`, err.message);
@@ -1001,6 +1005,14 @@ async function seshat(req, res, next) {
   // A bodiless answer (204) ends as the handlers end theirs; res.send() would add an ETag of the empty body.
   if (bytes.length === 0) return res.end();
   res.send(bytes);
+}
+
+/**
+ * `seshat` for the library routes, while accounts are off. With accounts on, the library is the signed-in
+ * owner's and a save may be mirrored to their PDS; both stay here until accounts are ported (PORT.md step 8).
+ */
+function seshatLibrary(req, res, next) {
+  return ACCOUNTS_ENABLED ? next() : seshat(req, res, next);
 }
 
 // ---------------------------------------------------------------------------
@@ -2444,7 +2456,7 @@ app.post('/api/sync/push', requireAuthConfigured, requireApproved, requireSessio
  * rest in the background. `total` is sent so the library count is right from
  * the first paint rather than climbing as pages land.
  */
-app.get('/api/saved', blockInWeb, requireApproved, async (req, res) => {
+app.get('/api/saved', blockInWeb, requireApproved, seshatLibrary, async (req, res) => {
   try {
     const limit = req.query.limit === undefined ? null : Number(req.query.limit);
     if (limit === null) return res.json(await libraryFor(req).listEntries());
@@ -2537,7 +2549,7 @@ app.get('/api/saved/export', blockInWeb, requireApproved, async (req, res) => {
 
 // Sub-routes for a saved entry — all before the bare /:videoId GET/DELETE
 
-app.patch('/api/saved/:videoId/tags', blockInWeb, requireApproved, async (req, res) => {
+app.patch('/api/saved/:videoId/tags', blockInWeb, requireApproved, seshatLibrary, async (req, res) => {
   try {
     const { tags } = req.body;
     if (!Array.isArray(tags)) {
@@ -2553,7 +2565,7 @@ app.patch('/api/saved/:videoId/tags', blockInWeb, requireApproved, async (req, r
   }
 });
 
-app.get('/api/saved/:videoId', blockInWeb, requireApproved, async (req, res) => {
+app.get('/api/saved/:videoId', blockInWeb, requireApproved, seshatLibrary, async (req, res) => {
   try {
     const e = await libraryFor(req).getEntry(req.params.videoId);
     if (!e) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
@@ -2563,7 +2575,7 @@ app.get('/api/saved/:videoId', blockInWeb, requireApproved, async (req, res) => 
   }
 });
 
-app.get('/api/saved/:videoId/export.md', blockInWeb, requireApproved, async (req, res) => {
+app.get('/api/saved/:videoId/export.md', blockInWeb, requireApproved, seshatLibrary, async (req, res) => {
   try {
     const entry = await libraryFor(req).getEntry(req.params.videoId);
     if (!entry) return sendError(res, 'INTERNAL', 'Not found.', '', 404);
@@ -2590,7 +2602,7 @@ app.get('/api/saved/:videoId/export.md', blockInWeb, requireApproved, async (req
  * should use the existing ZIP export instead.
  * Body: { dir?: string, includeTranscript?: boolean }
  */
-app.post('/api/vault/sync', blockInWeb, requireApproved, async (req, res) => {
+app.post('/api/vault/sync', blockInWeb, requireApproved, seshatLibrary, async (req, res) => {
   const { dir, includeTranscript } = req.body || {};
   const resolvedDir = (typeof dir === 'string' && dir.trim()) ? dir.trim() : process.env.ECHO_VAULT_DIR;
 
@@ -2618,7 +2630,7 @@ app.post('/api/vault/sync', blockInWeb, requireApproved, async (req, res) => {
   }
 });
 
-app.post('/api/saved', blockInWeb, requireApproved, async (req, res) => {
+app.post('/api/saved', blockInWeb, requireApproved, seshatLibrary, async (req, res) => {
   const t0 = Date.now();
   try {
     const { url, videoId, title, segments, digest, channel, channelUrl, transcriptSource, whisperModel } = req.body;
@@ -2639,7 +2651,7 @@ app.post('/api/saved', blockInWeb, requireApproved, async (req, res) => {
   }
 });
 
-app.delete('/api/saved/:videoId', blockInWeb, requireApproved, async (req, res) => {
+app.delete('/api/saved/:videoId', blockInWeb, requireApproved, seshatLibrary, async (req, res) => {
   const t0 = Date.now();
   try {
     const ok = await libraryFor(req).deleteEntry(req.params.videoId);
@@ -2656,7 +2668,7 @@ app.delete('/api/saved/:videoId', blockInWeb, requireApproved, async (req, res) 
 // Search helpers
 // ---------------------------------------------------------------------------
 
-app.get('/api/search', blockInWeb, requireApproved, async (req, res) => {
+app.get('/api/search', blockInWeb, requireApproved, seshatLibrary, async (req, res) => {
   const q     = String(req.query.q || '').trim();
   const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100);
   const t0 = Date.now();

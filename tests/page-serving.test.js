@@ -22,7 +22,9 @@ import { rmSync, readFileSync } from 'node:fs';
 // negotiates and decompresses gzip, which is exactly the behaviour under test.
 // ---------------------------------------------------------------------------
 
-const DB = join(tmpdir(), `echo-test-page-serving-${process.pid}-${Date.now()}.db`);
+// With library forwarding on (seshat/PORT.md step 4), the Seshat service reads this database, so it is given
+// the same file: ECHO_TEST_DB_PATH here, ECHO_DB_PATH there. Test-only.
+const DB = process.env.ECHO_TEST_DB_PATH || join(tmpdir(), `echo-test-page-serving-${process.pid}-${Date.now()}.db`);
 process.env.ECHO_DB_PATH = DB;
 // Keep this integration test's real route hits out of the real local usage
 // meter (data/usage-events.jsonl) — see usagelog.js. Belt and braces: the

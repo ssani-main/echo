@@ -2,6 +2,7 @@
 // ORIGINAL Node module instead of the port: every import of a port file
 // (seshat/<name>.ts) is redirected to the file it was ported from.
 import { registerHooks } from 'node:module';
+import './node-bun.mjs';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { dirname, join, basename } from 'node:path';
 
@@ -16,6 +17,7 @@ const ORIGINALS = {
   'providers.ts': 'providers.js',
   'whisper.ts': 'whisper.js',
   'usagelog.ts': 'usagelog.js',
+  'store.ts': 'store.js',
 };
 
 registerHooks({

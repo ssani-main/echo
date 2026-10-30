@@ -42,6 +42,12 @@ test('a ported route answers with the service\'s status, headers and body, sent 
   assert.deepEqual(seen, { url: '/api/health?x=1', secret: SECRET });
 });
 
+test('the route\'s own path is forwarded: Express matches any case and a trailing slash, the service doesn\'t', async () => {
+  service = { mode: 'local', status: 200, body: '{"from":"service"}' };
+  await fetch(`${base}/API/Saved/a%20b%2Fc/?limit=1`);
+  assert.deepEqual(seen, { url: '/api/saved/a%20b%2Fc?limit=1', secret: SECRET });
+});
+
 test('a service running in another mode is not trusted: server.js answers itself', async () => {
   service = { mode: 'web', status: 200, body: '{"status":"ok","mode":"web"}' };
   const res = await fetch(`${base}/api/health`);

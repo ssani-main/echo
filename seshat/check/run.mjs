@@ -17,7 +17,8 @@ const names = process.argv.slice(2).length
   : readdirSync(HERE).filter((f) => f.endsWith('.cases.ts')).map((f) => f.replace('.cases.ts', ''));
 
 // usagelog.cases.ts's environment (see the shortcut there); the three runs are sequential, so one file serves.
-const env = { ...process.env, ECHO_USAGE_LOG_PATH: join(tmpdir(), 'echo-usagelog-cases.jsonl'), ECHO_USAGE_ROTATE_BYTES: '400' };
+// store.cases.ts's database, for the same reason (store.js reads ECHO_DB_PATH when it loads).
+const env = { ...process.env, ECHO_USAGE_LOG_PATH: join(tmpdir(), 'echo-usagelog-cases.jsonl'), ECHO_USAGE_ROTATE_BYTES: '400', ECHO_DB_PATH: join(tmpdir(), 'echo-store-cases', 'library.db') };
 delete env.ECHO_MODE;
 delete env.ECHO_USAGE_SYNTHETIC;
 
@@ -45,7 +46,7 @@ for (const name of names) {
   }
   const cases = original.out.trimEnd().split('\n').length;
   const ports = [
-    ['port@node', run(process.execPath, ['--no-warnings', file])],
+    ['port@node', run(process.execPath, ['--no-warnings', '--import', './node-bun.mjs', file])],
     ['port@seshat', run(SESHAT, ['run', file])],
   ];
   for (const [label, r] of ports) {
