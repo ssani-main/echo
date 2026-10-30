@@ -370,8 +370,6 @@ async function transcriptRoute(req: Request): Promise<Response> {
   if (!videoId) return invalidUrl();
   // Different on purpose (PORT.md): server.js passes any JSON as the language (a number asks YouTube for a
   // track called "5"); the service wants text.
-  // shortcut: the type is checked once, as a second typeof on the same value after the refusal reads false in
-  // Seshat (gap: typeof-after-narrowing); `typeof fields.lang !== 'string'` then `opts.lang = lang` once fixed.
   const rawLang = fields.lang;
   let lang: string | undefined;
   if (typeof rawLang === 'string') lang = rawLang;
@@ -430,10 +428,7 @@ interface VideoMetaBody { videoId: string; title: string | null; channel: string
 
 /** GET /api/video-meta: title and channel through oEmbed. */
 async function videoMeta(req: Request): Promise<Response> {
-  // shortcut: `if` rather than `rawId || url`, which Seshat compiles wrongly for these unions (gap: or-of-union-values).
-  let raw = queryRaw(req, 'videoId');
-  if (!raw) raw = queryRaw(req, 'url');
-  const videoId = extractVideoId(raw);
+  const videoId = extractVideoId(queryRaw(req, 'videoId') || queryRaw(req, 'url'));
   if (!videoId) return invalidUrl();
   try {
     const meta = await getVideoMeta(videoId);

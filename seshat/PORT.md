@@ -5,7 +5,7 @@ piece at a time, next to the Node server, which keeps working unchanged througho
 Dossier's `seshat/PORT.md`: a port folder next to the original, this tracker, every piece checked against
 the original, and every Seshat gap written down with a minimal repro.
 
-Branch: `seshat-port`, pushed to `origin`. Compiler: Seshat `main` 4882a0e
+Branch: `seshat-port`, pushed to `origin`. Compiler: Seshat `main` 2a6404e
 (`../Seshat/target/release/seshat.exe`, what `check/run.mjs` uses unless `SESHAT=` names another), which
 has the `echo-gaps` work: 20 of the first 23 gaps fixed, and the workarounds for them removed (2026-10-29).
 
@@ -271,10 +271,13 @@ ECHO_SESHAT_URL=http://127.0.0.1:8001 ECHO_SESHAT_SECRET=<same> npm start  # Ech
 
 ## Seshat gaps found while porting
 
-**Status on Seshat `main` 4882a0e (2026-10-30):** 48 gaps found, 32 fixed, and their workarounds removed
-from the ports and case files: every case is still identical (1,068 with step 5). Open: 8, 12's
-`as-cast-traps` half, 14 for a thrown non-`Error` object, 25 (not reproduced there), 27's general form, 35,
-39 to 48. Each gap has a repro in `seshat/gaps/<name>.ts` that runs under `node` and that `tsc --strict`
+**Status on Seshat `main` 2a6404e (2026-10-30):** 49 gaps found, 39 fixed, and their workarounds removed
+from the ports and case files: every case is still identical (1,068 with step 5), transcripts.sh 29 of 29
+and 8 of 8 in web mode, library.sh 107 of 107; the suite 719 to 721 pass with forwarding off and on, its
+failures timing tests on a loaded machine that pass alone (`api` event log, `digest-idle-timeout`,
+`page-serving` warm-up: 48 of 48, three times). Open: 8, 12's
+`as-cast-traps` half, 14 for a thrown non-`Error` object, 25 (not reproduced there), 27's general form, 39
+to 41, 43 and 49. Each gap has a repro in `seshat/gaps/<name>.ts` that runs under `node` and that `tsc --strict`
 accepts (the `Bun.serve` and `bun:sqlite` ones need `@types/bun`, and run under node with
 `--import ./seshat/check/node-bun.mjs`); `seshat run seshat/gaps/<name>.ts` shows the gap.
 
@@ -291,6 +294,11 @@ since a module's top level runs at startup), 28 import-meta (`url`, `dirname`, `
 top-level-await-loop-regex, 31 response-null-body, 32 sqlite-all-infer, 33 writefilesync-encoding, 34
 mkdir-recursive, 36 sqlite-real-as-number, 37 object-key-order (an object literal checked against an
 interface took the interface's members sorted by internal id as its key order), 38 union-array-in-unknown.
+Since then, on `main` 2a6404e (with per-value key order: JSON.stringify, console.log and Object.keys follow
+the order a value was built or parsed in): 35 sqlite-unknown-number, 42 literal-equality-narrowing, 44
+fetch-as-function-value, 45 return-promise-in-try (youtube.ts returns the track fetch from inside its try
+again, as the package does), 46 typeof-after-narrowing, 47 or-of-union-values, 48 iterate-array-union.
+`transcript.ts` keeps js.ts's `arrayOf` for yt-dlp's events, as a helper rather than a workaround.
 
 ### Open
 
@@ -320,10 +328,6 @@ interface took the interface's members sorted by internal id as its key order), 
     is X0040. usagelog.js is tested by setting the environment, then importing it, so `check/run.mjs` sets
     `usagelog.cases.ts`'s environment instead (`shortcut:` there). Stays that way: a module's top level runs
     at startup in Seshat, so import-after-setup can't be expressed.
-35. **sqlite-unknown-number:** a number held in `unknown` (from JSON.parse) is bound to a `bun:sqlite`
-    parameter as a truncated integer: `gaps/sqlite-unknown-number.ts` stores 1.5 as `1` on 4882a0e. Fixed on
-    Seshat's local branch `key-order` (f69ad8c), not merged. Data loss for anyone binding parsed JSON; Echo
-    checks its types first.
 39. **string-of-nested-array:** `String([1, [null, 'x'], 3])` (and `join`) is `1,null,x,3`; JavaScript writes
     `1,,x,3`. Workaround in `vault.ts` (`shortcut:`): a segment's text array goes through js.ts's `jsString`.
 40. **unknown-or-empty-array:** `x || []` with `x: unknown` is T0301 (can't infer the empty array's type).
@@ -332,30 +336,17 @@ interface took the interface's members sorted by internal id as its key order), 
 
 New in step 5 (reported 2026-10-30):
 
-42. **literal-equality-narrowing:** `if (x === 'throw') throw …` doesn't narrow `Answer | 'throw' | undefined`
-    (T0108, not every variant has field `body`). Workaround in `check/youtube.cases.ts` (`shortcut:`): typeof.
-43. **fetch-init-conversion:** passing one's own init interface to the global fetch was an internal compiler
-    error in youtube.ts (C0003, "no conversion from `FetchInit` to `RequestInit`"), and the same call written
-    as a ternary of two awaits made the code generator panic (codegen/body.rs:5103). Not reduced: the shapes
-    cut out alone build (the repro says how to see it in youtube.ts). Workaround in `youtube.ts`
-    (`shortcut:`): the init written out field by field.
-44. **fetch-as-function-value:** an async function that can throw (awaiting fetch, or youtube.ts's
-    fetchTranscript) doesn't go where a `(…) => Promise<T>` type goes: Seshat's promises carry their thrown
-    type (T0001, `Promise<Response>` against `Promise<Response, Error>`). Workaround in `youtube.ts` and
-    `transcript.ts` (`shortcut:`): a function that calls one or the other.
-45. **return-promise-in-try:** `return p` (not awaited) inside a `try` in an async function: JavaScript lets
-    p's rejection past that try's catch, Seshat catches it. youtube-transcript relies on it (a track's failure
-    on the InnerTube path rejects instead of falling back to the watch page). `youtube.ts` puts that call
-    after the try, which means the same in both.
-46. **typeof-after-narrowing (silently wrong):** after `if (v !== undefined && v !== null && typeof v !==
-    'string') return`, a later `typeof v === 'string'` is false for a string, with no error. It dropped the
-    `lang` of every forwarded transcript request until routes.sh caught it. Workaround in `server.ts`
-    (`shortcut:`): the type checked once.
-47. **or-of-union-values:** `a || b` on two `string | string[] | undefined` values: at the top level the
-    generated C doesn't compile ('u10' undeclared); in the service's route it built and crashed the service
-    (access violation) on `GET /api/video-meta?url=…`. Workaround in `server.ts` (`shortcut:`): an `if`.
-48. **iterate-array-union:** `for...of` refuses `any[] | unknown[]` (an inline `Array.isArray(v) ? v : none`),
-    T0402. Workaround in `transcript.ts`: js.ts's `arrayOf`.
+43. **fetch-init-conversion:** the global fetch doesn't go where one's own fetch type goes; Seshat reduced it
+    to `const viaGlobal: FetchFn = fetch;`. In youtube.ts it showed as an internal compiler error (C0003, "no
+    conversion from `FetchInit` to `RequestInit`"), and as a ternary of two awaits the code generator
+    panicked (codegen/body.rs:5103; not investigated there). Workaround in `youtube.ts` (`shortcut:`): a call
+    rather than choosing the function, and the init written out field by field.
+49. **arrow-returns-promise (crashes):** in `transcript.ts`'s fetchViaPackage, a plain arrow returning
+    youtube.ts's fetchTranscript promise, `(id, ytOpts) => (ytOpts ? fetchPackageTranscript(id, ytOpts) :
+    fetchPackageTranscript(id))`, builds and crashes when called (access violation), with or without the
+    `opts.transcriptFetcher ||` in front. It took the service down on its first `POST /api/transcript` once
+    gap 44's workaround was removed. Not reduced (the shapes cut out run as Node does). Workaround in
+    `transcript.ts` (`shortcut:`): the arrow `async`, with `await` on both branches.
 
 Things that worked the first time and were worth checking: V8's lenient `new Date(string)` parsing
 (including local time and rollover), JSON with lone surrogates and integer keys, UTF-16 `slice` through

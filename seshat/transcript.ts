@@ -279,14 +279,10 @@ export type TranscriptFetcher = (id: string, ytOpts?: { lang: string }) => Promi
  * opts.transcriptFetcher stands in for youtube.ts (tests).
  */
 export async function fetchViaPackage(videoId: string, lang: string | undefined, opts: { transcriptFetcher?: TranscriptFetcher } = {}): Promise<Segments> {
-  // shortcut: a function that calls one or the other, because Seshat won't take youtube.ts's fetchTranscript
-  // where a TranscriptFetcher goes (gap: fetch-as-function-value); `opts.transcriptFetcher ?? (...)` once fixed.
-  const given = opts.transcriptFetcher;
-  async function fetchTr(id: string, ytOpts?: { lang: string }): Promise<FetchedSegment[]> {
-    if (given) return await given(id, ytOpts);
-    if (ytOpts) return await fetchPackageTranscript(id, ytOpts);
-    return await fetchPackageTranscript(id);
-  }
+  // shortcut: async with awaits, as the plain arrow returning the promise crashes in Seshat when called (gap:
+  // arrow-returns-promise); drop them once fixed.
+  const fetchTr: TranscriptFetcher = opts.transcriptFetcher
+    || (async (id, ytOpts) => (ytOpts ? await fetchPackageTranscript(id, ytOpts) : await fetchPackageTranscript(id)));
 
   let segs: FetchedSegment[];
   if (lang) {
@@ -346,8 +342,7 @@ async function fetchViaYtDlp(videoId: string, lang: string | undefined): Promise
 
   const data: unknown = JSON.parse(raw);
   const segments: CaptionSegment[] = [];
-  // `for (const event of (data.events || []))`; a non-array there is junk yt-dlp doesn't write. arrayOf, as
-  // Seshat can't iterate the `any[] | unknown[]` an inline `Array.isArray` gives (gap: iterate-array-union).
+  // `for (const event of (data.events || []))`; a non-array there is junk yt-dlp doesn't write.
   for (const event of arrayOf(prop(data, 'events'))) {
     const segs = prop(event, 'segs');
     if (!segs) continue;

@@ -43,8 +43,7 @@ async function fake(url: string, init: FetchInit): Promise<Response> {
   if (url.startsWith('https://www.youtube.com/youtubei/v1/player')) answer = script.player;
   else if (url.startsWith('https://www.youtube.com/watch?v=')) answer = script.page;
   else answer = script.tracks?.[url];
-  // shortcut: typeof, because Seshat doesn't narrow on `=== 'throw'` (gap: literal-equality-narrowing).
-  if (typeof answer === 'string') throw new Error(`network down for ${url}`);
+  if (answer === 'throw') throw new Error(`network down for ${url}`);
   if (answer === undefined) return new Response('nope', { status: 404 });
   return new Response(answer.body, { status: answer.status });
 }

@@ -69,9 +69,9 @@ export async function fetchTranscript(videoId: string, config?: TranscriptConfig
 /**
  * `(config?.fetch ?? fetch)(url, init)`.
  * shortcut: a call rather than choosing the function, and the global fetch's init written out field by field,
- * because Seshat won't put the global fetch where a FetchFn goes (gap: fetch-as-function-value) and can't pass
- * a FetchInit as fetch's own init here (gap: fetch-init-conversion; written as a ternary of the two awaits, the
- * code generator panics instead). `(config?.fetch ?? fetch)(url, init)` once fixed.
+ * because Seshat won't take the global fetch as a FetchFn (`const f: FetchFn = fetch`) nor a FetchInit as its
+ * init (gap: fetch-init-conversion; written as a ternary of the two awaits, the code generator panics instead).
+ * `(config?.fetch ?? fetch)(url, init)` once fixed.
  */
 async function fetchWith(config: TranscriptConfig | undefined, url: string, init: FetchInit): Promise<Response> {
   const given = config?.fetch;
@@ -89,7 +89,6 @@ function pageHeaders(config: TranscriptConfig | undefined): Record<string, strin
 }
 
 async function fetchViaInnerTube(identifier: string, config: TranscriptConfig | undefined): Promise<PackageSegment[] | undefined> {
-  let captionTracks: unknown;
   try {
     const resp = await fetchWith(config, INNERTUBE_API_URL, {
       method: 'POST',
@@ -98,15 +97,14 @@ async function fetchViaInnerTube(identifier: string, config: TranscriptConfig | 
     });
     if (!resp.ok) return undefined;
     const data: unknown = await resp.json();
-    captionTracks = optProp(optProp(optProp(data, 'captions'), 'playerCaptionsTracklistRenderer'), 'captionTracks');
+    const captionTracks = optProp(optProp(optProp(data, 'captions'), 'playerCaptionsTracklistRenderer'), 'captionTracks');
+    if (!Array.isArray(captionTracks) || captionTracks.length === 0) return undefined;
+    // Returned, not awaited, as the package does: a track's own failure (no such language, a bad URL, the XML
+    // fetch) skips this catch and rejects, rather than falling back to the watch page.
+    return fetchTranscriptFromTracks(captionTracks, identifier, config);
   } catch {
     return undefined;
   }
-  if (!Array.isArray(captionTracks) || captionTracks.length === 0) return undefined;
-  // Outside the try, as the package's `return this.fetchTranscriptFromTracks(...)` (returned, not awaited)
-  // is: a track's own failure (no such language, a bad URL, the XML fetch) rejects, rather than falling back
-  // to the watch page. (Seshat would catch it inside the try: gap return-promise-in-try.)
-  return fetchTranscriptFromTracks(captionTracks, identifier, config);
 }
 
 async function fetchViaWebPage(identifier: string, originalVideoId: string, config: TranscriptConfig | undefined): Promise<PackageSegment[]> {
