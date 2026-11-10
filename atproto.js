@@ -225,7 +225,10 @@ async function xrpcError(res) {
 }
 
 /**
- * Exchange a handle + app password for tokens.
+ * Exchange a resolved DID + app password for tokens.
+ *
+ * `identifier` must be the DID from resolveAccount: a session for any other DID
+ * is refused.
  *
  * The password does not leave this function: what comes back is a DID, a
  * handle, and two JWTs. Callers persist the refresh token (encrypted) and throw
@@ -282,6 +285,13 @@ export async function createSession({ pdsUrl, identifier, password }, fetchImpl)
   const body = await res.json().catch(() => null);
   if (!body?.did || !body?.accessJwt || !body?.refreshJwt) {
     throw fail('Bluesky returned an incomplete sign-in response.', { detail: JSON.stringify(body).slice(0, 200) });
+  }
+
+  // The PDS came out of a DID document someone else controls, so it can answer
+  // with ANY account's DID. Only the DID we resolved and asked about is ours to
+  // sign in as. No detail: the foreign DID is not echoed back.
+  if (String(body.did) !== identifier) {
+    throw fail('Bluesky signed in a different account than the one asked for.', { status: 401 });
   }
 
   // A deactivated or suspended account authenticates fine but cannot read or

@@ -586,7 +586,9 @@ function providerRequest(req) {
   const think = requestedReasoning(req);
   return {
     named,
-    invalid: named && !id,
+    // Web mode never runs the operator's CLI: naming it there is refused like an
+    // unknown provider, matching publicProviderList() not offering it.
+    invalid: named && (!id || (isWeb && getProviderLimits({ provider: id }).kind === 'cli')),
     raw,
     // `undefined`, never null/'' — providers.js treats a falsy provider as
     // "not specified" and resolves from apiKey / ECHO_PROVIDER / the default.

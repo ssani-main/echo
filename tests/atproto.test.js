@@ -193,6 +193,21 @@ test('refuses a deactivated account rather than failing later', async () => {
   );
 });
 
+test('refuses a session for a DID other than the one asked about', async () => {
+  // A hostile did:web points at a PDS it runs, which answers with an admin's DID.
+  // The route keys the account on the returned DID, so this throw is what stops
+  // it before any user row, token or cookie is written.
+  const VICTIM = 'did:plc:admin234victim';
+  const fetchImpl = mockFetch({
+    createSession: { body: { did: VICTIM, handle: 'admin.example', accessJwt: 'a', refreshJwt: 'r', active: true } },
+  });
+  await assert.rejects(
+    () => createSession({ pdsUrl: 'https://evil.example', identifier: 'did:web:evil.example', password: APP_PW }, fetchImpl),
+    (err) => err.status === 401 && /different account/i.test(err.message)
+      && !JSON.stringify({ m: err.message, h: err.hint, d: err.detail }).includes(VICTIM)
+  );
+});
+
 test('a PDS that is unreachable reads as unreachable, not as bad credentials', async () => {
   const fetchImpl = async () => { throw new Error('ECONNREFUSED'); };
   await assert.rejects(

@@ -2,11 +2,8 @@ node_modules
 .git
 .gitignore
 data/
-data/models/
 *.log
 npm-debug.log*
-src-tauri/binaries
-src-tauri/target
 tests/
 .env
 .env.*
@@ -16,3 +13,11 @@ Dockerfile
 *.md
 dist/
 .astro/
+# The public tunnel's serving capability: a secret, never in an image.
+.holesail-seed
+.claude/
+.agents/
+seshat*
+src-tauri/
+extension/
+obsidian-plugin/
