@@ -21,16 +21,46 @@
 set -u
 S="${SESHAT:-$(cd ../Seshat && pwd)/target/release/seshat.exe}"
 SEC=0123456789abcdef0123456789abcdef
+# A leftover listener would silently answer in place of this run's processes. A listening socket is the one
+# whose remote end is 0.0.0.0:0 / [::]:0 (the state's name is localised: ABHÖREN). A port just released by a
+# previous run gets 10 s to come free.
+for p in 8001 8100 8101; do
+  for i in $(seq 1 20); do netstat -an | grep -qE ":$p +(0\.0\.0\.0|\[::\]):(0|\*) " || continue 2; sleep 0.5; done
+  echo "something is already listening on :$p (a leftover from an earlier run?); stop it first"; exit 1
+done
 T=$(mktemp -d)
 W=$(cygpath -m "$T" 2>/dev/null || echo "$T")
+# stop: kills the three processes with their children (whisper-cli, yt-dlp, ffmpeg; taskkill /T, as a plain
+# kill on Windows leaves them running), then waits. Run at the end and, from the trap, on any exit.
+pids=
+stop() {
+  for p in $pids; do
+    wp=$(cat /proc/$p/winpid 2>/dev/null) && taskkill //F //T //PID $wp > /dev/null 2>&1
+    kill $p 2>/dev/null
+  done
+  wait 2>/dev/null; pids=
+}
+trap 'stop; rm -rf "$T"' EXIT
+trap 'exit 130' INT TERM
 mkdir -p $T/plain-vault $T/fwd-vault
 ECHO_DB_PATH=$W/fwd.db ECHO_VAULT_DIR=$W/fwd-vault ECHO_USAGE_LOG_PATH=$W/fwd.jsonl ECHO_SESHAT_SECRET=$SEC "$S" run seshat/server.ts > $T/svc.log 2>&1 & SP=$!
 ECHO_DB_PATH=$W/plain.db ECHO_VAULT_DIR=$W/plain-vault ECHO_USAGE_LOG_PATH=$W/plain.jsonl PORT=8100 node server.js > $T/plain.log 2>&1 & P1=$!
 ECHO_DB_PATH=$W/fwd.db ECHO_VAULT_DIR=$W/fwd-vault ECHO_USAGE_LOG_PATH=$W/fwd.jsonl PORT=8101 ECHO_SESHAT_URL=http://127.0.0.1:8001 ECHO_SESHAT_SECRET=$SEC node server.js > $T/fwd.log 2>&1 & P2=$!
-for p in 8001 8100 8101; do for i in $(seq 1 120); do curl -s -o /dev/null http://127.0.0.1:$p/ && break; sleep 0.5; done; done
+pids="$SP $P1 $P2"
+# up <port> <pid> <log>: waits for the port, and fails at once (with the log) if its process has exited.
+up() {
+  for i in $(seq 1 240); do
+    curl -s -o /dev/null --connect-timeout 1 http://127.0.0.1:$1/ && return
+    kill -0 $2 2>/dev/null || break
+    sleep 0.5
+  done
+  echo "nothing listening on :$1 ($3):"; cat $3; exit 1
+}
+up 8001 $SP $T/svc.log; up 8100 $P1 $T/plain.log; up 8101 $P2 $T/fwd.log
 ISO='[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z'
-# A body as compared once it differs: unzipped, timestamps and a sync's folder masked.
-norm() { if grep -qi '^content-encoding: gzip' "$2"; then gzip -dc "$1"; else cat "$1"; fi | sed -E "s/$ISO/<iso>/g; s/\"dir\":\"[^\"]*\"/\"dir\":\"<dir>\"/g"; }
+# A body as compared once it differs: unzipped, timestamps, a sync's folder and ffmpeg's log addresses
+# (`[in#0 @ 000001eecdf25140]`, different on every run) masked.
+norm() { if grep -qi '^content-encoding: gzip' "$2"; then gzip -dc "$1"; else cat "$1"; fi | sed -E "s/$ISO/<iso>/g; s/\"dir\":\"[^\"]*\"/\"dir\":\"<dir>\"/g; s/ @ [0-9a-f]{16}\]/ @ <addr>]/g"; }
 vault() { [ $1 = 8100 ] && echo "$W/plain-vault" || echo "$W/fwd-vault"; }
 fail=0
 for spec in "$@"; do
@@ -38,10 +68,13 @@ for spec in "$@"; do
   if [ "${spec:0:1}" = / ]; then method=GET; path=$spec; body=; else method=${spec%% *}; rest=${spec#* }; path=${rest%% *}; body=${rest#"$path"}; body=${body# }; fi
   type=application/json; case $method in *:*) type=${method#*:}; method=${method%%:*};; esac
   label="$method $path${body:+ $(printf %.60s "$body")}"
+  # A progress stream of a job that has ended closes at once; of an unknown (expired) one it pings until its
+  # 30-minute lifetime, so it gets a short limit (curl exits 28, and the bodies so far are compared).
+  mt=300; case $path in */progress*) mt=20;; esac
   for enc in identity gzip; do
     for p in 8100 8101; do
       args=(-X "$method"); [ "$method" != GET ] && args+=(-H "content-type: $type" --data-binary "${body//@VAULT@/$(vault $p)}")
-      curl -s -D $T/h$p -o $T/b$p -H "accept-encoding: $enc" "${args[@]}" http://127.0.0.1:$p$path
+      curl -s -m $mt -D $T/h$p -o $T/b$p -H "accept-encoding: $enc" "${args[@]}" http://127.0.0.1:$p$path
       grep -viE '^(date|x-served-by|keep-alive|connection):' $T/h$p | tr -d '\r' | awk -F': ' '{ $1 = tolower($1); print }' OFS=': ' | sort > $T/hh$p
     done
     served=$(grep -i '^x-served-by' $T/h8101 | tr -d '\r')
@@ -58,7 +91,7 @@ for spec in "$@"; do
       args=(-X "$method"); [ "$method" != GET ] && args+=(-H "content-type: $type" --data-binary "${body//@VAULT@/$(vault 8101)}")
       # The direct call is a cross-check, not a request of the run: what it logs is taken back out.
       cp $T/fwd.jsonl $T/fwd.keep 2>/dev/null || : > $T/fwd.keep
-      curl -s -D $T/hs -o $T/bs -H "x-echo-forward: $SEC" "${args[@]}" http://127.0.0.1:8001$path
+      curl -s -m $mt -D $T/hs -o $T/bs -H "x-echo-forward: $SEC" "${args[@]}" http://127.0.0.1:8001$path
       sleep 0.5; cp $T/fwd.keep $T/fwd.jsonl
       if [ "$(head -1 $T/hs | tr -d '\r')" = "$(head -1 $T/h8100 | tr -d '\r')" ] && [ "$(norm $T/bs $T/hs)" = "$(norm $T/b8100 $T/h8100)" ]; then direct=", service direct: same status and body"; else ok=; direct=", service direct: $(head -1 $T/hs | tr -d '\r') $(head -c 200 $T/bs)"; fi
     fi
@@ -70,7 +103,7 @@ mask() { sed -E "s/$ISO/<iso>/g; s/\"ms\":[0-9]+/\"ms\":0/g" "$1" 2>/dev/null; }
 for f in .jsonl .1.jsonl; do
   if [ "$(mask $T/plain$f)" = "$(mask $T/fwd$f)" ]; then [ -e $T/plain$f ] && echo "same  usage log$f ($(wc -l < $T/plain$f) lines)"; else echo "DIFF  usage log$f"; diff <(mask $T/plain$f) <(mask $T/fwd$f); fail=1; fi
 done
-kill $SP $P1 $P2 2>/dev/null; wait 2>/dev/null
+stop
 if [ -e $T/plain.db ] || [ -e $T/fwd.db ]; then
   if node --no-warnings seshat/check/dbdump.mjs $W/plain.db > $T/dplain 2>&1 && node --no-warnings seshat/check/dbdump.mjs $W/fwd.db > $T/dfwd 2>&1 && cmp -s $T/dplain $T/dfwd; then
     echo "same  library database ($(grep -c '^videos' $T/dplain) videos, $(grep -c '^tags' $T/dplain) tags, $(grep -c '^fts' $T/dplain) fts rows)"

@@ -316,16 +316,46 @@ Found in the original, kept: a corrupt upload is `WHISPER_FAILED`, not `MEDIA_UN
 given as a path ending in `.exe` (ECHO_FFMPEG). mapWhisperError matches `^ffmpeg exited`, and the message
 says `ffmpeg.exe exited`. With ffmpeg found on PATH (the default) it works.
 
+**Checked (2026-11-10):**
+
+- **Why whisper.sh "hung":** `server.ts` didn't build (gap 55), and routes.sh polled the three ports silently
+  for minutes. routes.sh and suite.sh now stop as soon as a process they started has exited (printing its
+  log), and every request has a curl time limit: 300 s, 20 s for a progress stream (one for an expired job
+  pings for 30 minutes). routes.sh also masks ffmpeg's log addresses (`[in#0 @ 000001eecdf25140]`), which
+  differ on every run.
+- **`bash seshat/check/whisper.sh`**: 20 of 26 comparisons identical: the status, the model route (present,
+  unknown, missing), the upload's transcript in base and small, both progress streams, the `notes.txt`
+  refusal. `broken.mp3` (2) differed only in ffmpeg's log addresses; with the mask, every request but the
+  YouTube one rerun: 20 of 20 identical, and the usage log. The other 2 are the YouTube request, below.
+- **The YouTube request (`POST /api/transcript {"url":"GRzaq5AHiV8","transcribe":"always","jobId":"j2"}`)
+  is no longer what whisper.sh says it is.** yt-dlp is not bot-blocked on this IP now: server.js alone got
+  `503 AUDIO_DOWNLOAD_REFUSED` (yt-dlp: `HTTP Error 403: Forbidden` on format 139, after ~16 s) both times,
+  and the service downloaded the audio both times and transcribed the whole video with `small` until curl's
+  300 s limit. So it differs by what YouTube answered, and the usage log with it (`Error` against
+  `client_aborted`). Not decided: what this request should test now.
+- **whisper.sh now makes two routes.sh runs** (decided 2026-11-10). The first, with the real whisper-cli,
+  models and ffmpeg, is the upload requests above. The second sends YouTube transcripts with Whisper always
+  on to stand-ins (fake-tool.ts built as yt-dlp and whisper-cli, an empty `m-ok.bin`, through ECHO_YTDLP,
+  ECHO_WHISPER, ECHO_WHISPER_MODEL): a success, `dl403always` (503 `AUDIO_DOWNLOAD_REFUSED`) and
+  `dl403once01` (refused once, retried), each with its progress stream. The ids are made up, so oEmbed has
+  no title on either side. **No longer checked:** a real YouTube audio download and transcription through
+  the service. Twice in a row: 20 + 12 comparisons and both usage logs identical (160 s and 120 s; the
+  stand-in run alone 41 s, most of it starting the three processes).
+- **routes.sh** refuses to start if something already listens on 8001, 8100 or 8101 (waiting 10 s for a
+  port a previous run just released), and an EXIT trap kills its three processes with their children
+  (`taskkill /T`: a plain kill on Windows leaves whisper-cli running) and deletes its temp folder.
+- **A cancel end to end, through a YouTube transcript** (not a file): when curl left at 300 s, the service
+  logged `client_aborted` (ms 300235) and its whisper-cli was gone.
+- `whisper`, `whispermodel`, `whisper-run` and `transcript` cases identical; `library.sh` 107 identical
+  (database, usage log, 9 vault files); `npm run test:only` 744 tests, 729 pass, 0 fail, 15 skipped;
+  `suite.sh` 675 + 13 + 8 + 33 pass, 0 fail (page-serving failed one before gap 56's workaround, and does again
+  with it removed).
+
 **Not done yet:**
 
-1. **`bash seshat/check/whisper.sh` hasn't run through.** It's the route comparison with the real
-   whisper-cli, the models and a spoken WAV made by Windows' speech synthesis. Its first run printed nothing;
-   when it was stopped, 8100 and 8101 were listening but nothing was on 8001, so the Seshat service never came
-   up (a build failure, or a crash at start: run `seshat run seshat/server.ts` by hand first).
-2. Then `node seshat/check/run.mjs` (all), `library.sh`, `transcripts.sh` and `transcripts.sh web` (its
-   `!POST /api/transcript {"url":"GRzaq5AHiV8"}` loses the `!`: it's forwarded now), and `suite.sh`.
-3. A cancel end to end: start a file transcription through :8101, close the client, and check whisper-cli
-   is killed.
+1. `node seshat/check/run.mjs` (all), `transcripts.sh` and `transcripts.sh web` (its
+   `!POST /api/transcript {"url":"GRzaq5AHiV8"}` loses the `!`: it's forwarded now).
+2. A cancel of a file transcription through :8101.
 
 ## Seshat gaps found while porting
 
@@ -423,6 +453,26 @@ New in step 6 (reported 2026-10-30):
 54. **abort-listener-remove:** `addEventListener` takes no options and there's no `removeEventListener`.
     Workaround in `whisper.ts`'s runStreaming: a settled flag.
 
+New in step 6 (2026-11-10, not reported yet):
+
+55. **spread-call-record: spreading a call's result doesn't build** when that record type is also held as
+    `unknown` somewhere (here `json(downloadState(model))`): the C uses `.` on a pointer, "the generated C
+    failed to compile". This is why the service never came up in `whisper.sh`. Spreading a local holding the
+    same result builds. Node prints `{"label":"A","name":"a"} {"name":"a"}`:
+    ```ts
+    interface State { name: string }
+    function stateOf(n: string): State { return { name: n }; }
+    const v: unknown = stateOf('a');
+    console.log(JSON.stringify({ label: 'A', ...stateOf('a') }), JSON.stringify(v));
+    ```
+    Workaround in `server.ts`'s `whisperStatus` (`shortcut:`): `const state = downloadState(n)`, then `...state`.
+56. **stream-cancel-late: a streamed answer's `cancel()` runs only at the next write after the client left**,
+    not when it leaves (Bun: at once). The progress stream writes a ping every 10 s, so a closed stream held
+    its place under the 32-stream cap that long: `page-serving`'s "closing streams releases the cap again" got
+    429 under `suite.sh`. Repro `seshat/gaps/stream-cancel-late.ts` (Bun prints `cancelled at once`, Seshat
+    `cancelled 1 s later`). Workaround in `server.ts`'s `progressStream` (`shortcut:`): the stream is also
+    `cancellable()`, so server.js's `/internal/abort` (gap 50) ends it.
+
 Also missing, not needed: `createWriteStream` (the download appends per chunk). In Seshat a `Uint8Array` is a
 `u8[]` (no `subarray`: `slice`), `process.env` can't be assigned (run.mjs sets case files' environment), and
 `filter(Boolean)` can't infer its parameter.
@@ -439,7 +489,7 @@ vendored SQLite, and (the bun:sqlite probe, `check/sqlite-probe/`) WAL, foreign 
 ## Picking this up
 
 Step 6, Whisper, is in progress: see "Step 6" above, and its **Not done yet** list, which is where to
-start (first: why the service didn't come up in `whisper.sh`). When seshat-86 says `echo-gaps-4` is merged
+start. When seshat-86 says `echo-gaps-4` is merged
 and target/release rebuilt, remove the workarounds for 39, 40, 41, 43, 49, 50, 51, 53 and 54 (grep the gap
 names), then rerun everything.
 

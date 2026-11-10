@@ -530,6 +530,7 @@ function progressStream(req: Request): Response {
     return sendError('RATE_LIMITED', 'Too many progress streams are already open.', 'Close some Echo tabs, or wait for the running transcriptions to finish.', 429);
   }
   openProgressStreams++;
+  const job = cancellable(req);
 
   let done = false;
   let sinceLastPing = 0;
@@ -539,12 +540,16 @@ function progressStream(req: Request): Response {
     if (done) return false;
     done = true;
     stopTimers();
+    job.release();
     openProgressStreams--;
     return true;
   };
   const body = new ReadableStream({
     start(controller) {
       const finish = (): void => { if (stop()) controller.close(); };
+      // shortcut: the client leaving is also heard through /internal/abort, as Seshat runs cancel() only at the
+      // next write, up to a 10 s ping later (gap 56, stream-cancel-late); drop this when cancel() comes on time.
+      job.signal.addEventListener('abort', finish);
       const tick = (): void => {
         if (done) return;
         const st = whisperJobs.get(jobId);
@@ -672,7 +677,9 @@ interface WhisperStatusBody { binaryPresent: boolean; defaultModel: string; cach
 function whisperStatus(): Response {
   const models = Object.keys(WHISPER_MODELS).map((n): ModelStatus => {
     const m = WHISPER_MODELS[n]!;
-    return { name: m.name, label: m.label, sizeBytes: m.sizeBytes, ...downloadState(n) };
+    // shortcut: a local, not `...downloadState(n)` (gap 55, spread-call-record), until Seshat fixes it.
+    const state = downloadState(n);
+    return { name: m.name, label: m.label, sizeBytes: m.sizeBytes, ...state };
   });
   const body: WhisperStatusBody = { binaryPresent: !!resolveWhisperBinary(), defaultModel: DEFAULT_WHISPER_MODEL, cacheDir: modelCacheDir(), models };
   return json(body);

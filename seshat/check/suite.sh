@@ -15,7 +15,7 @@ export ECHO_SESHAT_URL=http://127.0.0.1:8001 ECHO_SESHAT_SECRET=$SEC
 # start <name>: a service on <name>.db and <name>.jsonl, waited for.
 start() {
   ECHO_DB_PATH=$W/$1.db ECHO_USAGE_LOG_PATH=$W/$1.jsonl "$W/service.exe" > "$T/$1.service.log" 2>&1 & SP=$!
-  for i in $(seq 1 60); do curl -s -o /dev/null http://127.0.0.1:8001/ && return; sleep 0.5; done
+  for i in $(seq 1 60); do curl -s -o /dev/null --connect-timeout 1 http://127.0.0.1:8001/ && return; kill -0 $SP 2>/dev/null || break; sleep 0.5; done
   echo "the service didn't start"; cat "$T/$1.service.log"; exit 1
 }
 stop() { kill $SP 2>/dev/null; wait $SP 2>/dev/null; }
