@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { rmSync } from 'node:fs';
+import { join, delimiter } from 'node:path';
+import { rmSync, mkdtempSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 // ---------------------------------------------------------------------------
@@ -139,14 +139,44 @@ const GATED_ROUTES = [
 let webServer;
 let localServer;
 
+// A fake `claude` first on the web server's PATH: it only leaves a marker, so a
+// request that wrongly reaches the CLI is visible and never runs the real one.
+const FAKE_BIN = mkdtempSync(join(tmpdir(), 'echo-fake-claude-'));
+const CLI_HIT = join(FAKE_BIN, 'hit');
+if (process.platform === 'win32') {
+  writeFileSync(join(FAKE_BIN, 'claude.cmd'), '@echo off\r\necho hit> "%~dp0hit"\r\n');
+} else {
+  writeFileSync(join(FAKE_BIN, 'claude'), '#!/bin/sh\necho hit > "$(dirname "$0")/hit"\n', { mode: 0o755 });
+}
+const PATH_KEY = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
+
 test('boots a web-mode server instance (ECHO_MODE=web) in a child process', async () => {
-  webServer = await bootServer({ ECHO_MODE: 'web', ECHO_DB_PATH: WEB_DB, PORT: '8901' });
+  webServer = await bootServer({
+    ECHO_MODE: 'web', ECHO_DB_PATH: WEB_DB, PORT: '8901',
+    [PATH_KEY]: FAKE_BIN + delimiter + (process.env[PATH_KEY] || ''),
+  });
   assert.ok(webServer.base);
 });
 
 for (const [method, path] of GATED_ROUTES) {
   test(`web mode: ${method} ${path} returns 503 WEB_MODE_UNSUPPORTED`, async () => {
     await assertWebModeUnsupported(webServer.base, method, path);
+  });
+}
+
+// The registry hides the CLI from the web picker; this is the server enforcing
+// it, so a hand-written header plus any dummy key cannot spend the operator's
+// `claude` quota.
+for (const path of ['/api/digest', '/api/validate-key']) {
+  test(`web mode: POST ${path} naming the CLI provider is refused with 400 PROVIDER_UNKNOWN`, async () => {
+    const res = await fetch(`${webServer.base}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Echo-Provider': 'cli', 'X-Echo-Api-Key': 'dummy-key' },
+      body: JSON.stringify({ text: 'a transcript', length: 'short' }),
+    });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error.code, 'PROVIDER_UNKNOWN');
+    assert.equal(existsSync(CLI_HIT), false, 'the CLI must never be spawned');
   });
 }
 
@@ -222,4 +252,5 @@ test.after(() => {
   cleanupDb(WEB_DB);
   cleanupDb(LOCAL_DB);
   try { rmSync(USAGE_LOG, { force: true }); } catch { /* ignore */ }
+  try { rmSync(FAKE_BIN, { recursive: true, force: true }); } catch { /* ignore */ }
 });
