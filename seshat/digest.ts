@@ -22,16 +22,36 @@ const ISOLATED_SYSTEM_PROMPT =
   'Follow the instructions in the user message exactly and return only the requested output as Markdown. ' +
   'Do not add meta-commentary, do not ask questions, and never mention sessions, memory, files, tools, or any workspace or project.';
 
+// Used instead when the CLI is handed video frames to Read. Same cmd.exe rule.
+const ISOLATED_SYSTEM_PROMPT_FRAMES =
+  'You are a precise summarization and digest engine for video transcripts and their on-screen frames. ' +
+  'Use the Read tool to view the provided frame image files, then follow the instructions in the user message exactly ' +
+  'and return only the requested digest as Markdown. ' +
+  'Do not add meta-commentary about your process, do not ask questions, and never mention sessions, memory, or the workspace.';
+
 const CLI_MODEL = 'claude-opus-5-5';
+
+// A default `claude -p` may Read any file this user can and reach their MCP
+// connectors; a transcript is untrusted text and a digest needs no tools.
+const NO_TOOLS = ['--strict-mcp-config', '--tools', ''];
 
 const CLAUDE_ARGS = [
   '-p', '--model', CLI_MODEL, '--output-format', 'json',
-  '--system-prompt', ISOLATED_SYSTEM_PROMPT,
+  '--system-prompt', ISOLATED_SYSTEM_PROMPT, ...NO_TOOLS,
 ];
 
+// With `framesDir`, the frames system prompt and Read as the one tool, confined
+// by --restricted to the working directory (the frames dir).
+function withFrames(base: string[], framesDir?: string): string[] {
+  if (!framesDir) return [...base];
+  const args = base.map((a) => (a === ISOLATED_SYSTEM_PROMPT ? ISOLATED_SYSTEM_PROMPT_FRAMES : a));
+  args[args.indexOf('--tools') + 1] = 'Read';
+  return [...args, '--restricted'];
+}
+
 /** The CLI args for a `claude -p` invocation. */
-export function buildClaudeArgs(): string[] {
-  return [...CLAUDE_ARGS];
+export function buildClaudeArgs({ framesDir }: { framesDir?: string } = {}): string[] {
+  return withFrames(CLAUDE_ARGS, framesDir);
 }
 
 // `--include-partial-messages` turns on the per-token `content_block_delta`
@@ -39,12 +59,12 @@ export function buildClaudeArgs(): string[] {
 const CLAUDE_STREAM_ARGS = [
   '-p', '--model', CLI_MODEL, '--output-format', 'stream-json',
   '--include-partial-messages', '--verbose',
-  '--system-prompt', ISOLATED_SYSTEM_PROMPT,
+  '--system-prompt', ISOLATED_SYSTEM_PROMPT, ...NO_TOOLS,
 ];
 
 /** The CLI args for a streaming `claude -p` invocation. */
-export function buildClaudeStreamArgs(): string[] {
-  return [...CLAUDE_STREAM_ARGS];
+export function buildClaudeStreamArgs({ framesDir }: { framesDir?: string } = {}): string[] {
+  return withFrames(CLAUDE_STREAM_ARGS, framesDir);
 }
 
 // Claude's map-reduce geometry, kept as the literal defaults: the runtime
