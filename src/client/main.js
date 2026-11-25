@@ -1550,7 +1550,7 @@ function formatCostUsd(usd) {
 /* ==============================================
    PER-DIGEST + SESSION USAGE DISPLAY
 =============================================== */
-function renderUsageStats(u) {
+function renderUsageStats(u, visualFrames) {
   if (!u) return;
 
   // Accumulate session totals (called once per successful digest)
@@ -1565,6 +1565,9 @@ function renderUsageStats(u) {
   if (thisCost) digestParts.push('<span class="mono">' + thisCost + '</span>');
   if (u.durationMs != null) {
     digestParts.push('<span class="mono">' + Math.round(u.durationMs / 1000) + 's</span>');
+  }
+  if (visualFrames > 0) {
+    digestParts.push('<span class="mono">' + visualFrames + ' frames read</span>');
   }
 
   // Session line
@@ -3091,6 +3094,10 @@ async function streamDigest(body, signal) {
       schedulePaint();
       return;
     }
+    if (name === 'phase' && payload && payload.phase === 'visuals') {
+      setDigestStatus('Reading what is on screen…', false);
+      return;
+    }
     if (name === 'phase' && payload && payload.phase === 'map') {
       // Long transcripts spend most of their time here, before a word of the
       // digest exists. Say so rather than showing an empty pane.
@@ -3237,6 +3244,12 @@ async function runDigest() {
     videoId: (currentMeta && currentMeta.videoId) || undefined,
     via: currentVia,
   };
+  // Whether this video gets frames is the server's call (frames.js planVisuals):
+  // it needs the timestamps to find where the speaker points at the screen.
+  if (ECHO.mode !== 'web' && getVisuals()) {
+    body.visuals = true;
+    body.segments = lastSegments.map((seg) => ({ offset: seg.offset, text: seg.text }));
+  }
 
   // Own AbortController per run, reachable from the Stop button's click
   // handler via the module-level digestAbortController.
@@ -3280,7 +3293,7 @@ async function runDigest() {
 
     // Usage readouts
     if (data.usage) {
-      renderUsageStats(data.usage);
+      renderUsageStats(data.usage, data.visualFrames);
     }
 
     // Stay on Digest tab / Summary sub-panel
@@ -4796,6 +4809,21 @@ function setAutoKeep(on) {
   catch { /* localStorage unavailable — non-fatal */ }
 }
 
+// Read on-screen frames for videos that point at their screen. Default ON:
+// measured 2026-11-25, such videos gained 2-3x verified numbers and a
+// talking-only video was unchanged. Local/desktop only (see frames.js).
+const VISUALS_STORAGE_KEY = 'echo-visuals';
+
+function getVisuals() {
+  try { return localStorage.getItem(VISUALS_STORAGE_KEY) !== 'false'; }
+  catch { return true; }
+}
+
+function setVisuals(on) {
+  try { localStorage.setItem(VISUALS_STORAGE_KEY, on ? 'true' : 'false'); }
+  catch { /* localStorage unavailable — non-fatal */ }
+}
+
 // Auto-tag preference (default ON for local/desktop, OFF for web — web
 // requires a BYOK key and we don't want to surprise-spend it silently).
 const AUTO_TAGS_STORAGE_KEY = 'echo-auto-tags';
@@ -4854,6 +4882,8 @@ const settingsSaveKeyBtnEl = document.getElementById('settingsSaveKeyBtn');
 const autoDigestToggleEl = document.getElementById('autoDigestToggle');
 const autoTagToggleEl    = document.getElementById('autoTagToggle');
 const autoKeepToggleEl   = document.getElementById('autoKeepToggle');
+const visualsSettingEl   = document.getElementById('visualsSetting');
+const visualsToggleEl    = document.getElementById('visualsToggle');
 
 const whisperSettingsEl       = document.getElementById('whisperSettings');
 const whisperBinaryNoteEl     = document.getElementById('whisperBinaryNote');
@@ -5370,6 +5400,7 @@ whisperDownloadBtnEl?.addEventListener('click', () => {
 // (and its select/status untouched) in web mode.
 if (ECHO.mode !== 'web') {
   if (whisperSettingsEl) whisperSettingsEl.hidden = false;
+  if (visualsSettingEl) visualsSettingEl.hidden = false;
   if (whisperModeSelectEl)  whisperModeSelectEl.value  = getWhisperMode();
   if (whisperModelSelectEl) whisperModelSelectEl.value = getWhisperModel();
   refreshWhisperStatus();
@@ -5393,6 +5424,7 @@ function openSettingsModal() {
   if (autoDigestToggleEl) autoDigestToggleEl.checked = getAutoDigest();
   if (autoTagToggleEl) autoTagToggleEl.checked = getAutoTags();
   if (autoKeepToggleEl) autoKeepToggleEl.checked = getAutoKeep();
+  if (visualsToggleEl) visualsToggleEl.checked = getVisuals();
   if (vaultDirInputEl) vaultDirInputEl.value = getVaultDir();
   if (obsidianVaultNameInputEl) obsidianVaultNameInputEl.value = getObsidianVaultName();
   renderVaultSyncStatus();
@@ -5971,6 +6003,13 @@ autoKeepToggleEl?.addEventListener('change', () => {
   showToast('info', autoKeepToggleEl.checked
     ? 'Every digest is now kept in your library.'
     : 'Digests are kept only when you press Save.');
+});
+
+visualsToggleEl?.addEventListener('change', () => {
+  setVisuals(visualsToggleEl.checked);
+  showToast('info', visualsToggleEl.checked
+    ? 'Digests now read what is on screen when a video points at it.'
+    : 'Digests now read the transcript only.');
 });
 
 autoTagToggleEl?.addEventListener('change', () => {

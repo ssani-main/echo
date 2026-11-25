@@ -95,6 +95,15 @@
         <span class="settings-note">Add each video to your library as soon as its digest is ready, without pressing Save.</span>
       </span>
     </label>
+    <!-- Local/desktop only: the frames come from a video this machine downloads
+         and are read by the local CLI. Revealed by the ECHO.mode gate in main.js. -->
+    <label class="settings-toggle-row" for="visualsToggle" id="visualsSetting" hidden>
+      <input type="checkbox" id="visualsToggle" />
+      <span class="settings-toggle-text">
+        <span class="settings-toggle-title">Read what's on screen</span>
+        <span class="settings-note">When a video keeps pointing at its screen (charts, slides, code), the digest also reads still frames from it. Adds 20-80 seconds and needs ffmpeg.</span>
+      </span>
+    </label>
     <label class="settings-toggle-row" for="autoTagToggle">
       <input type="checkbox" id="autoTagToggle" />
       <span class="settings-toggle-text">

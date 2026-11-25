@@ -3333,6 +3333,9 @@ body.gate-declined .lens-row {
   margin-top: var(--space-10);
   cursor: pointer;
 }
+.settings-toggle-row[hidden] {
+  display: none;
+}
 .settings-toggle-row input[type="checkbox"] {
   margin-top: var(--space-2);
   flex-shrink: 0;

@@ -31,20 +31,49 @@ const ISOLATED_SYSTEM_PROMPT =
   'Follow the instructions in the user message exactly and return only the requested output as Markdown. ' +
   'Do not add meta-commentary, do not ask questions, and never mention sessions, memory, files, tools, or any workspace or project.';
 
+// Used instead when the CLI is handed video frames to Read. Same rule about
+// cmd.exe metacharacters as ISOLATED_SYSTEM_PROMPT above.
+const ISOLATED_SYSTEM_PROMPT_FRAMES =
+  'You are a precise summarization and digest engine for video transcripts and their on-screen frames. ' +
+  'Use the Read tool to view the provided frame image files, then follow the instructions in the user message exactly ' +
+  'and return only the requested digest as Markdown. ' +
+  'Do not add meta-commentary about your process, do not ask questions, and never mention sessions, memory, or the workspace.';
+
 const CLI_MODEL = 'claude-opus-5-5';
+
+// A default `claude -p` may Read any file this user can and reach their MCP
+// connectors (Gmail, Drive, …). Measured 2026-11-25: asked by its prompt, a
+// digest call printed a file from outside its working directory. A transcript
+// is untrusted text and a digest needs no tools, so every call gets none.
+const NO_TOOLS = ['--strict-mcp-config', '--tools', ''];
 
 const CLAUDE_ARGS = [
   '-p', '--model', CLI_MODEL, '--output-format', 'json',
-  '--system-prompt', ISOLATED_SYSTEM_PROMPT,
+  '--system-prompt', ISOLATED_SYSTEM_PROMPT, ...NO_TOOLS,
 ];
+
+/**
+ * With `framesDir` (the CLI's working directory for that call), the frames
+ * system prompt replaces the isolating one and Read is the one tool, confined
+ * by --restricted to the working directory. An allow rule such as
+ * Read(./*.jpg) restricts nothing, since Read is allowed everywhere by default
+ * (measured). Without `framesDir`, `base` unchanged.
+ */
+function withFrames(base, framesDir) {
+  if (!framesDir) return [...base];
+  const args = base.map((a) => (a === ISOLATED_SYSTEM_PROMPT ? ISOLATED_SYSTEM_PROMPT_FRAMES : a));
+  args[args.indexOf('--tools') + 1] = 'Read';
+  return [...args, '--restricted'];
+}
 
 /**
  * Builds the CLI args array for a `claude -p` invocation.
  *
+ * @param {{ framesDir?: string }} [opts]
  * @returns {string[]}
  */
-export function buildClaudeArgs() {
-  return [...CLAUDE_ARGS];
+export function buildClaudeArgs({ framesDir } = {}) {
+  return withFrames(CLAUDE_ARGS, framesDir);
 }
 
 // Streaming variant. `--include-partial-messages` is what turns on the per-token
@@ -54,7 +83,7 @@ export function buildClaudeArgs() {
 const CLAUDE_STREAM_ARGS = [
   '-p', '--model', CLI_MODEL, '--output-format', 'stream-json',
   '--include-partial-messages', '--verbose',
-  '--system-prompt', ISOLATED_SYSTEM_PROMPT,
+  '--system-prompt', ISOLATED_SYSTEM_PROMPT, ...NO_TOOLS,
 ];
 
 /**
@@ -62,8 +91,8 @@ const CLAUDE_STREAM_ARGS = [
  *
  * @returns {string[]}
  */
-export function buildClaudeStreamArgs() {
-  return [...CLAUDE_STREAM_ARGS];
+export function buildClaudeStreamArgs({ framesDir } = {}) {
+  return withFrames(CLAUDE_STREAM_ARGS, framesDir);
 }
 
 // ---------------------------------------------------------------------------
@@ -342,7 +371,7 @@ function makeAbortError() {
  *          onStdoutChunk?: (chunk: string) => void, signal?: AbortSignal}} params
  * @returns {Promise<{ stdout: string, stderr: string, code: number|null }>}
  */
-function spawnClaudeProcess({ args, prompt, timeoutMs, onStdoutChunk, signal }) {
+function spawnClaudeProcess({ args, prompt, timeoutMs, onStdoutChunk, signal, cwd }) {
   const isWin = process.platform === 'win32';
   const exe = isWin ? (process.env.ComSpec || 'cmd.exe') : 'claude';
   const spawnArgs = isWin ? ['/c', 'claude', ...args] : args;
@@ -360,8 +389,9 @@ function spawnClaudeProcess({ args, prompt, timeoutMs, onStdoutChunk, signal }) 
       stdio: ['pipe', 'pipe', 'pipe'],
       // Run from the OS temp dir, not the project dir, so the CLI does not
       // auto-load this project's Claude Code memory or a project CLAUDE.md
-      // (which would leak workspace context into the digest output).
-      cwd: tmpdir(),
+      // (which would leak workspace context into the digest output). A frames
+      // directory is itself under the temp dir, so isolation holds there too.
+      cwd: cwd || tmpdir(),
       // On non-Windows, run in its own process group so we can kill the
       // whole tree (child + any grandchildren) on timeout via a negative pid.
       ...(isWin ? {} : { detached: true }),
@@ -544,12 +574,13 @@ function resultFromParsed(parsed, opts = {}) {
  * @returns {Promise<{ result: string, usage: object }>}
  */
 export async function runClaude(prompt, opts = {}) {
-  const { timeoutMs = DEFAULT_TIMEOUT_MS, signal } = opts;
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, signal, framesDir } = opts;
   const { stdout, stderr, code } = await spawnClaudeProcess({
-    args: buildClaudeArgs(),
+    args: buildClaudeArgs({ framesDir }),
     prompt,
     timeoutMs,
     signal,
+    cwd: framesDir,
   });
 
   if (code !== 0) throw claudeExitError(code, stderr);
@@ -611,10 +642,11 @@ export async function runClaudeStream(prompt, opts = {}, onToken = () => {}) {
   };
 
   const { stdout, stderr, code } = await spawnClaudeProcess({
-    args: buildClaudeStreamArgs(),
+    args: buildClaudeStreamArgs({ framesDir: opts.framesDir }),
     prompt,
     timeoutMs,
     signal,
+    cwd: opts.framesDir,
     onStdoutChunk: (chunk) => {
       pending += chunk;
       const lines = pending.split('\n');
@@ -1148,9 +1180,14 @@ export async function generateDigest(transcriptText, opts = {}) {
     const chunks = chunkText(transcriptText, chunkBudgetCharsFor(opts));
     // Single chunk means budget math already handles it — fall through to fast path.
     if (chunks.length > 1) {
-      return digestMapReduce(chunks, structureInstructions, language, opts);
+      return digestMapReduce(chunks, structureInstructions, language, opts.frames ? { ...opts, frames: null } : opts);
     }
   }
+
+  // Optional: still frames from the video, which the CLI Reads from its working
+  // directory. Only on this single-call path; map-reduce stays text-only.
+  const frames = opts.frames && Array.isArray(opts.frames.items) && opts.frames.items.length ? opts.frames : null;
+  const frameBlock = frames ? buildFramePromptBlock(frames.items.length) : '';
 
   // --- Fast path ---
   // Article and digest modes use their own self-contained instructions
@@ -1158,26 +1195,59 @@ export async function generateDigest(transcriptText, opts = {}) {
   // summary-oriented prefix below.
   const prompt =
     format === 'article' || format === 'digest'
-      ? `Write your entire response in ${language}, regardless of what language the transcript is in.\n\n${titleContext}${channelContext}${structureInstructions}\n\nHere is the transcript:\n\n${transcriptText}`
+      ? `Write your entire response in ${language}, regardless of what language the transcript is in.\n\n${titleContext}${channelContext}${structureInstructions}${frameBlock}\n\nHere is the transcript:\n\n${transcriptText}`
       : 'You are given the raw auto-generated transcript of a YouTube video. ' +
         'It may be in any language. ' +
         `Write your entire response in ${language}. ` +
         titleContext +
         structureInstructions +
+        frameBlock +
         '\n\nHere is the transcript:\n\n' +
         transcriptText;
 
   // Only widen the allowance when the input is past the classic threshold;
   // below it `opts` goes through untouched, so ordinary videos behave exactly
   // as before. (Only the CLI provider reads timeoutMs; the API providers ignore it.)
+  let callOpts = optsForInput(transcriptText.length, opts);
+  // Up to 24 image reads come before the first word of the digest.
+  if (frames) callOpts = { ...callOpts, timeoutMs: 2 * (callOpts.timeoutMs || DEFAULT_TIMEOUT_MS) };
   const { result, usage, truncated, truncationNote } =
-    await callProviderStreaming(prompt, optsForInput(transcriptText.length, opts));
-  const out = { digest: result, usage, strategy: 'single' };
+    await callProviderStreaming(prompt, callOpts);
+  const out = { digest: result, usage, strategy: 'single', visualFrames: frames ? frames.items.length : 0 };
   if (truncated) {
     out.truncated = true;
     out.truncationNote = truncationNote;
   }
   return out;
+}
+
+/**
+ * The prompt block for a digest that also gets frames. Calibrated in July 2026
+ * and re-checked 2026-11-25: the model reads NUMBERS off frames reliably and
+ * invents NAMES from logos and layouts, so it is pushed toward the first and
+ * held back from the second.
+ *
+ * @param {number} count
+ * @returns {string}
+ */
+export function buildFramePromptBlock(count) {
+  const last = 'frame-' + String(count).padStart(3, '0') + '.jpg';
+  return (
+    `\n\nYou ALSO have ${count} still frames sampled from this video, saved as image files ` +
+    `frame-001.jpg through ${last} in your current working directory, in chronological order. ` +
+    `FIRST use the Read tool to view ALL ${count} frames. They show what was ON SCREEN — charts, prices, slides, ` +
+    `code, UI, product screenshots, and on-screen text — which the transcript's spoken words point at but usually ` +
+    `do NOT state. This on-screen detail is the main reason the digest can beat the transcript alone, so USE IT. ` +
+    `Numbers you can read are the highest-value, lowest-risk detail: whenever a frame clearly shows an exact price, ` +
+    `percentage, stat, metric, count, or date the transcript lacks, WORK IT INTO the digest and prefer that ` +
+    `specific figure over a vague paraphrase ("+23% sign-ups", not "more sign-ups"). ` +
+    `Be much stricter with NAMES: only name an app, company, product, or person if that name is plainly printed on ` +
+    `a frame or stated in the transcript. Do NOT infer a name from a logo you cannot read, from an app's look, or ` +
+    `from your own outside knowledge — recognizing a spin-wheel or a paywall style is NOT a licence to name the app. ` +
+    `Overall accuracy rule: state only what you can actually READ in a frame or that appears in the transcript; if ` +
+    `text is illegible or a frame is generic, leave it out rather than guessing, and never write "(referred to as X ` +
+    `in the transcript)" unless X is plainly what a frame shows. Do not mention the frames themselves in the digest.`
+  );
 }
 
 // Maximum chars of material (digest or transcript excerpt) to feed the
