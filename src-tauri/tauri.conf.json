@@ -43,6 +43,7 @@
     "resources": {
       "../server.js": "server.js",
       "../digest.js": "digest.js",
+      "../frames.js": "frames.js",
       "../providers.js": "providers.js",
       "../transcript.js": "transcript.js",
       "../whisper.js": "whisper.js",

@@ -451,7 +451,7 @@ export const ClaudeCliProvider = {
    * @returns {Promise<{ result: string, usage: object, truncated?: true }>}
    */
   async call(prompt, opts = {}) {
-    return runClaude(prompt, { timeoutMs: opts.timeoutMs, signal: opts.signal });
+    return runClaude(prompt, { timeoutMs: opts.timeoutMs, signal: opts.signal, framesDir: opts.frames && opts.frames.dir });
   },
 
   /**
@@ -464,7 +464,7 @@ export const ClaudeCliProvider = {
    * @returns {Promise<{ result: string, usage: object, truncated?: true }>}
    */
   async stream(prompt, opts = {}, onToken) {
-    return runClaudeStream(prompt, { timeoutMs: opts.timeoutMs, signal: opts.signal }, onToken);
+    return runClaudeStream(prompt, { timeoutMs: opts.timeoutMs, signal: opts.signal, framesDir: opts.frames && opts.frames.dir }, onToken);
   },
 };
 

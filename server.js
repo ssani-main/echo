@@ -40,6 +40,7 @@ import {
 import { createPdsSync } from './pdsSync.js';
 import { COLLECTION as PDS_COLLECTION } from './pds.js';
 import { logEvent, errLabel } from './usagelog.js';
+import { extractFrames, cleanupFrames, mapFramesError, planVisuals } from './frames.js';
 import { validateApiKey, publicProviderList, getProviderId, getProviderLimits, getReasoningLevel, normalizeProviderId, normalizeReasoningLevel, DEFAULT_PROVIDER_ID } from './providers.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1584,6 +1585,22 @@ function openDigestStream(res) {
 
 const DIGEST_VIA = new Set(['paste', 'extension', 'file', 'library']);
 
+/**
+ * Frames for a digest, or null. Never throws: a video that cannot be downloaded
+ * or decoded still gets its text digest, which is what it got before frames.
+ */
+async function extractFramesBestEffort(videoId, plan, signal) {
+  const t0 = Date.now();
+  try {
+    const { dir, frames, count } = await extractFrames(videoId, { ...plan, signal });
+    logEvent('frames-extract', { videoId, count, cues: plan.cueTimes.length, ok: true, ms: Date.now() - t0 });
+    return { dir, items: frames };
+  } catch (err) {
+    logEvent('frames-extract', { videoId, ok: false, err: mapFramesError(err).echoCode, ms: Date.now() - t0 });
+    return null;
+  }
+}
+
 // What happens to a digest after it is read happens in the browser, so the
 // meter only learns it if the page says so. Names are an allow-list: this
 // writes to a local file and must not become a way to write arbitrary lines.
@@ -1628,6 +1645,14 @@ app.post('/api/digest', requireApproved, userDigestLimit, webLimit(20, 60_000), 
   }
   const providerId = getProviderId(prov);
 
+  // Frames are read by the local CLI (its Read tool) from a video this machine
+  // downloads, so never in web mode and never for an API provider. Whether a
+  // given video gets them is planVisuals' call (frames.js).
+  const visualPlan = planVisuals({
+    visuals: req.body.visuals, segments: req.body.segments, videoId,
+    web: isWeb, providerKind: getProviderLimits(prov).kind,
+  });
+
   // Cancel the digest (and its best-effort auto-tagging sibling — it spends
   // real tokens too) if the client goes away, e.g. the user hits Stop or
   // closes the tab mid-digest. Without this the `claude` spawn / Anthropic
@@ -1647,14 +1672,16 @@ app.post('/api/digest', requireApproved, userDigestLimit, webLimit(20, 60_000), 
   if (wantsStream) {
     return digestStreaming(req, res, {
       text, length, format, language, title, channel, videoId, via, signal: ac.signal,
-      provider: prov.provider, apiKey: prov.apiKey, reasoning: prov.reasoning,
+      provider: prov.provider, apiKey: prov.apiKey, reasoning: prov.reasoning, visualPlan,
     });
   }
 
   const t0 = Date.now();
   const { apiKey } = prov;
+  let frames = null;
   try {
-    const digestDone = generateDigest(text, { length, format, language, title, channel, apiKey, provider: prov.provider, reasoning: prov.reasoning, signal: ac.signal });
+    if (visualPlan) frames = await extractFramesBestEffort(videoId, visualPlan, ac.signal);
+    const digestDone = generateDigest(text, { length, format, language, title, channel, apiKey, provider: prov.provider, reasoning: prov.reasoning, signal: ac.signal, frames });
     const [result, suggestedTags] = await Promise.all([
       digestDone,
       suggestTagsBestEffort(text, { apiKey, provider: prov.provider, language, videoId, signal: ac.signal, digestDone }),
@@ -1673,6 +1700,7 @@ app.post('/api/digest', requireApproved, userDigestLimit, webLimit(20, 60_000), 
       // comparable if one of them reasoned first.
       thinking: getReasoningLevel(prov),
       truncated: Boolean(result.truncated),
+      visualFrames: result.visualFrames || 0,
       costUsd: result.usage && result.usage.costUsd,
       tokIn: result.usage && result.usage.inputTokens,
       tokOut: result.usage && result.usage.outputTokens,
@@ -1688,6 +1716,8 @@ app.post('/api/digest', requireApproved, userDigestLimit, webLimit(20, 60_000), 
     }
     logEvent('digest', { videoId: videoId || null, chars: (text || '').length, length, format, ok: false, err: errLabel(err), ms: Date.now() - t0 });
     return sendCaughtError(res, err);
+  } finally {
+    if (frames) cleanupFrames(frames.dir);
   }
 });
 
@@ -1706,17 +1736,23 @@ app.post('/api/digest', requireApproved, userDigestLimit, webLimit(20, 60_000), 
  * listener for that, and stream.send()/stream.end() are no-ops once closed —
  * so an abort mid-stream can never attempt to write to the dead socket.
  */
-async function digestStreaming(req, res, { text, length, format, language, title, channel, videoId, via, signal, provider, apiKey, reasoning }) {
+async function digestStreaming(req, res, { text, length, format, language, title, channel, videoId, via, signal, provider, apiKey, reasoning, visualPlan }) {
   const t0 = Date.now();
   // Both come from the route, which already resolved and validated them — so
   // the streamed and buffered paths cannot disagree about which provider is
   // running, which is the whole point of doing the resolution once.
   const providerId = getProviderId({ provider, apiKey });
   const stream = openDigestStream(res);
+  let frames = null;
 
   try {
+    if (visualPlan) {
+      // The download and ffmpeg pass take 20-80 s before any digest text exists.
+      stream.send('phase', { phase: 'visuals' });
+      frames = await extractFramesBestEffort(videoId, visualPlan, signal);
+    }
     const digestDone = generateDigest(text, {
-      length, format, language, title, channel, apiKey, provider, reasoning, signal,
+      length, format, language, title, channel, apiKey, provider, reasoning, signal, frames,
       onToken: (chunk) => stream.send('token', { text: chunk }),
       onPhase: (info) => stream.send('phase', info),
     });
@@ -1734,6 +1770,7 @@ async function digestStreaming(req, res, { text, length, format, language, title
       model: getProviderLimits({ provider, apiKey }).defaultModel,
       thinking: getReasoningLevel({ provider, reasoning }),
       truncated: Boolean(result.truncated),
+      visualFrames: result.visualFrames || 0,
       streamed: true,
       costUsd: result.usage && result.usage.costUsd,
       tokIn: result.usage && result.usage.inputTokens,
@@ -1773,6 +1810,8 @@ async function digestStreaming(req, res, { text, length, format, language, title
 
     stream.send('error', { error: payload });
     stream.end();
+  } finally {
+    if (frames) cleanupFrames(frames.dir);
   }
 }
 
